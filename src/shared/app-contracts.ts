@@ -49,6 +49,18 @@ export interface PlaybackStartResult {
   sessionId?: number;
 }
 
+export const PLAYBACK_FEEDBACK_SURFACES = {
+  playbackOverlay: "playback_overlay",
+  historyDetail: "history_detail"
+} as const;
+
+export type PlaybackFeedbackSurface =
+  (typeof PLAYBACK_FEEDBACK_SURFACES)[keyof typeof PLAYBACK_FEEDBACK_SURFACES];
+
+export function usesPlaybackOverlayFeedback(surface: PlaybackFeedbackSurface): boolean {
+  return surface === PLAYBACK_FEEDBACK_SURFACES.playbackOverlay;
+}
+
 export interface ShortcutUpdateResult {
   ok: boolean;
   settings: AppSettings;
@@ -59,6 +71,7 @@ export interface PlaybackSessionInfo {
   sessionId: number;
   target: ReadingTarget;
   speechRate: number;
+  feedbackSurface: PlaybackFeedbackSurface;
 }
 
 export interface AudioChunkPayload {

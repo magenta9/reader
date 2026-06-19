@@ -24,6 +24,10 @@ _Avoid_: History item, transcript, saved playback
 A Playback Session started from a Reading History Record. History Replay plays the full saved text with current playback preferences, does not create a new Reading History Record, and shows playback feedback inside the history detail surface rather than the system-level Playback Overlay.
 _Avoid_: History playback, replay item, restored session
 
+**Feedback Surface**:
+The named UI surface that receives progress and completion feedback for a Playback Session. Clipboard Text playback uses the Playback Overlay feedback surface; History Replay uses the history detail feedback surface.
+_Avoid_: Output target, display mode, status destination
+
 **Activation Shortcut**:
 The user-configured keyboard shortcut that explicitly asks VoiceReader to start clipboard reading from anywhere on macOS. VoiceReader provides a default Activation Shortcut, but the user can change it when it conflicts with another app or system shortcut.
 _Avoid_: Hotkey, keyboard command, trigger key

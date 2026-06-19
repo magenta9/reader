@@ -37,6 +37,7 @@ export class PlaybackCommandController {
   }
 
   handleRendererIdle(sessionId: number): void {
+    this.playback.handleRendererIdle(sessionId);
     if (this.stopShortcutSessionId === sessionId) this.unregisterStopShortcut();
   }
 

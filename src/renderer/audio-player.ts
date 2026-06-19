@@ -1,4 +1,5 @@
 import type { PlaybackSessionInfo } from "./bridge.js";
+import { usesPlaybackOverlayFeedback } from "../shared/app-contracts.js";
 
 export class PlaybackAudioQueue {
   private sessionId = 0;
@@ -16,7 +17,7 @@ export class PlaybackAudioQueue {
     this.stop();
     this.sessionId = session.sessionId;
     this.speechRate = session.speechRate;
-    this.overlayMetricsEnabled = session.target.title === "Clipboard" && !session.target.url.startsWith("history:");
+    this.overlayMetricsEnabled = usesPlaybackOverlayFeedback(session.feedbackSurface);
   }
 
   pushChunk(sessionId: number, bytes: Uint8Array): void {

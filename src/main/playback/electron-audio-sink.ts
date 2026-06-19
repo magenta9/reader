@@ -1,48 +1,83 @@
 import type { BrowserWindow } from "electron";
-import type { PlaybackSessionInfo } from "../../shared/app-contracts.js";
+import { usesPlaybackOverlayFeedback, type PlaybackSessionInfo } from "../../shared/app-contracts.js";
 import type { PlaybackAudioSink } from "./playback-service.js";
 import type { PlaybackOverlayController } from "./playback-overlay-controller.js";
 
 export class ElectronAudioSink implements PlaybackAudioSink {
+  private activeOverlaySession: { sessionId: number } | undefined;
+  private rendererSessionId: number | undefined;
+
   constructor(
     private readonly getPlaybackWindow: () => BrowserWindow | undefined,
     private readonly overlay: PlaybackOverlayController
   ) {}
 
   startSession(session: PlaybackSessionInfo): void {
-    if (isClipboardPlayback(session)) this.overlay.show();
-    this.send("playback:start-session", session);
+    this.stopActiveOverlayBeforeNextSession(session.sessionId);
+    const usesPlaybackOverlay = usesPlaybackOverlayFeedback(session.feedbackSurface);
+    const deliveredToPlaybackWindow = this.sendToPlaybackWindow("playback:start-session", session);
+    this.rendererSessionId = deliveredToPlaybackWindow ? session.sessionId : undefined;
+    this.activeOverlaySession = usesPlaybackOverlay ? { sessionId: session.sessionId } : undefined;
+    if (usesPlaybackOverlay) this.overlay.show();
   }
 
   audioChunk(sessionId: number, bytes: Uint8Array): void {
-    this.send("playback:audio-chunk", { sessionId, bytes });
+    this.sendToPlaybackWindow("playback:audio-chunk", { sessionId, bytes });
   }
 
   endSegment(sessionId: number): void {
-    this.send("playback:end-segment", { sessionId });
+    this.sendToPlaybackWindow("playback:end-segment", { sessionId });
   }
 
   finishSession(sessionId: number): void {
-    this.send("playback:finish-session", { sessionId });
+    if (!this.sendFinishToPlaybackWindow(sessionId) && this.consumeActiveOverlaySession(sessionId)) {
+      this.overlay.finish();
+    }
   }
 
   failSession(sessionId: number): void {
-    this.overlay.fail();
-    this.send("playback:fail-session", { sessionId });
+    if (this.consumeActiveOverlaySession(sessionId)) {
+      this.overlay.fail();
+    }
+    this.sendToPlaybackWindow("playback:fail-session", { sessionId });
   }
 
   stopSession(sessionId: number): void {
+    if (this.consumeActiveOverlaySession(sessionId)) {
+      this.overlay.stop();
+    }
+    this.sendToPlaybackWindow("playback:stop-session", { sessionId });
+  }
+
+  handleRendererIdle(sessionId: number): void {
+    if (this.rendererSessionId === sessionId) this.rendererSessionId = undefined;
+    this.consumeActiveOverlaySession(sessionId);
+  }
+
+  private stopActiveOverlayBeforeNextSession(nextSessionId: number): void {
+    if (this.activeOverlaySession === undefined || this.activeOverlaySession.sessionId === nextSessionId) return;
+    if (this.rendererSessionId === this.activeOverlaySession.sessionId) this.rendererSessionId = undefined;
+    this.activeOverlaySession = undefined;
     this.overlay.stop();
-    this.send("playback:stop-session", { sessionId });
   }
 
-  private send(channel: string, payload: unknown): void {
+  private consumeActiveOverlaySession(sessionId: number): boolean {
+    if (this.activeOverlaySession?.sessionId !== sessionId) return false;
+    this.activeOverlaySession = undefined;
+    return true;
+  }
+
+  private sendFinishToPlaybackWindow(sessionId: number): boolean {
+    if (this.rendererSessionId !== sessionId) return false;
+    const deliveredToPlaybackWindow = this.sendToPlaybackWindow("playback:finish-session", { sessionId });
+    if (!deliveredToPlaybackWindow) this.rendererSessionId = undefined;
+    return deliveredToPlaybackWindow;
+  }
+
+  private sendToPlaybackWindow(channel: string, payload: unknown): boolean {
     const window = this.getPlaybackWindow();
-    if (!window || window.isDestroyed()) return;
+    if (!window || window.isDestroyed()) return false;
     window.webContents.send(channel, payload);
+    return true;
   }
-}
-
-function isClipboardPlayback(session: PlaybackSessionInfo): boolean {
-  return session.target.title === "Clipboard" && !session.target.url.startsWith("history:");
 }

@@ -27,6 +27,8 @@ const { MiniMaxAccountService } = await import("../dist/main/data/minimax-accoun
 const { normalizeShortcutInput, PlaybackCommandController } = await import("../dist/main/playback/playback-command-controller.js");
 const { PlaybackService } = await import("../dist/main/playback/playback-service.js");
 const { ElectronAudioSink } = await import("../dist/main/playback/electron-audio-sink.js");
+const { PlaybackAudioQueue } = await import("../dist/renderer/audio-player.js");
+const { PLAYBACK_FEEDBACK_SURFACES } = await import("../dist/shared/app-contracts.js");
 
 assert.equal(existsSync(new URL("../dist/main/main.js", import.meta.url)), true);
 assert.equal(existsSync(new URL("../dist/shared/app-contracts.js", import.meta.url)), true);
@@ -88,7 +90,7 @@ assert.equal(mainBundle.includes("/usr/bin/osascript"), true);
 assert.equal(mainBundle.includes("System Events"), true);
 assert.equal(mainBundle.includes("__dirname"), false);
 assert.equal(mainBundle.includes("import.meta.url"), true);
-assert.equal(appContractsBundle.includes("export {};"), true);
+assert.equal(appContractsBundle.includes("PLAYBACK_FEEDBACK_SURFACES"), true);
 assert.equal(preloadBundle.includes("../renderer/bridge"), false);
 const bootstrapIndex = mainBundle.indexOf("async function bootstrap");
 const whenReadyIndex = mainBundle.indexOf("await app.whenReady()");
@@ -109,7 +111,6 @@ assert.equal(rendererBundle.includes("getByteTimeDomainData"), true);
 assert.equal(rendererBundle.includes("requestAnimationFrame"), true);
 assert.equal(rendererBundle.includes("sendOverlayMetric"), true);
 assert.equal(rendererBundle.includes("finishOverlayPlayback"), true);
-assert.equal(rendererBundle.includes("Clipboard") && rendererBundle.includes("history:"), true);
 for (const label of ["账户与连接", "快捷键", "朗读", "历史记录", "通用"]) {
   assert.equal(rendererSource.includes(label), true);
 }
@@ -531,7 +532,8 @@ const sink = createPlaybackSinkForTest(playbackEvents, (session) => [
   "start",
   session.sessionId,
   session.target.source,
-  session.speechRate
+  session.speechRate,
+  session.feedbackSurface
 ]);
 
 store.updateSettings({
@@ -554,7 +556,7 @@ const playbackResult = await playback.playClipboardText("  这是一段剪切板
 assert.equal(playbackResult.started, true);
 await playback.waitForCurrentSession();
 assert.deepEqual(playbackEvents.slice(-4), [
-  ["start", playbackResult.sessionId, "clipboard", 1.5],
+  ["start", playbackResult.sessionId, "clipboard", 1.5, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay],
   ["chunk", playbackResult.sessionId, "171,205"],
   ["segment-end", playbackResult.sessionId],
   ["finish", playbackResult.sessionId]
@@ -629,7 +631,8 @@ assert.deepEqual(commandPlaybackEvents.at(-4), [
   "start",
   commandReplayResult.sessionId,
   "History Replay",
-  `history:${commandReplayRecord.id}`
+  `history:${commandReplayRecord.id}`,
+  PLAYBACK_FEEDBACK_SURFACES.historyDetail
 ]);
 assert.deepEqual(commandPlaybackEvents.at(-3), ["chunk", commandReplayResult.sessionId, "171,205"]);
 assert.equal(store.getReadingHistoryRecord(commandReplayRecord.id)?.text, "命令历史重播。");
@@ -656,7 +659,7 @@ const replayRecord = store.saveOrReuseReadingHistoryRecord({
 const replayEvents = [];
 const replayPlayback = new PlaybackService(
   store,
-  createPlaybackSinkForTest(replayEvents, (session) => ["start", session.target.title, session.target.url]),
+  createPlaybackSinkForTest(replayEvents),
   async (request) => {
     assert.equal(request.text, "这是一条历史重播文本。");
     await request.onAudioHex("abcd");
@@ -667,68 +670,125 @@ assert.equal(replayResult.started, true);
 await replayPlayback.waitForCurrentSession();
 assert.equal(store.getReadingHistoryCount(), 1);
 assert.equal(store.getReadingHistoryRecord(replayRecord.id)?.createdAt, 777_000);
-assert.deepEqual(replayEvents[0], ["start", "History Replay", `history:${replayRecord.id}`]);
+assert.deepEqual(replayEvents[0], [
+  "start",
+  replayResult.sessionId,
+  "History Replay",
+  `history:${replayRecord.id}`,
+  PLAYBACK_FEEDBACK_SURFACES.historyDetail
+]);
 const missingReplay = await replayPlayback.playHistoryRecord("missing-record");
 assert.equal(missingReplay.started, false);
 assert.equal(missingReplay.skipped, "missing_history_record");
 
-const overlayActions = [];
-const sentPlaybackMessages = [];
-const overlaySink = new ElectronAudioSink(
-  () => ({
-    isDestroyed: () => false,
-    webContents: {
-      send(channel, payload) {
-        sentPlaybackMessages.push([channel, payload?.target?.title ?? payload?.sessionId]);
-      }
-    }
-  }),
-  {
-    show() {
-      overlayActions.push("show");
-    },
-    finish() {
-      overlayActions.push("finish");
-    },
-    fail() {
-      overlayActions.push("fail");
-    },
-    stop() {
-      overlayActions.push("stop");
-    }
-  }
-);
-overlaySink.startSession({
-  sessionId: 101,
-  speechRate: 1,
-  target: {
-    title: "Clipboard",
-    url: "",
-    source: "clipboard",
-    text: "剪切板播放",
-    segments: []
-  }
-});
+const { overlaySink, overlayActions, sentPlaybackMessages } = createElectronAudioSinkScenario();
+overlaySink.startSession(createOverlayPlaybackSessionForTest(101));
 assert.deepEqual(overlayActions, ["show"]);
 assert.deepEqual(sentPlaybackMessages.at(-1), ["playback:start-session", "Clipboard"]);
 overlaySink.finishSession(101);
 assert.deepEqual(overlayActions, ["show"]);
 assert.deepEqual(sentPlaybackMessages.at(-1), ["playback:finish-session", 101]);
-overlaySink.startSession({
-  sessionId: 102,
-  speechRate: 1,
-  target: {
-    title: "History Replay",
-    url: "history:record-id",
-    source: "clipboard",
-    text: "历史重播",
-    segments: []
-  }
-});
-assert.deepEqual(overlayActions, ["show"]);
-assert.deepEqual(sentPlaybackMessages.at(-1), ["playback:start-session", "History Replay"]);
-overlaySink.stopSession(102);
+overlaySink.stopSession(101);
 assert.deepEqual(overlayActions, ["show", "stop"]);
+assert.deepEqual(sentPlaybackMessages.at(-1), ["playback:stop-session", 101]);
+
+const rendererIdleScenario = createElectronAudioSinkScenario();
+rendererIdleScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest(102));
+assert.deepEqual(rendererIdleScenario.overlayActions, ["show"]);
+rendererIdleScenario.overlaySink.finishSession(102);
+rendererIdleScenario.overlaySink.handleRendererIdle(102);
+rendererIdleScenario.overlaySink.stopSession(102);
+assert.deepEqual(rendererIdleScenario.overlayActions, ["show"]);
+assert.deepEqual(rendererIdleScenario.sentPlaybackMessages.at(-1), ["playback:stop-session", 102]);
+
+const failureScenario = createElectronAudioSinkScenario();
+failureScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest(106));
+failureScenario.overlaySink.failSession(106);
+assert.deepEqual(failureScenario.overlayActions, ["show", "fail"]);
+assert.deepEqual(failureScenario.sentPlaybackMessages.at(-1), ["playback:fail-session", 106]);
+
+const replacementScenario = createElectronAudioSinkScenario();
+replacementScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest(107));
+replacementScenario.overlaySink.finishSession(107);
+replacementScenario.overlaySink.startSession(createHistoryReplaySessionForTest(108));
+assert.deepEqual(replacementScenario.overlayActions, ["show", "stop"]);
+assert.deepEqual(replacementScenario.sentPlaybackMessages.at(-1), ["playback:start-session", "History Replay"]);
+replacementScenario.overlaySink.stopSession(107);
+assert.deepEqual(replacementScenario.overlayActions, ["show", "stop"]);
+
+const historySinkScenario = createElectronAudioSinkScenario();
+historySinkScenario.overlaySink.startSession(createHistoryReplaySessionForTest(104));
+assert.deepEqual(historySinkScenario.overlayActions, []);
+assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), ["playback:start-session", "History Replay"]);
+historySinkScenario.overlaySink.finishSession(104);
+assert.deepEqual(historySinkScenario.overlayActions, []);
+assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), ["playback:finish-session", 104]);
+historySinkScenario.overlaySink.stopSession(104);
+assert.deepEqual(historySinkScenario.overlayActions, []);
+assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), ["playback:stop-session", 104]);
+
+const noWindowScenario = createElectronAudioSinkScenario(() => undefined);
+noWindowScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest(103));
+noWindowScenario.overlaySink.finishSession(103);
+assert.deepEqual(noWindowScenario.overlayActions, ["show", "finish"]);
+noWindowScenario.overlaySink.stopSession(103);
+assert.deepEqual(noWindowScenario.overlayActions, ["show", "finish"]);
+
+let delayedWindow;
+const delayedWindowScenario = createElectronAudioSinkScenario(() => delayedWindow);
+delayedWindowScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest(105));
+delayedWindow = createPlaybackWindowForTest(delayedWindowScenario.sentPlaybackMessages);
+delayedWindowScenario.overlaySink.finishSession(105);
+assert.deepEqual(delayedWindowScenario.overlayActions, ["show", "finish"]);
+assert.deepEqual(delayedWindowScenario.sentPlaybackMessages, []);
+
+await withPlaybackAudioQueueScenario(async ({ overlayQueue, overlayQueueEvents }) => {
+  overlayQueue.startSession(createOverlayPlaybackSessionForTest(201));
+  overlayQueue.finishSession(201);
+  await flushPlaybackMicrotasks();
+  assert.deepEqual(overlayQueueEvents, [
+    ["metric", 0, 1],
+    ["finish-overlay"],
+    ["idle", 201]
+  ]);
+});
+
+await withPlaybackAudioQueueScenario(async ({ overlayQueue, overlayQueueEvents }) => {
+  overlayQueue.startSession(createHistoryReplaySessionForTest(202));
+  overlayQueue.finishSession(202);
+  await flushPlaybackMicrotasks();
+  assert.deepEqual(overlayQueueEvents, [["idle", 202]]);
+});
+
+await withPlaybackAudioQueueScenario(async ({ overlayQueue, overlayQueueEvents, animationFrames, playedAudios }) => {
+  overlayQueue.startSession(createOverlayPlaybackSessionForTest(203));
+  overlayQueue.pushChunk(203, new Uint8Array([1, 2, 3]));
+  overlayQueue.endSegment(203);
+  overlayQueue.finishSession(203);
+  await flushPlaybackMicrotasks();
+  await flushPlaybackMicrotasks();
+  const lastAudio = playedAudios.at(-1);
+  assert.equal(lastAudio?.src, "blob:voice-reader-test");
+  animationFrames.shift()();
+  assert.equal(hasOverlayEvent(overlayQueueEvents, "metric", (event) => event[1] > 0), true);
+  assert.equal(hasOverlayEvent(overlayQueueEvents, "finish-overlay"), false);
+  lastAudio.listeners.ended();
+  await flushPlaybackMicrotasks();
+  await flushPlaybackMicrotasks();
+  assert.equal(hasOverlayEvent(overlayQueueEvents, "finish-overlay"), true);
+  assert.equal(hasOverlayEvent(overlayQueueEvents, "idle", (event) => event[1] === 203), true);
+});
+
+await withPlaybackAudioQueueScenario(async ({ overlayQueue, overlayQueueEvents, animationFrames }) => {
+  overlayQueue.startSession(createHistoryReplaySessionForTest(204));
+  overlayQueue.pushChunk(204, new Uint8Array([4, 5, 6]));
+  overlayQueue.endSegment(204);
+  await flushPlaybackMicrotasks();
+  await flushPlaybackMicrotasks();
+  assert.equal(animationFrames.length, 0);
+  assert.deepEqual(overlayQueueEvents, []);
+  overlayQueue.stop();
+});
 
 let firstStreamAborted = false;
 let streamCall = 0;
@@ -787,11 +847,214 @@ function createShortcutRegistryForTest() {
   };
 }
 
+function createOverlayPlaybackSessionForTest(sessionId) {
+  return createPlaybackSessionForTest(sessionId, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay);
+}
+
+function createHistoryReplaySessionForTest(sessionId) {
+  return createPlaybackSessionForTest(sessionId, PLAYBACK_FEEDBACK_SURFACES.historyDetail);
+}
+
+function createPlaybackSessionForTest(sessionId, feedbackSurface) {
+  const target = playbackSessionTargetForSurface(feedbackSurface);
+  return {
+    sessionId,
+    speechRate: 1,
+    feedbackSurface,
+    target: {
+      title: target.title,
+      url: target.url,
+      source: "clipboard",
+      text: target.text,
+      segments: []
+    }
+  };
+}
+
+function playbackSessionTargetForSurface(feedbackSurface) {
+  return {
+    [PLAYBACK_FEEDBACK_SURFACES.playbackOverlay]: {
+      title: "Clipboard",
+      url: "",
+      text: "剪切板播放"
+    },
+    [PLAYBACK_FEEDBACK_SURFACES.historyDetail]: {
+      title: "History Replay",
+      url: "history:record-id",
+      text: "历史重播"
+    }
+  }[feedbackSurface];
+}
+
+function createOverlayControllerForTest(actions) {
+  return {
+    show() {
+      actions.push("show");
+    },
+    finish() {
+      actions.push("finish");
+    },
+    fail() {
+      actions.push("fail");
+    },
+    stop() {
+      actions.push("stop");
+    }
+  };
+}
+
+function createElectronAudioSinkScenario(getWindow) {
+  const overlayActions = [];
+  const sentPlaybackMessages = [];
+  const playbackWindow = createPlaybackWindowForTest(sentPlaybackMessages);
+  const overlaySink = new ElectronAudioSink(
+    getWindow ?? (() => playbackWindow),
+    createOverlayControllerForTest(overlayActions)
+  );
+
+  return { overlaySink, overlayActions, sentPlaybackMessages };
+}
+
+function createPlaybackWindowForTest(sentPlaybackMessages) {
+  return {
+    isDestroyed: () => false,
+    webContents: {
+      send(channel, payload) {
+        sentPlaybackMessages.push([channel, payload?.target?.title ?? payload?.sessionId]);
+      }
+    }
+  };
+}
+
+async function flushPlaybackMicrotasks() {
+  for (let index = 0; index < 4; index += 1) {
+    await Promise.resolve();
+  }
+}
+
+async function withPlaybackAudioQueueScenario(runTest) {
+  const browserFakes = installPlaybackAudioQueueBrowserFakes();
+  const overlayQueue = new PlaybackAudioQueue();
+  try {
+    await runTest({ ...browserFakes, overlayQueue });
+  } finally {
+    overlayQueue.stop();
+    browserFakes.restore();
+  }
+}
+
+function hasOverlayEvent(events, eventName, matches = () => true) {
+  return events.some((event) => event[0] === eventName && matches(event));
+}
+
+function installPlaybackAudioQueueBrowserFakes() {
+  const restoreCallbacks = [];
+  const overlayQueueEvents = [];
+  const animationFrames = [];
+  const playedAudios = [];
+
+  replaceProperty(restoreCallbacks, globalThis, "window", {
+    voiceReader: {
+      sendOverlayMetric(metric) {
+        overlayQueueEvents.push(["metric", metric.amplitude, metric.progress]);
+        return Promise.resolve();
+      },
+      finishOverlayPlayback() {
+        overlayQueueEvents.push(["finish-overlay"]);
+        return Promise.resolve();
+      },
+      notifyPlaybackIdle(sessionId) {
+        overlayQueueEvents.push(["idle", sessionId]);
+        return Promise.resolve();
+      }
+    },
+    AudioContext: class {
+      destination = {};
+      createMediaElementSource() {
+        return { connect() {} };
+      }
+      createAnalyser() {
+        return {
+          fftSize: 0,
+          frequencyBinCount: 4,
+          connect() {},
+          getByteTimeDomainData(data) {
+            data.fill(255);
+          }
+        };
+      }
+      close() {
+        return Promise.resolve();
+      }
+    },
+    requestAnimationFrame(callback) {
+      animationFrames.push(callback);
+      return animationFrames.length;
+    },
+    cancelAnimationFrame() {}
+  });
+  replaceProperty(
+    restoreCallbacks,
+    globalThis,
+    "Audio",
+    class {
+      currentTime = 0.5;
+      duration = 1;
+      listeners = {};
+      playbackRate = 1;
+      src = "";
+
+      constructor(url) {
+        this.src = url;
+        playedAudios.push(this);
+      }
+
+      addEventListener(eventName, callback) {
+        this.listeners[eventName] = callback;
+      }
+
+      play() {
+        return Promise.resolve();
+      }
+
+      pause() {}
+    }
+  );
+  replaceProperty(restoreCallbacks, globalThis, "performance", { now: () => 100 });
+  replaceProperty(restoreCallbacks, URL, "createObjectURL", () => "blob:voice-reader-test");
+  replaceProperty(restoreCallbacks, URL, "revokeObjectURL", () => {});
+
+  return {
+    overlayQueueEvents,
+    animationFrames,
+    playedAudios,
+    restore() {
+      for (const restore of restoreCallbacks.reverse()) restore();
+    }
+  };
+}
+
+function replaceProperty(restoreCallbacks, object, key, value) {
+  const descriptor = Object.getOwnPropertyDescriptor(object, key);
+  Object.defineProperty(object, key, {
+    configurable: true,
+    value
+  });
+  restoreCallbacks.push(() => {
+    if (descriptor) {
+      Object.defineProperty(object, key, descriptor);
+    } else {
+      delete object[key];
+    }
+  });
+}
+
 function createPlaybackSinkForTest(events, startEvent = (session) => [
   "start",
   session.sessionId,
   session.target.title,
-  session.target.url
+  session.target.url,
+  session.feedbackSurface
 ]) {
   return {
     startSession(session) {

@@ -1,7 +1,13 @@
 import { createReadingSegments, normalizeReadableText } from "../../shared/segments.js";
 import { streamMiniMaxTts, type MiniMaxTtsRequest } from "../../shared/minimax.js";
 import { selectVoiceId } from "../../shared/voices.js";
-import type { AppSettings, PlaybackSessionInfo, PlaybackStartResult } from "../../shared/app-contracts.js";
+import {
+  PLAYBACK_FEEDBACK_SURFACES,
+  type AppSettings,
+  type PlaybackFeedbackSurface,
+  type PlaybackSessionInfo,
+  type PlaybackStartResult
+} from "../../shared/app-contracts.js";
 import type { ReadingTarget } from "../../shared/types.js";
 import type { AppDataStore, RuntimeErrorCategory } from "../data/app-data-store.js";
 
@@ -12,6 +18,7 @@ export interface PlaybackAudioSink {
   finishSession: (sessionId: number) => void;
   failSession: (sessionId: number) => void;
   stopSession: (sessionId: number) => void;
+  handleRendererIdle?: (sessionId: number) => void;
 }
 
 type StreamTts = (request: MiniMaxTtsRequest) => Promise<void>;
@@ -54,7 +61,12 @@ export class PlaybackService {
       segments: target.segments
     });
 
-    return this.startTargetPlayback(target, settings, apiKey);
+    return this.startTargetPlayback(
+      target,
+      settings,
+      apiKey,
+      PLAYBACK_FEEDBACK_SURFACES.playbackOverlay
+    );
   }
 
   async playHistoryRecord(recordId: string): Promise<PlaybackStartResult> {
@@ -71,7 +83,12 @@ export class PlaybackService {
 
     const target = createHistoryReadingTarget(record.id, record.text);
     if (!target.segments.length) return { started: false, skipped: "empty_clipboard" };
-    return this.startTargetPlayback(target, settings, apiKey);
+    return this.startTargetPlayback(
+      target,
+      settings,
+      apiKey,
+      PLAYBACK_FEEDBACK_SURFACES.historyDetail
+    );
   }
 
   stop(): void {
@@ -94,6 +111,10 @@ export class PlaybackService {
     this.sink.stopSession(sessionId);
   }
 
+  handleRendererIdle(sessionId: number): void {
+    this.sink.handleRendererIdle?.(sessionId);
+  }
+
   waitForCurrentSession(): Promise<void> {
     return this.active?.done ?? Promise.resolve();
   }
@@ -101,24 +122,31 @@ export class PlaybackService {
   private startTargetPlayback(
     target: ReadingTarget,
     settings: AppSettings,
-    apiKey: string
+    apiKey: string,
+    feedbackSurface: PlaybackFeedbackSurface
   ): PlaybackStartResult {
     this.stop();
     const sessionId = ++this.sessionCounter;
     const abortController = new AbortController();
-    const done = this.runSession(sessionId, target, settings, apiKey, abortController);
+    const session: PlaybackSessionInfo = {
+      sessionId,
+      target,
+      speechRate: settings.speechRate,
+      feedbackSurface
+    };
+    const done = this.runSession(session, settings, apiKey, abortController);
     this.active = { sessionId, abortController, done };
     return { started: true, sessionId };
   }
 
   private async runSession(
-    sessionId: number,
-    target: ReadingTarget,
+    session: PlaybackSessionInfo,
     settings: AppSettings,
     apiKey: string,
     abortController: AbortController
   ): Promise<void> {
-    this.sink.startSession({ sessionId, target, speechRate: settings.speechRate });
+    this.sink.startSession(session);
+    const { sessionId, target } = session;
 
     try {
       for (const segment of target.segments) {
