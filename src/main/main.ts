@@ -20,13 +20,12 @@ import type {
   AppRoute,
   AppSettings,
   BootstrapState,
-  OverlayMetric,
-  PlaybackStartResult,
-  ShortcutUpdateResult
+  OverlayMetric
 } from "../shared/app-contracts.js";
 import { PlaybackService } from "./playback/playback-service.js";
 import { ElectronAudioSink } from "./playback/electron-audio-sink.js";
 import { PlaybackOverlayController } from "./playback/playback-overlay-controller.js";
+import { PlaybackCommandController } from "./playback/playback-command-controller.js";
 
 let readerWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -34,9 +33,8 @@ let pendingRoute: AppRoute = "home";
 let isQuitting = false;
 let appDataStore: AppDataStore;
 let minimaxAccountService: MiniMaxAccountService;
-let playbackService: PlaybackService;
+let playbackCommands: PlaybackCommandController;
 let overlayController: PlaybackOverlayController;
-let stopShortcutSessionId: number | undefined;
 
 const mainBundleDir = dirname(fileURLToPath(import.meta.url));
 const rendererEntry = join(mainBundleDir, "../renderer/index.html");
@@ -55,11 +53,17 @@ async function bootstrap(): Promise<void> {
   );
   minimaxAccountService = new MiniMaxAccountService(appDataStore);
   overlayController = new PlaybackOverlayController();
-  playbackService = new PlaybackService(appDataStore, new ElectronAudioSink(() => readerWindow, overlayController));
+  const playbackService = new PlaybackService(appDataStore, new ElectronAudioSink(() => readerWindow, overlayController));
+  playbackCommands = new PlaybackCommandController(
+    appDataStore,
+    playbackService,
+    globalShortcut,
+    readSelectedTextOrClipboardText
+  );
   registerIpcHandlers();
   syncLaunchAtLoginFromSettings();
   createMenuBarMenu();
-  registerActivationShortcut();
+  playbackCommands.registerActivationShortcut();
 
   const bootstrapState = readBootstrapState();
   if (shouldOpenWindowAtStartup(bootstrapState)) {
@@ -153,7 +157,7 @@ function registerIpcHandlers(): void {
     return appDataStore.updateSettings({ launchAtLogin });
   });
   ipcMain.handle("app-data:set-activation-shortcut", (_event, shortcut: string) =>
-    setActivationShortcut(shortcut)
+    playbackCommands.setActivationShortcut(shortcut)
   );
   ipcMain.handle("app-data:set-minimax-api-key", (_event, apiKey: string) => {
     appDataStore.saveEncryptedMiniMaxApiKey(apiKey);
@@ -175,13 +179,13 @@ function registerIpcHandlers(): void {
     appDataStore.deleteReadingHistoryRecord(id)
   );
   ipcMain.handle("app-data:clear-reading-history", () => appDataStore.clearReadingHistory());
-  ipcMain.handle("playback:play-clipboard", () => playCurrentClipboard());
-  ipcMain.handle("playback:play-history-record", (_event, id: string) => playHistoryRecord(id));
+  ipcMain.handle("playback:play-clipboard", () => playbackCommands.startClipboardPlayback());
+  ipcMain.handle("playback:play-history-record", (_event, id: string) => playbackCommands.startHistoryReplay(id));
   ipcMain.handle("playback:stop", () => {
-    stopCurrentPlayback();
+    playbackCommands.stopPlayback();
   });
   ipcMain.handle("playback:renderer-idle", (_event, sessionId: number) => {
-    if (stopShortcutSessionId === sessionId) unregisterStopShortcut();
+    playbackCommands.handleRendererIdle(sessionId);
   });
   ipcMain.handle("clipboard:write-text", (_event, text: string) => {
     clipboard.writeText(text);
@@ -202,7 +206,7 @@ function createMenuBarMenu(): void {
       {
         label: "播放",
         click: () => {
-          void playCurrentClipboard();
+          void playbackCommands.startClipboardPlayback();
         }
       },
       {
@@ -253,97 +257,6 @@ function shouldOpenWindowAtStartup(bootstrapState: BootstrapState): boolean {
 
 function syncLaunchAtLoginFromSettings(): void {
   app.setLoginItemSettings({ openAtLogin: appDataStore.getSettings().launchAtLogin });
-}
-
-async function playCurrentClipboard(): Promise<PlaybackStartResult> {
-  const result = await playbackService.playClipboardText(await readSelectedTextOrClipboardText());
-  if (result.started) {
-    registerStopShortcut(result.sessionId);
-  }
-  return result;
-}
-
-async function playHistoryRecord(id: string): Promise<PlaybackStartResult> {
-  const result = await playbackService.playHistoryRecord(id);
-  if (result.started) {
-    registerStopShortcut(result.sessionId);
-  }
-  return result;
-}
-
-function registerActivationShortcut(): void {
-  const shortcut = appDataStore.getSettings().activationShortcut;
-  globalShortcut.unregister(shortcut);
-  const registered = globalShortcut.register(shortcut, () => {
-    void playCurrentClipboard();
-  });
-  appDataStore.updateSettings({
-    shortcutRegistrationError: registered ? undefined : "快捷键注册失败，可能已被其他应用占用。"
-  });
-}
-
-function setActivationShortcut(shortcut: string): ShortcutUpdateResult {
-  const nextShortcut = normalizeShortcutInput(shortcut);
-  if (!nextShortcut) {
-    const settings = appDataStore.updateSettings({
-      shortcutRegistrationError: "快捷键需要包含 Command、Option、Control 或 Shift，并搭配一个按键。"
-    });
-    return { ok: false, settings, error: settings.shortcutRegistrationError };
-  }
-
-  const previousShortcut = appDataStore.getSettings().activationShortcut;
-  globalShortcut.unregister(previousShortcut);
-  const registered = globalShortcut.register(nextShortcut, () => {
-    void playCurrentClipboard();
-  });
-
-  if (!registered) {
-    globalShortcut.register(previousShortcut, () => {
-      void playCurrentClipboard();
-    });
-    const settings = appDataStore.updateSettings({
-      shortcutRegistrationError: "快捷键注册失败，可能已被其他应用占用。"
-    });
-    return { ok: false, settings, error: settings.shortcutRegistrationError };
-  }
-
-  const settings = appDataStore.updateSettings({
-    activationShortcut: nextShortcut,
-    shortcutRegistrationError: undefined
-  });
-  return { ok: true, settings };
-}
-
-function normalizeShortcutInput(shortcut: string): string | undefined {
-  const parts = shortcut
-    .split("+")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (parts.length < 2) return undefined;
-  const key = parts.at(-1);
-  const modifiers = parts.slice(0, -1);
-  if (!key || !modifiers.some((part) => ["Command", "CommandOrControl", "Control", "Option", "Alt", "Shift"].includes(part))) {
-    return undefined;
-  }
-  return [...new Set(modifiers), key].join("+");
-}
-
-function registerStopShortcut(sessionId: number | undefined): void {
-  stopShortcutSessionId = sessionId;
-  globalShortcut.unregister("Escape");
-  globalShortcut.register("Escape", () => {
-    stopCurrentPlayback();
-  });
-}
-
-function unregisterStopShortcut(): void {
-  stopShortcutSessionId = undefined;
-  globalShortcut.unregister("Escape");
-}
-
-function stopCurrentPlayback(): void {
-  playbackService.stopSession(stopShortcutSessionId);
-  unregisterStopShortcut();
 }
 
 async function readSelectedTextOrClipboardText(): Promise<string> {

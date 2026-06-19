@@ -24,6 +24,7 @@ const {
   summarizeReadingSegmentLanguages
 } = await import("../dist/main/data/reading-history-record.js");
 const { MiniMaxAccountService } = await import("../dist/main/data/minimax-account-service.js");
+const { normalizeShortcutInput, PlaybackCommandController } = await import("../dist/main/playback/playback-command-controller.js");
 const { PlaybackService } = await import("../dist/main/playback/playback-service.js");
 const { ElectronAudioSink } = await import("../dist/main/playback/electron-audio-sink.js");
 
@@ -79,7 +80,7 @@ assert.equal(mainBundle.includes("../preload/preload.js"), false);
 assert.equal(mainBundle.includes("overlay:metric"), true);
 assert.equal(mainBundle.includes("overlay:finish-playback"), true);
 assert.equal(mainBundle.includes("playback:renderer-idle"), true);
-assert.equal(mainBundle.includes("stopCurrentPlayback"), true);
+assert.equal(mainBundle.includes("PlaybackCommandController"), true);
 assert.equal(mainBundle.includes("stopSession"), true);
 assert.equal(mainBundle.includes("app-data:set-activation-shortcut"), true);
 assert.equal(mainBundle.includes("readSelectedTextOrClipboardText"), true);
@@ -526,26 +527,12 @@ assert.equal(failed.error, "Invalid API key");
 assert.equal(store.getErrorLogCount(), 0);
 
 const playbackEvents = [];
-const sink = {
-  startSession(session) {
-    playbackEvents.push(["start", session.sessionId, session.target.source, session.speechRate]);
-  },
-  audioChunk(sessionId, bytes) {
-    playbackEvents.push(["chunk", sessionId, Array.from(bytes).join(",")]);
-  },
-  endSegment(sessionId) {
-    playbackEvents.push(["segment-end", sessionId]);
-  },
-  finishSession(sessionId) {
-    playbackEvents.push(["finish", sessionId]);
-  },
-  failSession(sessionId) {
-    playbackEvents.push(["fail", sessionId]);
-  },
-  stopSession(sessionId) {
-    playbackEvents.push(["stop", sessionId]);
-  }
-};
+const sink = createPlaybackSinkForTest(playbackEvents, (session) => [
+  "start",
+  session.sessionId,
+  session.target.source,
+  session.speechRate
+]);
 
 store.updateSettings({
   apiKeyStatus: "verified",
@@ -594,6 +581,61 @@ assert.equal(missingVoice.skipped, "missing_voice");
 assert.equal(store.getErrorLogCount(), 0);
 
 store.updateSettings({ voices: [zhVoice], preferredVoicesByLanguage: { zh: "voice-zh" } });
+const commandShortcuts = createShortcutRegistryForTest();
+let commandRawText = "命令播放文本。";
+const commandPlaybackEvents = [];
+const commandPlaybackSink = createPlaybackSinkForTest(commandPlaybackEvents);
+const commandPlayback = new PlaybackService(store, commandPlaybackSink, async (request) => {
+  await request.onAudioHex("abcd");
+});
+const commands = new PlaybackCommandController(
+  store,
+  commandPlayback,
+  commandShortcuts,
+  async () => commandRawText
+);
+commands.registerActivationShortcut();
+assert.ok(commandShortcuts.handlers.has("Command+Shift+R"));
+const commandResult = await commands.startClipboardPlayback();
+assert.equal(commandResult.started, true);
+assert.ok(commandShortcuts.handlers.has("Escape"));
+commands.handleRendererIdle(commandResult.sessionId);
+assert.equal(commandShortcuts.handlers.has("Escape"), false);
+commandRawText = "第二次命令播放。";
+const stoppedCommand = await commands.startClipboardPlayback();
+assert.equal(stoppedCommand.started, true);
+commands.stopPlayback();
+assert.deepEqual(commandPlaybackEvents.at(-1), ["stop", stoppedCommand.sessionId]);
+assert.equal(normalizeShortcutInput(" Command + Shift + R "), "Command+Shift+R");
+assert.equal(normalizeShortcutInput("R"), undefined);
+commandShortcuts.failures.add("Control+Shift+R");
+const failedShortcut = commands.setActivationShortcut("Control+Shift+R");
+assert.equal(failedShortcut.ok, false);
+assert.equal(store.getSettings().activationShortcut, "Command+Shift+R");
+commandShortcuts.failures.clear();
+const shortcutUpdate = commands.setActivationShortcut("Control+Shift+R");
+assert.equal(shortcutUpdate.ok, true);
+assert.equal(store.getSettings().activationShortcut, "Control+Shift+R");
+store.clearReadingHistory();
+const commandReplayRecord = store.saveOrReuseReadingHistoryRecord({
+  text: "命令历史重播。",
+  segments: createReadingSegments("命令历史重播。"),
+  createdAt: 888_000
+});
+const commandReplayResult = await commands.startHistoryReplay(commandReplayRecord.id);
+assert.equal(commandReplayResult.started, true);
+assert.ok(commandShortcuts.handlers.has("Escape"));
+assert.deepEqual(commandPlaybackEvents.at(-4), [
+  "start",
+  commandReplayResult.sessionId,
+  "History Replay",
+  `history:${commandReplayRecord.id}`
+]);
+assert.deepEqual(commandPlaybackEvents.at(-3), ["chunk", commandReplayResult.sessionId, "171,205"]);
+assert.equal(store.getReadingHistoryRecord(commandReplayRecord.id)?.text, "命令历史重播。");
+commands.handleRendererIdle(commandReplayResult.sessionId);
+assert.equal(commandShortcuts.handlers.has("Escape"), false);
+
 const failingPlayback = new PlaybackService(store, sink, async () => {
   throw new Error("MiniMax TTS failed with HTTP 500");
 });
@@ -614,26 +656,7 @@ const replayRecord = store.saveOrReuseReadingHistoryRecord({
 const replayEvents = [];
 const replayPlayback = new PlaybackService(
   store,
-  {
-    startSession(session) {
-      replayEvents.push(["start", session.target.title, session.target.url]);
-    },
-    audioChunk(sessionId, bytes) {
-      replayEvents.push(["chunk", sessionId, Array.from(bytes).join(",")]);
-    },
-    endSegment(sessionId) {
-      replayEvents.push(["segment-end", sessionId]);
-    },
-    finishSession(sessionId) {
-      replayEvents.push(["finish", sessionId]);
-    },
-    failSession(sessionId) {
-      replayEvents.push(["fail", sessionId]);
-    },
-    stopSession(sessionId) {
-      replayEvents.push(["stop", sessionId]);
-    }
-  },
+  createPlaybackSinkForTest(replayEvents, (session) => ["start", session.target.title, session.target.url]),
   async (request) => {
     assert.equal(request.text, "这是一条历史重播文本。");
     await request.onAudioHex("abcd");
@@ -747,4 +770,47 @@ function run(script, args) {
       else reject(new Error(`${script} exited with code ${code}`));
     });
   });
+}
+
+function createShortcutRegistryForTest() {
+  return {
+    handlers: new Map(),
+    failures: new Set(),
+    register(shortcut, callback) {
+      if (this.failures.has(shortcut)) return false;
+      this.handlers.set(shortcut, callback);
+      return true;
+    },
+    unregister(shortcut) {
+      this.handlers.delete(shortcut);
+    }
+  };
+}
+
+function createPlaybackSinkForTest(events, startEvent = (session) => [
+  "start",
+  session.sessionId,
+  session.target.title,
+  session.target.url
+]) {
+  return {
+    startSession(session) {
+      events.push(startEvent(session));
+    },
+    audioChunk(sessionId, bytes) {
+      events.push(["chunk", sessionId, Array.from(bytes).join(",")]);
+    },
+    endSegment(sessionId) {
+      events.push(["segment-end", sessionId]);
+    },
+    finishSession(sessionId) {
+      events.push(["finish", sessionId]);
+    },
+    failSession(sessionId) {
+      events.push(["fail", sessionId]);
+    },
+    stopSession(sessionId) {
+      events.push(["stop", sessionId]);
+    }
+  };
 }
