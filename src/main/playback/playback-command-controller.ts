@@ -1,5 +1,5 @@
 import type { PlaybackCommandDataStore } from "../data/app-data-store.js";
-import type { PlaybackService } from "./playback-service.js";
+import type { PlaybackSessionLifecycle } from "./playback-session-lifecycle.js";
 import type { PlaybackStartResult, ShortcutUpdateResult } from "../../shared/app-contracts.js";
 
 export interface PlaybackShortcutRegistry {
@@ -10,35 +10,27 @@ export interface PlaybackShortcutRegistry {
 const SHORTCUT_REGISTRATION_ERROR = "快捷键注册失败，可能已被其他应用占用。";
 
 export class PlaybackCommandController {
-  private stopShortcutSessionId: number | undefined;
-
   constructor(
     private readonly store: PlaybackCommandDataStore,
-    private readonly playback: PlaybackService,
+    private readonly lifecycle: PlaybackSessionLifecycle,
     private readonly shortcuts: PlaybackShortcutRegistry,
     private readonly readClipboardText: () => Promise<string>
   ) {}
 
   async startClipboardPlayback(): Promise<PlaybackStartResult> {
-    const result = await this.playback.playClipboardText(await this.readClipboardText());
-    this.registerStopShortcutIfStarted(result);
-    return result;
+    return this.lifecycle.startClipboardPlayback(await this.readClipboardText());
   }
 
   async startHistoryReplay(recordId: string): Promise<PlaybackStartResult> {
-    const result = await this.playback.playHistoryRecord(recordId);
-    this.registerStopShortcutIfStarted(result);
-    return result;
+    return this.lifecycle.startHistoryReplay(recordId);
   }
 
   stopPlayback(): void {
-    this.playback.stopSession(this.stopShortcutSessionId);
-    this.unregisterStopShortcut();
+    this.lifecycle.stopPlayback();
   }
 
   handleRendererIdle(sessionId: number): void {
-    this.playback.handleRendererIdle(sessionId);
-    if (this.stopShortcutSessionId === sessionId) this.unregisterStopShortcut();
+    this.lifecycle.handleRendererIdle(sessionId);
   }
 
   registerActivationShortcut(): void {
@@ -78,27 +70,8 @@ export class PlaybackCommandController {
     return { ok: true, settings };
   }
 
-  private registerStopShortcutIfStarted(result: PlaybackStartResult): void {
-    if (result.started) this.registerStopShortcut(result.sessionId);
-  }
-
   private readonly startClipboardPlaybackFromShortcut = (): void => {
     void this.startClipboardPlayback();
-  };
-
-  private registerStopShortcut(sessionId: number | undefined): void {
-    this.stopShortcutSessionId = sessionId;
-    this.shortcuts.unregister("Escape");
-    this.shortcuts.register("Escape", this.stopPlaybackFromShortcut);
-  }
-
-  private unregisterStopShortcut(): void {
-    this.stopShortcutSessionId = undefined;
-    this.shortcuts.unregister("Escape");
-  }
-
-  private readonly stopPlaybackFromShortcut = (): void => {
-    this.stopPlayback();
   };
 }
 

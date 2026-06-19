@@ -25,6 +25,7 @@ const {
 } = await import("../dist/main/data/reading-history-record.js");
 const { MiniMaxAccountService } = await import("../dist/main/data/minimax-account-service.js");
 const { normalizeShortcutInput, PlaybackCommandController } = await import("../dist/main/playback/playback-command-controller.js");
+const { PlaybackSessionLifecycle } = await import("../dist/main/playback/playback-session-lifecycle.js");
 const { PlaybackService } = await import("../dist/main/playback/playback-service.js");
 const { ElectronAudioSink } = await import("../dist/main/playback/electron-audio-sink.js");
 const { PlaybackAudioQueue } = await import("../dist/renderer/audio-player.js");
@@ -57,6 +58,7 @@ const appDataStoreSource = await readFile(new URL("../src/main/data/app-data-sto
 const minimaxAccountSource = await readFile(new URL("../src/main/data/minimax-account-service.ts", import.meta.url), "utf8");
 const playbackServiceSource = await readFile(new URL("../src/main/playback/playback-service.ts", import.meta.url), "utf8");
 const playbackCommandSource = await readFile(new URL("../src/main/playback/playback-command-controller.ts", import.meta.url), "utf8");
+const playbackLifecycleSource = await readFile(new URL("../src/main/playback/playback-session-lifecycle.ts", import.meta.url), "utf8");
 const rendererCssSource = await readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 const packageScript = await readFile(new URL("../scripts/package-mac.mjs", import.meta.url), "utf8");
 assert.equal(mainBundle.includes("VoiceReader"), true);
@@ -90,6 +92,7 @@ assert.equal(mainBundle.includes("overlay:metric"), true);
 assert.equal(mainBundle.includes("overlay:finish-playback"), true);
 assert.equal(mainBundle.includes("playback:renderer-idle"), true);
 assert.equal(mainBundle.includes("PlaybackCommandController"), true);
+assert.equal(mainBundle.includes("PlaybackSessionLifecycle"), true);
 assert.equal(mainBundle.includes("stopSession"), true);
 assert.equal(mainBundle.includes("app-data:set-activation-shortcut"), true);
 assert.equal(mainBundle.includes("readSelectedTextOrClipboardText"), true);
@@ -133,7 +136,8 @@ for (const { name, source, expected } of [
   { name: "AppDataStore", source: appDataStoreSource, expected: "type PlaybackDataStore" },
   { name: "MiniMaxAccountService", source: minimaxAccountSource, expected: "MiniMaxAccountDataStore" },
   { name: "PlaybackService", source: playbackServiceSource, expected: "PlaybackDataStore" },
-  { name: "PlaybackCommandController", source: playbackCommandSource, expected: "PlaybackCommandDataStore" }
+  { name: "PlaybackCommandController", source: playbackCommandSource, expected: "PlaybackCommandDataStore" },
+  { name: "PlaybackSessionLifecycle", source: playbackLifecycleSource, expected: "handleRendererIdle" }
 ]) {
   assert.equal(source.includes(expected), true, `${name} should use a role-specific data interface`);
 }
@@ -642,9 +646,10 @@ const commandPlaybackSink = createPlaybackSinkForTest(commandPlaybackEvents);
 const commandPlayback = new PlaybackService(store, commandPlaybackSink, async (request) => {
   await request.onAudioHex("abcd");
 });
+const commandLifecycle = new PlaybackSessionLifecycle(commandPlayback, commandShortcuts);
 const commands = new PlaybackCommandController(
   store,
-  commandPlayback,
+  commandLifecycle,
   commandShortcuts,
   async () => commandRawText
 );

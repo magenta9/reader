@@ -26,6 +26,7 @@ import { PlaybackService } from "./playback/playback-service.js";
 import { ElectronAudioSink } from "./playback/electron-audio-sink.js";
 import { PlaybackOverlayController } from "./playback/playback-overlay-controller.js";
 import { PlaybackCommandController } from "./playback/playback-command-controller.js";
+import { PlaybackSessionLifecycle } from "./playback/playback-session-lifecycle.js";
 
 let readerWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -54,9 +55,10 @@ async function bootstrap(): Promise<void> {
   minimaxAccountService = new MiniMaxAccountService(appDataStore);
   overlayController = new PlaybackOverlayController();
   const playbackService = new PlaybackService(appDataStore, new ElectronAudioSink(() => readerWindow, overlayController));
+  const playbackLifecycle = new PlaybackSessionLifecycle(playbackService, globalShortcut);
   playbackCommands = new PlaybackCommandController(
     appDataStore,
-    playbackService,
+    playbackLifecycle,
     globalShortcut,
     readSelectedTextOrClipboardText
   );
