@@ -50,6 +50,9 @@ const overlayHtml = await readFile(new URL("../dist/overlay/index.html", import.
 const overlayBundle = await readFile(new URL("../dist/overlay/overlay.js", import.meta.url), "utf8");
 const overlayCss = await readFile(new URL("../dist/overlay/overlay.css", import.meta.url), "utf8");
 const rendererSource = await readFile(new URL("../src/renderer/main.tsx", import.meta.url), "utf8");
+const rendererAudioSource = await readFile(new URL("../src/renderer/audio-player.ts", import.meta.url), "utf8");
+const overlaySource = await readFile(new URL("../src/overlay/main.tsx", import.meta.url), "utf8");
+const voiceReaderBridgeSource = await readFile(new URL("../src/shared/voice-reader-bridge.ts", import.meta.url), "utf8");
 const rendererCssSource = await readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 const packageScript = await readFile(new URL("../scripts/package-mac.mjs", import.meta.url), "utf8");
 assert.equal(mainBundle.includes("VoiceReader"), true);
@@ -92,6 +95,36 @@ assert.equal(mainBundle.includes("__dirname"), false);
 assert.equal(mainBundle.includes("import.meta.url"), true);
 assert.equal(appContractsBundle.includes("PLAYBACK_FEEDBACK_SURFACES"), true);
 assert.equal(preloadBundle.includes("../renderer/bridge"), false);
+for (const { name, source, expectedValues } of [
+  {
+    name: "shared voice-reader bridge",
+    source: voiceReaderBridgeSource,
+    expectedValues: [
+      "voiceReader: unknown",
+      "getReaderWindowBridge",
+      "getRendererAudioBridge",
+      "getPlaybackOverlayBridge"
+    ]
+  },
+  {
+    name: "reader window",
+    source: rendererSource,
+    expectedValues: ["getReaderWindowBridge", "getRendererAudioBridge"]
+  },
+  { name: "renderer audio", source: rendererAudioSource, expectedValues: ["RendererAudioBridge"] },
+  { name: "playback overlay", source: overlaySource, expectedValues: ["getPlaybackOverlayBridge"] }
+]) {
+  for (const expected of expectedValues) {
+    assert.equal(source.includes(expected), true, `${name} should include ${expected}`);
+  }
+}
+for (const { name, source } of [
+  { name: "reader window", source: rendererSource },
+  { name: "renderer audio", source: rendererAudioSource },
+  { name: "playback overlay", source: overlaySource }
+]) {
+  assert.equal(source.includes("window.voiceReader"), false, `${name} should use a role bridge`);
+}
 const bootstrapIndex = mainBundle.indexOf("async function bootstrap");
 const whenReadyIndex = mainBundle.indexOf("await app.whenReady()");
 assert.equal(bootstrapIndex >= 0 && whenReadyIndex > bootstrapIndex, true);

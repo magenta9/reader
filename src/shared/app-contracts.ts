@@ -88,7 +88,7 @@ export interface OverlayMetric {
   progress: number;
 }
 
-export interface VoiceReaderBridge {
+export interface ReaderWindowBridge {
   getBootstrapState: () => Promise<BootstrapState>;
   setOnboardingComplete: (complete: boolean) => Promise<void>;
   setRoute: (route: AppRoute) => Promise<void>;
@@ -112,19 +112,28 @@ export interface VoiceReaderBridge {
   playClipboard: () => Promise<PlaybackStartResult>;
   playHistoryRecord: (id: string) => Promise<PlaybackStartResult>;
   stopPlayback: () => Promise<void>;
-  notifyPlaybackIdle: (sessionId: number) => Promise<void>;
   copyText: (text: string) => Promise<void>;
+}
+
+export interface RendererAudioBridge {
   onPlaybackStart: (listener: (session: PlaybackSessionInfo) => void) => () => void;
   onAudioChunk: (listener: (payload: AudioChunkPayload) => void) => () => void;
   onSegmentEnd: (listener: (payload: SessionPayload) => void) => () => void;
   onPlaybackFinish: (listener: (payload: SessionPayload) => void) => () => void;
   onPlaybackFail: (listener: (payload: SessionPayload) => void) => () => void;
   onPlaybackStop: (listener: (payload: SessionPayload) => void) => () => void;
+  notifyPlaybackIdle: (sessionId: number) => Promise<void>;
   sendOverlayMetric: (metric: OverlayMetric) => Promise<void>;
   finishOverlayPlayback: () => Promise<void>;
+}
+
+export interface PlaybackOverlayBridge {
+  stopPlayback: () => Promise<void>;
   onOverlayShow: (listener: () => void) => () => void;
   onOverlayMetric: (listener: (metric: OverlayMetric) => void) => () => void;
   onOverlayFinish: (listener: () => void) => () => void;
   onOverlayFail: (listener: () => void) => () => void;
   onOverlayStop: (listener: () => void) => () => void;
 }
+
+export type VoiceReaderBridge = ReaderWindowBridge & RendererAudioBridge & PlaybackOverlayBridge;

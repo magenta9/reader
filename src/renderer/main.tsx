@@ -4,8 +4,12 @@ import type { ReactElement } from "react";
 import type { AppRoute, AppSettings, ReadingHistoryRecord } from "./bridge.js";
 import type { DetectedLanguage, MiniMaxVoice } from "../shared/types.js";
 import { MODEL_OPTIONS } from "../shared/models.js";
+import { getReaderWindowBridge, getRendererAudioBridge } from "../shared/voice-reader-bridge.js";
 import { PlaybackAudioQueue } from "./audio-player.js";
 import "./styles.css";
+
+const readerBridge = getReaderWindowBridge();
+const audioBridge = getRendererAudioBridge();
 
 const NAV_ITEMS: Array<{ route: AppRoute; label: string; mark: string }> = [
   { route: "home", label: "主页", mark: "⌂" },
@@ -26,22 +30,22 @@ function App(): ReactElement {
   const [route, setRoute] = useState<AppRoute>("home");
 
   useEffect(() => {
-    const audioQueue = new PlaybackAudioQueue();
+    const audioQueue = new PlaybackAudioQueue(audioBridge);
     let mounted = true;
-    void window.voiceReader.getBootstrapState().then((state) => {
+    void readerBridge.getBootstrapState().then((state) => {
       if (mounted) setRoute(state.lastRoute);
     });
-    const unsubscribe = window.voiceReader.onNavigate((nextRoute) => {
+    const unsubscribe = readerBridge.onNavigate((nextRoute) => {
       setRoute(nextRoute);
     });
     const subscriptions = [
       unsubscribe,
-      window.voiceReader.onPlaybackStart((session) => audioQueue.startSession(session)),
-      window.voiceReader.onAudioChunk((payload) => audioQueue.pushChunk(payload.sessionId, payload.bytes)),
-      window.voiceReader.onSegmentEnd((payload) => audioQueue.endSegment(payload.sessionId)),
-      window.voiceReader.onPlaybackFinish((payload) => audioQueue.finishSession(payload.sessionId)),
-      window.voiceReader.onPlaybackFail((payload) => audioQueue.failSession(payload.sessionId)),
-      window.voiceReader.onPlaybackStop((payload) => audioQueue.stopSession(payload.sessionId))
+      audioBridge.onPlaybackStart((session) => audioQueue.startSession(session)),
+      audioBridge.onAudioChunk((payload) => audioQueue.pushChunk(payload.sessionId, payload.bytes)),
+      audioBridge.onSegmentEnd((payload) => audioQueue.endSegment(payload.sessionId)),
+      audioBridge.onPlaybackFinish((payload) => audioQueue.finishSession(payload.sessionId)),
+      audioBridge.onPlaybackFail((payload) => audioQueue.failSession(payload.sessionId)),
+      audioBridge.onPlaybackStop((payload) => audioQueue.stopSession(payload.sessionId))
     ];
     return () => {
       mounted = false;
@@ -54,7 +58,7 @@ function App(): ReactElement {
 
   const navigate = (nextRoute: AppRoute): void => {
     setRoute(nextRoute);
-    void window.voiceReader.setRoute(nextRoute);
+    void readerBridge.setRoute(nextRoute);
   };
 
   return (
@@ -117,7 +121,7 @@ function Home(): ReactElement {
   const [selectedLanguage, setSelectedLanguage] = useState<DetectedLanguage>("zh");
 
   useEffect(() => {
-    void Promise.all([window.voiceReader.getSettings(), window.voiceReader.hasMiniMaxApiKey()]).then(
+    void Promise.all([readerBridge.getSettings(), readerBridge.hasMiniMaxApiKey()]).then(
       ([nextSettings, nextHasApiKey]) => {
         setSettings(nextSettings);
         setHasApiKey(nextHasApiKey);
@@ -129,12 +133,12 @@ function Home(): ReactElement {
   const preferredVoice = settings?.preferredVoicesByLanguage[selectedLanguage] ?? "";
 
   const savePreferredVoice = async (voiceId: string): Promise<void> => {
-    const next = await window.voiceReader.setPreferredVoice(selectedLanguage, voiceId);
+    const next = await readerBridge.setPreferredVoice(selectedLanguage, voiceId);
     setSettings(next);
   };
   const canPlay = Boolean(hasApiKey && settings?.apiKeyStatus === "verified" && settings.voices.length);
   const playClipboard = async (): Promise<void> => {
-    await window.voiceReader.playClipboard();
+    await readerBridge.playClipboard();
   };
 
   return (
@@ -216,9 +220,9 @@ function History(): ReactElement {
       setReplaySessionId((current) => (current === payload.sessionId ? undefined : current));
     };
     return [
-      window.voiceReader.onPlaybackFinish(clearReplay),
-      window.voiceReader.onPlaybackFail(clearReplay),
-      window.voiceReader.onPlaybackStop(clearReplay)
+      audioBridge.onPlaybackFinish(clearReplay),
+      audioBridge.onPlaybackFail(clearReplay),
+      audioBridge.onPlaybackStop(clearReplay)
     ].reduce(
       (unsubscribeAll, unsubscribe) => () => {
         unsubscribe();
@@ -232,7 +236,7 @@ function History(): ReactElement {
   const groups = groupHistoryRecords(records);
 
   const refreshHistory = async (preferredSelectedId?: string): Promise<void> => {
-    const nextRecords = await window.voiceReader.listReadingHistory();
+    const nextRecords = await readerBridge.listReadingHistory();
     setRecords(nextRecords);
     setSelectedId((current) => {
       if (preferredSelectedId && nextRecords.some((record) => record.id === preferredSelectedId)) {
@@ -245,7 +249,7 @@ function History(): ReactElement {
 
   const copySelected = async (): Promise<void> => {
     if (!selected) return;
-    await window.voiceReader.copyText(selected.text);
+    await readerBridge.copyText(selected.text);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1300);
   };
@@ -257,7 +261,7 @@ function History(): ReactElement {
       return;
     }
     const currentIndex = records.findIndex((record) => record.id === selected.id);
-    await window.voiceReader.deleteReadingHistoryRecord(selected.id);
+    await readerBridge.deleteReadingHistoryRecord(selected.id);
     const nextSelection = records[currentIndex + 1]?.id ?? records[currentIndex - 1]?.id;
     setConfirmDeleteId(undefined);
     await refreshHistory(nextSelection);
@@ -265,7 +269,7 @@ function History(): ReactElement {
 
   const replaySelected = async (): Promise<void> => {
     if (!selected) return;
-    const result = await window.voiceReader.playHistoryRecord(selected.id);
+    const result = await readerBridge.playHistoryRecord(selected.id);
     if (result.started) setReplaySessionId(result.sessionId);
   };
 
@@ -325,7 +329,7 @@ function History(): ReactElement {
                 重新播放
               </button>
               {replaySessionId ? (
-                <button className="text-action" onClick={() => void window.voiceReader.stopPlayback()} type="button">
+                <button className="text-action" onClick={() => void readerBridge.stopPlayback()} type="button">
                   停止
                 </button>
               ) : null}
@@ -395,10 +399,10 @@ function Settings(): ReactElement {
 
   const refreshSettings = async (): Promise<void> => {
     const [nextSettings, nextHasApiKey, nextErrorLogCount, nextReadingHistoryCount] = await Promise.all([
-      window.voiceReader.getSettings(),
-      window.voiceReader.hasMiniMaxApiKey(),
-      window.voiceReader.getErrorLogCount(),
-      window.voiceReader.getReadingHistoryCount()
+      readerBridge.getSettings(),
+      readerBridge.hasMiniMaxApiKey(),
+      readerBridge.getErrorLogCount(),
+      readerBridge.getReadingHistoryCount()
     ]);
     setSettings(nextSettings);
     setHasApiKey(nextHasApiKey);
@@ -408,27 +412,27 @@ function Settings(): ReactElement {
   };
 
   const saveApiKey = async (): Promise<void> => {
-    await window.voiceReader.setMiniMaxApiKey(apiKeyDraft);
+    await readerBridge.setMiniMaxApiKey(apiKeyDraft);
     setApiKeyDraft("");
     setSetupMessage("API Key 已加密保存，等待验证");
     await refreshSettings();
   };
 
   const clearApiKey = async (): Promise<void> => {
-    await window.voiceReader.clearMiniMaxApiKey();
+    await readerBridge.clearMiniMaxApiKey();
     setSetupMessage("API Key 已清除");
     await refreshSettings();
   };
 
   const verifyApiKey = async (): Promise<void> => {
-    const result = await window.voiceReader.verifyMiniMaxKey();
+    const result = await readerBridge.verifyMiniMaxKey();
     setSetupMessage(result.ok ? "连接验证成功" : result.error ?? "连接验证失败");
     setSettings(result.settings);
-    setHasApiKey(await window.voiceReader.hasMiniMaxApiKey());
+    setHasApiKey(await readerBridge.hasMiniMaxApiKey());
   };
 
   const refreshVoices = async (): Promise<void> => {
-    const result = await window.voiceReader.refreshVoices();
+    const result = await readerBridge.refreshVoices();
     setSetupMessage(
       result.usedCachedVoices
         ? `刷新失败，继续使用本地 Voice 缓存：${result.error}`
@@ -440,18 +444,18 @@ function Settings(): ReactElement {
   };
 
   const toggleLaunchAtLogin = async (): Promise<void> => {
-    const next = await window.voiceReader.setLaunchAtLogin(!settings?.launchAtLogin);
+    const next = await readerBridge.setLaunchAtLogin(!settings?.launchAtLogin);
     setSettings(next);
   };
 
   const saveActivationShortcut = async (shortcut: string): Promise<void> => {
-    const result = await window.voiceReader.setActivationShortcut(shortcut);
+    const result = await readerBridge.setActivationShortcut(shortcut);
     setSettings(result.settings);
     setShortcutMessage(result.ok ? "快捷键已注册" : result.error ?? "快捷键注册失败");
   };
 
   const updateSpeechRate = async (speechRate: number): Promise<void> => {
-    const next = await window.voiceReader.updateSettings({ speechRate });
+    const next = await readerBridge.updateSettings({ speechRate });
     setSettings(next);
   };
 
@@ -462,31 +466,31 @@ function Settings(): ReactElement {
       }
       return;
     }
-    const next = await window.voiceReader.updateSettings({ model });
+    const next = await readerBridge.updateSettings({ model });
     setSettings(next);
   };
 
   const saveCustomModel = async (): Promise<void> => {
     const model = customModelDraft.trim();
     if (!model) return;
-    const next = await window.voiceReader.updateSettings({ model });
+    const next = await readerBridge.updateSettings({ model });
     setSettings(next);
   };
 
   const completeOnboarding = async (): Promise<void> => {
-    await window.voiceReader.setOnboardingComplete(true);
+    await readerBridge.setOnboardingComplete(true);
     await refreshSettings();
   };
 
   const clearErrorLog = async (): Promise<void> => {
-    await window.voiceReader.clearErrorLog();
+    await readerBridge.clearErrorLog();
     setErrorLogCount(0);
   };
 
   const updateRetention = async (historyRetention: AppSettings["historyRetention"]): Promise<void> => {
-    const next = await window.voiceReader.updateSettings({ historyRetention });
+    const next = await readerBridge.updateSettings({ historyRetention });
     setSettings(next);
-    setReadingHistoryCount(await window.voiceReader.getReadingHistoryCount());
+    setReadingHistoryCount(await readerBridge.getReadingHistoryCount());
   };
 
   const clearReadingHistory = async (): Promise<void> => {
@@ -494,7 +498,7 @@ function Settings(): ReactElement {
       setConfirmClearHistory(true);
       return;
     }
-    await window.voiceReader.clearReadingHistory();
+    await readerBridge.clearReadingHistory();
     setReadingHistoryCount(0);
     setConfirmClearHistory(false);
   };

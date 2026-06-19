@@ -1,5 +1,6 @@
-import type { PlaybackSessionInfo } from "./bridge.js";
+import type { PlaybackSessionInfo, RendererAudioBridge } from "./bridge.js";
 import { usesPlaybackOverlayFeedback } from "../shared/app-contracts.js";
+import { getRendererAudioBridge } from "../shared/voice-reader-bridge.js";
 
 export class PlaybackAudioQueue {
   private sessionId = 0;
@@ -12,6 +13,8 @@ export class PlaybackAudioQueue {
   private audioContext: AudioContext | undefined;
   private animationFrame = 0;
   private lastMetricAt = 0;
+
+  constructor(private readonly bridge: RendererAudioBridge = getRendererAudioBridge()) {}
 
   startSession(session: PlaybackSessionInfo): void {
     this.stop();
@@ -37,25 +40,26 @@ export class PlaybackAudioQueue {
     void this.playbackTail.finally(() => {
       if (sessionId !== this.sessionId) return;
       if (shouldFinishOverlay) {
-        void window.voiceReader.sendOverlayMetric({ amplitude: 0, progress: 1 });
-        void window.voiceReader.finishOverlayPlayback();
+        void this.bridge.sendOverlayMetric({ amplitude: 0, progress: 1 });
+        void this.bridge.finishOverlayPlayback();
       }
-      void window.voiceReader.notifyPlaybackIdle(sessionId);
+      void this.bridge.notifyPlaybackIdle(sessionId);
       this.stop();
     });
   }
 
   failSession(sessionId: number): void {
-    if (sessionId === this.sessionId) {
-      this.stop();
-      void window.voiceReader.notifyPlaybackIdle(sessionId);
-    }
+    this.stopAndNotifyIdle(sessionId);
   }
 
   stopSession(sessionId: number): void {
+    this.stopAndNotifyIdle(sessionId);
+  }
+
+  private stopAndNotifyIdle(sessionId: number): void {
     if (sessionId === this.sessionId) {
       this.stop();
-      void window.voiceReader.notifyPlaybackIdle(sessionId);
+      void this.bridge.notifyPlaybackIdle(sessionId);
     }
   }
 
@@ -130,7 +134,7 @@ export class PlaybackAudioQueue {
       const now = performance.now();
       if (now - this.lastMetricAt >= 80) {
         this.lastMetricAt = now;
-        void window.voiceReader.sendOverlayMetric({ amplitude, progress });
+        void this.bridge.sendOverlayMetric({ amplitude, progress });
       }
       this.animationFrame = window.requestAnimationFrame(tick);
     };

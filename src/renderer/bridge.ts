@@ -1,5 +1,3 @@
-import type { VoiceReaderBridge } from "../shared/app-contracts.js";
-
 export type {
   AppRoute,
   AppSettings,
@@ -10,13 +8,7 @@ export type {
   PlaybackSessionInfo,
   PlaybackStartResult,
   ReadingHistoryRecord,
+  RendererAudioBridge,
   SessionPayload,
-  ShortcutUpdateResult,
-  VoiceReaderBridge
+  ShortcutUpdateResult
 } from "../shared/app-contracts.js";
-
-declare global {
-  interface Window {
-    voiceReader: VoiceReaderBridge;
-  }
-}

@@ -1,9 +1,11 @@
 import { StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { ReactElement } from "react";
+import { getPlaybackOverlayBridge } from "../shared/voice-reader-bridge.js";
 import "./styles.css";
 
 const BAR_COUNT = 34;
+const overlayBridge = getPlaybackOverlayBridge();
 
 interface OverlayState {
   visible: boolean;
@@ -42,20 +44,20 @@ function PlaybackOverlay(): ReactElement {
     };
 
     const subscriptions = [
-      window.voiceReader.onOverlayShow(() => {
+      overlayBridge.onOverlayShow(() => {
         clearHideTimer();
         setState({ visible: true, leaving: false, amplitude: 0.1, progress: 0 });
       }),
-      window.voiceReader.onOverlayMetric((metric) => {
+      overlayBridge.onOverlayMetric((metric) => {
         setState((current) => ({
           ...current,
           amplitude: clamp01(metric.amplitude),
           progress: Math.max(current.progress, clamp01(metric.progress))
         }));
       }),
-      window.voiceReader.onOverlayFinish(() => leave(1)),
-      window.voiceReader.onOverlayFail(() => leave()),
-      window.voiceReader.onOverlayStop(() => leave())
+      overlayBridge.onOverlayFinish(() => leave(1)),
+      overlayBridge.onOverlayFail(() => leave()),
+      overlayBridge.onOverlayStop(() => leave())
     ];
 
     return () => {
@@ -95,7 +97,7 @@ function PlaybackOverlay(): ReactElement {
   );
 
   const stop = (): void => {
-    void window.voiceReader.stopPlayback();
+    void overlayBridge.stopPlayback();
   };
 
   return (
