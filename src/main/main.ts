@@ -12,20 +12,21 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AppDataStore, type AppSettings } from "./data/app-data-store.js";
+import { AppDataStore } from "./data/app-data-store.js";
 import { electronSafeStorageCipher } from "./data/electron-safe-storage.js";
 import { MiniMaxAccountService } from "./data/minimax-account-service.js";
 import type { DetectedLanguage } from "../shared/types.js";
-import { PlaybackService, type PlaybackStartResult } from "./playback/playback-service.js";
+import type {
+  AppRoute,
+  AppSettings,
+  BootstrapState,
+  OverlayMetric,
+  PlaybackStartResult,
+  ShortcutUpdateResult
+} from "../shared/app-contracts.js";
+import { PlaybackService } from "./playback/playback-service.js";
 import { ElectronAudioSink } from "./playback/electron-audio-sink.js";
-import { PlaybackOverlayController, type OverlayMetric } from "./playback/playback-overlay-controller.js";
-
-type AppRoute = "home" | "history" | "settings";
-
-interface BootstrapState {
-  hasCompletedOnboarding: boolean;
-  lastRoute: AppRoute;
-}
+import { PlaybackOverlayController } from "./playback/playback-overlay-controller.js";
 
 let readerWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -281,7 +282,7 @@ function registerActivationShortcut(): void {
   });
 }
 
-function setActivationShortcut(shortcut: string): { ok: boolean; settings: AppSettings; error?: string } {
+function setActivationShortcut(shortcut: string): ShortcutUpdateResult {
   const nextShortcut = normalizeShortcutInput(shortcut);
   if (!nextShortcut) {
     const settings = appDataStore.updateSettings({

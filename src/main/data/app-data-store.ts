@@ -2,27 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import type { DetectedLanguage, MiniMaxVoice, ReadingSegment } from "../../shared/types.js";
-
-export type HistoryRetention = "7d" | "1m" | "3m" | "forever";
-export type AppShellRoute = "home" | "history" | "settings";
-
-export interface AppSettings {
-  hasCompletedOnboarding: boolean;
-  lastRoute: AppShellRoute;
-  launchAtLogin: boolean;
-  activationShortcut: string;
-  shortcutRegistrationError?: string;
-  speechRate: number;
-  model: string;
-  historyRetention: HistoryRetention;
-  apiKeyStatus: "missing" | "verified" | "failed";
-  apiKeyVerifiedAt?: number;
-  apiKeyError?: string;
-  voiceRefreshError?: string;
-  voices: MiniMaxVoice[];
-  preferredVoicesByLanguage: Partial<Record<DetectedLanguage, string>>;
-}
+import type { AppRoute, AppSettings, HistoryRetention, ReadingHistoryRecord } from "../../shared/app-contracts.js";
+import type { DetectedLanguage, ReadingSegment } from "../../shared/types.js";
 
 export type RuntimeErrorCategory =
   | "minimax_runtime"
@@ -43,16 +24,6 @@ export interface ErrorLogEntry {
   createdAt: number;
   category: RuntimeErrorCategory;
   message: string;
-}
-
-export interface ReadingHistoryRecord {
-  id: string;
-  createdAt: number;
-  text: string;
-  preview: string;
-  durationEstimateSeconds: number;
-  languageSummary: string;
-  source: "clipboard";
 }
 
 export interface ReadingHistoryInput {
@@ -371,7 +342,7 @@ function normalizeSettings(value: Partial<AppSettings>): AppSettings {
     ...value,
     hasCompletedOnboarding: Boolean(value.hasCompletedOnboarding),
     launchAtLogin: Boolean(value.launchAtLogin),
-    lastRoute: normalizeAppShellRoute(value.lastRoute),
+    lastRoute: normalizeAppRoute(value.lastRoute),
     speechRate: normalizeSpeechRate(value.speechRate),
     historyRetention: normalizeHistoryRetention(value.historyRetention),
     apiKeyStatus: normalizeApiKeyStatus(value.apiKeyStatus),
@@ -391,7 +362,7 @@ function normalizeHistoryRetention(value: unknown): HistoryRetention {
   return value === "7d" || value === "1m" || value === "3m" || value === "forever" ? value : "1m";
 }
 
-function normalizeAppShellRoute(value: unknown): AppShellRoute {
+function normalizeAppRoute(value: unknown): AppRoute {
   return value === "home" || value === "history" || value === "settings" ? value : "home";
 }
 

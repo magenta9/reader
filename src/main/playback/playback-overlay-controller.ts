@@ -1,11 +1,7 @@
 import { BrowserWindow, screen } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-
-export interface OverlayMetric {
-  amplitude: number;
-  progress: number;
-}
+import type { OverlayMetric } from "../../shared/app-contracts.js";
 
 export class PlaybackOverlayController {
   private overlayWindow: BrowserWindow | undefined;

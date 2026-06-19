@@ -1,8 +1,9 @@
 import { createReadingSegments, normalizeReadableText } from "../../shared/segments.js";
 import { streamMiniMaxTts, type MiniMaxTtsRequest } from "../../shared/minimax.js";
 import { selectVoiceId } from "../../shared/voices.js";
+import type { AppSettings, PlaybackSessionInfo, PlaybackStartResult } from "../../shared/app-contracts.js";
 import type { ReadingTarget } from "../../shared/types.js";
-import type { AppDataStore, AppSettings, RuntimeErrorCategory } from "../data/app-data-store.js";
+import type { AppDataStore, RuntimeErrorCategory } from "../data/app-data-store.js";
 
 export interface PlaybackAudioSink {
   startSession: (session: PlaybackSessionInfo) => void;
@@ -11,18 +12,6 @@ export interface PlaybackAudioSink {
   finishSession: (sessionId: number) => void;
   failSession: (sessionId: number) => void;
   stopSession: (sessionId: number) => void;
-}
-
-export interface PlaybackSessionInfo {
-  sessionId: number;
-  target: ReadingTarget;
-  speechRate: number;
-}
-
-export interface PlaybackStartResult {
-  started: boolean;
-  skipped?: "empty_clipboard" | "missing_api_key" | "unverified_api_key" | "missing_voice" | "missing_history_record";
-  sessionId?: number;
 }
 
 type StreamTts = (request: MiniMaxTtsRequest) => Promise<void>;

@@ -1,5 +1,6 @@
 import type { BrowserWindow } from "electron";
-import type { PlaybackAudioSink, PlaybackSessionInfo } from "./playback-service.js";
+import type { PlaybackSessionInfo } from "../../shared/app-contracts.js";
+import type { PlaybackAudioSink } from "./playback-service.js";
 import type { PlaybackOverlayController } from "./playback-overlay-controller.js";
 
 export class ElectronAudioSink implements PlaybackAudioSink {

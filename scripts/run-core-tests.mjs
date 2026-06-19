@@ -21,6 +21,7 @@ const { PlaybackService } = await import("../dist/main/playback/playback-service
 const { ElectronAudioSink } = await import("../dist/main/playback/electron-audio-sink.js");
 
 assert.equal(existsSync(new URL("../dist/main/main.js", import.meta.url)), true);
+assert.equal(existsSync(new URL("../dist/shared/app-contracts.js", import.meta.url)), true);
 assert.equal(existsSync(new URL("../dist/preload/preload.cjs", import.meta.url)), true);
 assert.equal(existsSync(new URL("../dist/preload/preload.js", import.meta.url)), false);
 assert.equal(existsSync(new URL("../dist/renderer/index.html", import.meta.url)), true);
@@ -31,6 +32,8 @@ assert.equal(existsSync(new URL("../dist/overlay/overlay.js", import.meta.url)),
 assert.equal(existsSync(new URL("../dist/overlay/overlay.css", import.meta.url)), true);
 
 const mainBundle = await readFile(new URL("../dist/main/main.js", import.meta.url), "utf8");
+const appContractsBundle = await readFile(new URL("../dist/shared/app-contracts.js", import.meta.url), "utf8");
+const preloadBundle = await readFile(new URL("../dist/preload/preload.cjs", import.meta.url), "utf8");
 const rendererHtml = await readFile(new URL("../dist/renderer/index.html", import.meta.url), "utf8");
 const rendererBundle = await readFile(new URL("../dist/renderer/renderer.js", import.meta.url), "utf8");
 const overlayHtml = await readFile(new URL("../dist/overlay/index.html", import.meta.url), "utf8");
@@ -77,6 +80,8 @@ assert.equal(mainBundle.includes("/usr/bin/osascript"), true);
 assert.equal(mainBundle.includes("System Events"), true);
 assert.equal(mainBundle.includes("__dirname"), false);
 assert.equal(mainBundle.includes("import.meta.url"), true);
+assert.equal(appContractsBundle.includes("export {};"), true);
+assert.equal(preloadBundle.includes("../renderer/bridge"), false);
 const bootstrapIndex = mainBundle.indexOf("async function bootstrap");
 const whenReadyIndex = mainBundle.indexOf("await app.whenReady()");
 assert.equal(bootstrapIndex >= 0 && whenReadyIndex > bootstrapIndex, true);

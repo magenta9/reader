@@ -8,10 +8,11 @@ import type {
   PlaybackSessionInfo,
   PlaybackStartResult,
   OverlayMetric,
+  ReadingHistoryRecord,
   ShortcutUpdateResult,
   SessionPayload,
   VoiceReaderBridge
-} from "../renderer/bridge.js";
+} from "../shared/app-contracts.js";
 import type { DetectedLanguage } from "../shared/types.js";
 
 const bridge: VoiceReaderBridge = {
@@ -40,7 +41,7 @@ const bridge: VoiceReaderBridge = {
   getReadingHistoryCount: () =>
     ipcRenderer.invoke("app-data:get-reading-history-count") as Promise<number>,
   listReadingHistory: () =>
-    ipcRenderer.invoke("app-data:list-reading-history") as Promise<import("../renderer/bridge.js").ReadingHistoryRecord[]>,
+    ipcRenderer.invoke("app-data:list-reading-history") as Promise<ReadingHistoryRecord[]>,
   deleteReadingHistoryRecord: (id: string) =>
     ipcRenderer.invoke("app-data:delete-reading-history-record", id) as Promise<void>,
   clearReadingHistory: () => ipcRenderer.invoke("app-data:clear-reading-history") as Promise<void>,

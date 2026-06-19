@@ -1,17 +1,11 @@
 import { getMiniMaxVoices } from "../../shared/minimax.js";
+import type { AppSettings, MiniMaxSetupResult } from "../../shared/app-contracts.js";
 import type { DetectedLanguage, MiniMaxVoice } from "../../shared/types.js";
-import type { AppDataStore, AppSettings } from "./app-data-store.js";
+import type { AppDataStore } from "./app-data-store.js";
 
 export interface MiniMaxAccountServiceOptions {
   getVoices?: (apiKey: string) => Promise<MiniMaxVoice[]>;
   now?: () => number;
-}
-
-export interface MiniMaxSetupResult {
-  ok: boolean;
-  settings: AppSettings;
-  error?: string;
-  usedCachedVoices?: boolean;
 }
 
 export class MiniMaxAccountService {
