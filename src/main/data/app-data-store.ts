@@ -1,9 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
 import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
-import { randomUUID } from "node:crypto";
 import type { AppRoute, AppSettings, HistoryRetention, ReadingHistoryRecord } from "../../shared/app-contracts.js";
-import type { DetectedLanguage, ReadingSegment } from "../../shared/types.js";
+import {
+  createReadingHistoryRecord,
+  readingHistoryRetentionCutoff,
+  READING_HISTORY_DEDUPE_WINDOW_MS,
+  type ReadingHistoryInput
+} from "./reading-history-record.js";
 
 export type RuntimeErrorCategory =
   | "minimax_runtime"
@@ -26,12 +30,6 @@ export interface ErrorLogEntry {
   message: string;
 }
 
-export interface ReadingHistoryInput {
-  text: string;
-  segments: ReadingSegment[];
-  createdAt?: number;
-}
-
 export interface SecretCipher {
   encryptString(value: string): Uint8Array;
   decryptString(value: Uint8Array): string;
@@ -40,8 +38,6 @@ export interface SecretCipher {
 const SETTINGS_KEY = "app.settings";
 const MINIMAX_API_KEY = "minimax.apiKey.encrypted";
 const MAX_ERROR_LOG_ENTRIES = 100;
-const HISTORY_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
-
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   hasCompletedOnboarding: false,
   lastRoute: "home",
@@ -157,7 +153,7 @@ export class AppDataStore {
       return existing;
     }
 
-    const record = buildReadingHistoryRecord(input, createdAt);
+    const record = createReadingHistoryRecord({ ...input, createdAt });
     this.db
       .prepare(
         `INSERT INTO reading_history (
@@ -220,7 +216,7 @@ export class AppDataStore {
   }
 
   cleanupExpiredReadingHistory(now = Date.now(), retention = this.getSettings().historyRetention): void {
-    const cutoff = retentionCutoff(now, retention);
+    const cutoff = readingHistoryRetentionCutoff(now, retention);
     if (cutoff === undefined) return;
     this.db.prepare("DELETE FROM reading_history WHERE created_at < ?").run(cutoff);
   }
@@ -283,7 +279,7 @@ export class AppDataStore {
          ORDER BY created_at DESC, id DESC
          LIMIT 1`
       )
-      .get(text, now - HISTORY_DEDUPE_WINDOW_MS) as unknown as ReadingHistoryRow | undefined;
+      .get(text, now - READING_HISTORY_DEDUPE_WINDOW_MS) as unknown as ReadingHistoryRow | undefined;
     return row ? toReadingHistoryRecord(row) : undefined;
   }
 
@@ -381,55 +377,6 @@ function toErrorLogEntry(row: ErrorLogRow): ErrorLogEntry {
     category: row.category,
     message: row.message
   };
-}
-
-function buildReadingHistoryRecord(input: ReadingHistoryInput, createdAt: number): ReadingHistoryRecord {
-  return {
-    id: randomUUID(),
-    createdAt,
-    text: input.text,
-    preview: createPreview(input.text),
-    durationEstimateSeconds: estimateDurationSeconds(input.text),
-    languageSummary: summarizeLanguages(input.segments),
-    source: "clipboard"
-  };
-}
-
-function createPreview(text: string): string {
-  const firstBlock = text.split(/\n{2,}|\n/).find((part) => part.trim()) ?? text;
-  const normalized = firstBlock.trim().replace(/\s+/g, " ");
-  return normalized.length > 120 ? `${normalized.slice(0, 119)}…` : normalized;
-}
-
-function estimateDurationSeconds(text: string): number {
-  const cjkCount = Array.from(text).filter((char) => /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(char)).length;
-  const wordCount = text.match(/[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)?/g)?.length ?? 0;
-  const cjkSeconds = (cjkCount / 280) * 60;
-  const wordSeconds = (wordCount / 170) * 60;
-  return Math.max(1, Math.ceil(cjkSeconds + wordSeconds));
-}
-
-function summarizeLanguages(segments: ReadingSegment[]): string {
-  const ordered: DetectedLanguage[] = ["zh", "en", "ja", "ko", "latin", "unknown"];
-  const seen = new Set(segments.map((segment) => segment.language));
-  const labels = ordered.filter((language) => seen.has(language)).map(languageLabel);
-  return labels.length ? labels.join(" / ") : "未知";
-}
-
-function languageLabel(language: DetectedLanguage): string {
-  if (language === "zh") return "中文";
-  if (language === "en") return "英文";
-  if (language === "ja") return "日文";
-  if (language === "ko") return "韩文";
-  if (language === "latin") return "其他拉丁语";
-  return "未知";
-}
-
-function retentionCutoff(now: number, retention: HistoryRetention): number | undefined {
-  if (retention === "forever") return undefined;
-  if (retention === "7d") return now - 7 * 24 * 60 * 60 * 1000;
-  if (retention === "3m") return now - 90 * 24 * 60 * 60 * 1000;
-  return now - 30 * 24 * 60 * 60 * 1000;
 }
 
 function toReadingHistoryRecord(row: ReadingHistoryRow): ReadingHistoryRecord {

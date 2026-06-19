@@ -16,6 +16,13 @@ const { buildMiniMaxTtsBody, describeMiniMaxApiKeyProblem, getMiniMaxBaseUrlOrde
 );
 const { COMMON_MINIMAX_VOICES, mergeVoiceLists, normalizeMiniMaxVoices, selectVoiceId, voicesForLanguage } = await import("../dist/shared/voices.js");
 const { AppDataStore } = await import("../dist/main/data/app-data-store.js");
+const {
+  createReadingHistoryPreview,
+  createReadingHistoryRecord,
+  estimateReadingDurationSeconds,
+  readingHistoryRetentionCutoff,
+  summarizeReadingSegmentLanguages
+} = await import("../dist/main/data/reading-history-record.js");
 const { MiniMaxAccountService } = await import("../dist/main/data/minimax-account-service.js");
 const { PlaybackService } = await import("../dist/main/playback/playback-service.js");
 const { ElectronAudioSink } = await import("../dist/main/playback/electron-audio-sink.js");
@@ -194,6 +201,27 @@ assert.equal(
   ).length,
   1
 );
+
+const historyRecordSegments = [
+  { id: "segment-1", text: "中文。", language: "zh" },
+  { id: "segment-2", text: "English sentence.", language: "en" },
+  { id: "segment-3", text: "???", language: "unknown" }
+];
+const historyRecordText = "第一行会作为预览。\n\n第二段会保留在全文里。";
+const recordFromInput = createReadingHistoryRecord({
+  text: historyRecordText,
+  segments: historyRecordSegments,
+  createdAt: 123_456
+});
+assert.equal(recordFromInput.createdAt, 123_456);
+assert.equal(recordFromInput.preview, "第一行会作为预览。");
+assert.equal(recordFromInput.languageSummary, "中文 / 英文 / 未知");
+assert.equal(recordFromInput.source, "clipboard");
+assert.equal(createReadingHistoryPreview(` ${"a".repeat(130)} `), `${"a".repeat(119)}…`);
+assert.equal(summarizeReadingSegmentLanguages([]), "未知");
+assert.ok(estimateReadingDurationSeconds("这是一段中文。English words here.") > 0);
+assert.equal(readingHistoryRetentionCutoff(1000, "forever"), undefined);
+assert.equal(readingHistoryRetentionCutoff(8 * 24 * 60 * 60 * 1000, "7d"), 24 * 60 * 60 * 1000);
 
 assert.deepEqual(buildMiniMaxTtsBody("speech-2.8-turbo", "voice-a", "hello"), {
   model: "speech-2.8-turbo",
