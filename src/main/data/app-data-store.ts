@@ -35,6 +35,45 @@ export interface SecretCipher {
   decryptString(value: Uint8Array): string;
 }
 
+export interface AppSettingsStore {
+  getSettings(): AppSettings;
+  updateSettings(patch: Partial<AppSettings>): AppSettings;
+}
+
+export interface MiniMaxCredentialStore {
+  saveEncryptedMiniMaxApiKey(apiKey: string): void;
+  readMiniMaxApiKey(): string | undefined;
+  clearMiniMaxApiKey(): void;
+  hasMiniMaxApiKey(): boolean;
+}
+
+export interface ErrorLogStore {
+  addErrorLog(input: ErrorLogInput): ErrorLogEntry;
+  recordSkippedPlaybackInput(reason: SkippedPlaybackReason): void;
+  getErrorLogCount(): number;
+  listErrorLogs(): ErrorLogEntry[];
+  clearErrorLogs(): void;
+}
+
+export interface ReadingHistoryStore {
+  saveOrReuseReadingHistoryRecord(input: ReadingHistoryInput): ReadingHistoryRecord;
+  listReadingHistoryRecords(): ReadingHistoryRecord[];
+  getReadingHistoryRecord(id: string): ReadingHistoryRecord | undefined;
+  getReadingHistoryCount(): number;
+  clearReadingHistory(): void;
+  deleteReadingHistoryRecord(id: string): void;
+  cleanupExpiredReadingHistory(now?: number, retention?: HistoryRetention): void;
+}
+
+export type MiniMaxAccountDataStore = AppSettingsStore & Pick<MiniMaxCredentialStore, "readMiniMaxApiKey">;
+
+export type PlaybackCommandDataStore = AppSettingsStore;
+
+export type PlaybackDataStore = AppSettingsStore &
+  Pick<MiniMaxCredentialStore, "hasMiniMaxApiKey" | "readMiniMaxApiKey"> &
+  Pick<ErrorLogStore, "addErrorLog" | "recordSkippedPlaybackInput"> &
+  Pick<ReadingHistoryStore, "getReadingHistoryRecord" | "saveOrReuseReadingHistoryRecord">;
+
 const SETTINGS_KEY = "app.settings";
 const MINIMAX_API_KEY = "minimax.apiKey.encrypted";
 const MAX_ERROR_LOG_ENTRIES = 100;
@@ -51,7 +90,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   preferredVoicesByLanguage: {}
 };
 
-export class AppDataStore {
+export class AppDataStore
+  implements AppSettingsStore, MiniMaxCredentialStore, ErrorLogStore, ReadingHistoryStore
+{
   private readonly db: DatabaseSync;
 
   constructor(

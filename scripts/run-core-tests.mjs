@@ -53,6 +53,10 @@ const rendererSource = await readFile(new URL("../src/renderer/main.tsx", import
 const rendererAudioSource = await readFile(new URL("../src/renderer/audio-player.ts", import.meta.url), "utf8");
 const overlaySource = await readFile(new URL("../src/overlay/main.tsx", import.meta.url), "utf8");
 const voiceReaderBridgeSource = await readFile(new URL("../src/shared/voice-reader-bridge.ts", import.meta.url), "utf8");
+const appDataStoreSource = await readFile(new URL("../src/main/data/app-data-store.ts", import.meta.url), "utf8");
+const minimaxAccountSource = await readFile(new URL("../src/main/data/minimax-account-service.ts", import.meta.url), "utf8");
+const playbackServiceSource = await readFile(new URL("../src/main/playback/playback-service.ts", import.meta.url), "utf8");
+const playbackCommandSource = await readFile(new URL("../src/main/playback/playback-command-controller.ts", import.meta.url), "utf8");
 const rendererCssSource = await readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 const packageScript = await readFile(new URL("../scripts/package-mac.mjs", import.meta.url), "utf8");
 assert.equal(mainBundle.includes("VoiceReader"), true);
@@ -124,6 +128,21 @@ for (const { name, source } of [
   { name: "playback overlay", source: overlaySource }
 ]) {
   assert.equal(source.includes("window.voiceReader"), false, `${name} should use a role bridge`);
+}
+for (const { name, source, expected } of [
+  { name: "AppDataStore", source: appDataStoreSource, expected: "type PlaybackDataStore" },
+  { name: "MiniMaxAccountService", source: minimaxAccountSource, expected: "MiniMaxAccountDataStore" },
+  { name: "PlaybackService", source: playbackServiceSource, expected: "PlaybackDataStore" },
+  { name: "PlaybackCommandController", source: playbackCommandSource, expected: "PlaybackCommandDataStore" }
+]) {
+  assert.equal(source.includes(expected), true, `${name} should use a role-specific data interface`);
+}
+for (const { name, source } of [
+  { name: "MiniMaxAccountService", source: minimaxAccountSource },
+  { name: "PlaybackService", source: playbackServiceSource },
+  { name: "PlaybackCommandController", source: playbackCommandSource }
+]) {
+  assert.equal(source.includes("AppDataStore"), false, `${name} should not depend on the full data adapter`);
 }
 const bootstrapIndex = mainBundle.indexOf("async function bootstrap");
 const whenReadyIndex = mainBundle.indexOf("await app.whenReady()");

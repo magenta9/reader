@@ -9,7 +9,7 @@ import {
   type PlaybackStartResult
 } from "../../shared/app-contracts.js";
 import type { ReadingTarget } from "../../shared/types.js";
-import type { AppDataStore, RuntimeErrorCategory } from "../data/app-data-store.js";
+import type { PlaybackDataStore, RuntimeErrorCategory } from "../data/app-data-store.js";
 
 export interface PlaybackAudioSink {
   startSession: (session: PlaybackSessionInfo) => void;
@@ -34,7 +34,7 @@ export class PlaybackService {
     | undefined;
 
   constructor(
-    private readonly store: AppDataStore,
+    private readonly store: PlaybackDataStore,
     private readonly sink: PlaybackAudioSink,
     private readonly streamTts: StreamTts = streamMiniMaxTts
   ) {}

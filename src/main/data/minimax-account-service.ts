@@ -1,7 +1,7 @@
 import { getMiniMaxVoices } from "../../shared/minimax.js";
 import type { AppSettings, MiniMaxSetupResult } from "../../shared/app-contracts.js";
 import type { DetectedLanguage, MiniMaxVoice } from "../../shared/types.js";
-import type { AppDataStore } from "./app-data-store.js";
+import type { MiniMaxAccountDataStore } from "./app-data-store.js";
 
 export interface MiniMaxAccountServiceOptions {
   getVoices?: (apiKey: string) => Promise<MiniMaxVoice[]>;
@@ -13,7 +13,7 @@ export class MiniMaxAccountService {
   private readonly now: () => number;
 
   constructor(
-    private readonly store: AppDataStore,
+    private readonly store: MiniMaxAccountDataStore,
     options: MiniMaxAccountServiceOptions = {}
   ) {
     this.getVoices = options.getVoices ?? getMiniMaxVoices;

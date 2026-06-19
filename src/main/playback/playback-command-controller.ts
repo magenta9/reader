@@ -1,4 +1,4 @@
-import type { AppDataStore } from "../data/app-data-store.js";
+import type { PlaybackCommandDataStore } from "../data/app-data-store.js";
 import type { PlaybackService } from "./playback-service.js";
 import type { PlaybackStartResult, ShortcutUpdateResult } from "../../shared/app-contracts.js";
 
@@ -13,7 +13,7 @@ export class PlaybackCommandController {
   private stopShortcutSessionId: number | undefined;
 
   constructor(
-    private readonly store: AppDataStore,
+    private readonly store: PlaybackCommandDataStore,
     private readonly playback: PlaybackService,
     private readonly shortcuts: PlaybackShortcutRegistry,
     private readonly readClipboardText: () => Promise<string>
