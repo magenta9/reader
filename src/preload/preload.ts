@@ -7,15 +7,19 @@ import type {
   MiniMaxSetupResult,
   PlaybackSessionInfo,
   PlaybackStartResult,
+  PlaybackOverlayBridge,
+  ReaderWindowBridge,
+  RendererAudioBridge,
   OverlayMetric,
   ReadingHistoryRecord,
   ShortcutUpdateResult,
-  SessionPayload,
-  VoiceReaderBridge
+  SessionPayload
 } from "../shared/app-contracts.js";
 import type { DetectedLanguage } from "../shared/types.js";
 
-const bridge: VoiceReaderBridge = {
+type ReaderRuntimeBridge = ReaderWindowBridge & RendererAudioBridge;
+
+const readerWindowBridge: ReaderWindowBridge = {
   getBootstrapState: () => ipcRenderer.invoke("app-shell:get-bootstrap-state") as Promise<BootstrapState>,
   setOnboardingComplete: (complete: boolean) =>
     ipcRenderer.invoke("app-shell:set-onboarding-complete", complete) as Promise<void>,
@@ -48,15 +52,18 @@ const bridge: VoiceReaderBridge = {
   playClipboard: () => ipcRenderer.invoke("playback:play-clipboard") as Promise<PlaybackStartResult>,
   playHistoryRecord: (id: string) =>
     ipcRenderer.invoke("playback:play-history-record", id) as Promise<PlaybackStartResult>,
-  stopPlayback: () => ipcRenderer.invoke("playback:stop") as Promise<void>,
-  notifyPlaybackIdle: (sessionId: number) =>
-    ipcRenderer.invoke("playback:renderer-idle", sessionId) as Promise<void>,
+  stopPlayback,
   copyText: (text: string) => ipcRenderer.invoke("clipboard:write-text", text) as Promise<void>,
   onNavigate: (listener: (route: AppRoute) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, route: AppRoute) => listener(route);
     ipcRenderer.on("app-shell:navigate", handler);
     return () => ipcRenderer.off("app-shell:navigate", handler);
-  },
+  }
+};
+
+const rendererAudioBridge: RendererAudioBridge = {
+  notifyPlaybackIdle: (sessionId: number) =>
+    ipcRenderer.invoke("playback:renderer-idle", sessionId) as Promise<void>,
   onPlaybackStart: (listener: (session: PlaybackSessionInfo) => void) =>
     subscribe("playback:start-session", listener),
   onAudioChunk: (listener: (payload: AudioChunkPayload) => void) =>
@@ -71,7 +78,11 @@ const bridge: VoiceReaderBridge = {
     subscribe("playback:stop-session", listener),
   sendOverlayMetric: (metric: OverlayMetric) =>
     ipcRenderer.invoke("overlay:metric", metric) as Promise<void>,
-  finishOverlayPlayback: () => ipcRenderer.invoke("overlay:finish-playback") as Promise<void>,
+  finishOverlayPlayback: () => ipcRenderer.invoke("overlay:finish-playback") as Promise<void>
+};
+
+const playbackOverlayBridge: PlaybackOverlayBridge = {
+  stopPlayback,
   onOverlayShow: (listener: () => void) => subscribeVoid("overlay:show", listener),
   onOverlayMetric: (listener: (metric: OverlayMetric) => void) =>
     subscribe("overlay:metric", listener),
@@ -80,7 +91,21 @@ const bridge: VoiceReaderBridge = {
   onOverlayStop: (listener: () => void) => subscribeVoid("overlay:stop", listener)
 };
 
-contextBridge.exposeInMainWorld("voiceReader", bridge);
+contextBridge.exposeInMainWorld("voiceReader", createRuntimeBridge());
+
+function createRuntimeBridge(): ReaderRuntimeBridge | PlaybackOverlayBridge {
+  return isPlaybackOverlayRuntime()
+    ? playbackOverlayBridge
+    : { ...readerWindowBridge, ...rendererAudioBridge };
+}
+
+function isPlaybackOverlayRuntime(): boolean {
+  return window.location.pathname.includes("/overlay/");
+}
+
+function stopPlayback(): Promise<void> {
+  return ipcRenderer.invoke("playback:stop") as Promise<void>;
+}
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
   const handler = (_event: Electron.IpcRendererEvent, payload: T) => listener(payload);

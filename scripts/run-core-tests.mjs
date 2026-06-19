@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
+import vm from "node:vm";
 
 await run("scripts/build.mjs", []);
 
@@ -45,6 +46,7 @@ assert.equal(existsSync(new URL("../dist/overlay/overlay.css", import.meta.url))
 const mainBundle = await readFile(new URL("../dist/main/main.js", import.meta.url), "utf8");
 const appContractsBundle = await readFile(new URL("../dist/shared/app-contracts.js", import.meta.url), "utf8");
 const preloadBundle = await readFile(new URL("../dist/preload/preload.cjs", import.meta.url), "utf8");
+const preloadSource = await readFile(new URL("../src/preload/preload.ts", import.meta.url), "utf8");
 const rendererHtml = await readFile(new URL("../dist/renderer/index.html", import.meta.url), "utf8");
 const rendererBundle = await readFile(new URL("../dist/renderer/renderer.js", import.meta.url), "utf8");
 const overlayHtml = await readFile(new URL("../dist/overlay/index.html", import.meta.url), "utf8");
@@ -104,6 +106,18 @@ assert.equal(appContractsBundle.includes("PLAYBACK_FEEDBACK_SURFACES"), true);
 assert.equal(preloadBundle.includes("../renderer/bridge"), false);
 for (const { name, source, expectedValues } of [
   {
+    name: "preload runtime bridge",
+    source: preloadSource,
+    expectedValues: [
+      "readerWindowBridge",
+      "rendererAudioBridge",
+      "playbackOverlayBridge",
+      "createRuntimeBridge",
+      "isPlaybackOverlayRuntime",
+      'window.location.pathname.includes("/overlay/")'
+    ]
+  },
+  {
     name: "shared voice-reader bridge",
     source: voiceReaderBridgeSource,
     expectedValues: [
@@ -125,6 +139,15 @@ for (const { name, source, expectedValues } of [
     assert.equal(source.includes(expected), true, `${name} should include ${expected}`);
   }
 }
+const readerRuntimeBridge = evaluatePreloadBridge("/renderer/index.html");
+const overlayRuntimeBridge = evaluatePreloadBridge("/overlay/index.html");
+assert.equal(typeof readerRuntimeBridge.getSettings, "function");
+assert.equal(typeof readerRuntimeBridge.onPlaybackStart, "function");
+assert.equal(typeof readerRuntimeBridge.onOverlayShow, "undefined");
+assert.equal(typeof overlayRuntimeBridge.stopPlayback, "function");
+assert.equal(typeof overlayRuntimeBridge.onOverlayShow, "function");
+assert.equal(typeof overlayRuntimeBridge.getSettings, "undefined");
+assert.equal(typeof overlayRuntimeBridge.onPlaybackStart, "undefined");
 for (const { name, source } of [
   { name: "reader window", source: rendererSource },
   { name: "renderer audio", source: rendererAudioSource },
@@ -902,6 +925,32 @@ function createShortcutRegistryForTest() {
       this.handlers.delete(shortcut);
     }
   };
+}
+
+function evaluatePreloadBridge(pathname) {
+  let exposed;
+  const sandbox = {
+    window: { location: { pathname } },
+    require(specifier) {
+      if (specifier !== "electron") throw new Error(`Unexpected preload require: ${specifier}`);
+      return {
+        contextBridge: {
+          exposeInMainWorld(_name, value) {
+            exposed = value;
+          }
+        },
+        ipcRenderer: {
+          invoke: async () => undefined,
+          on() {},
+          off() {}
+        }
+      };
+    },
+    module: { exports: {} },
+    exports: {}
+  };
+  vm.runInNewContext(preloadBundle, sandbox);
+  return exposed;
 }
 
 function createOverlayPlaybackSessionForTest(sessionId) {
