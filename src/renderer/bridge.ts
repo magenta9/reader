@@ -5,7 +5,7 @@ export type {
   BootstrapState,
   MiniMaxSetupResult,
   OverlayMetric,
-  PlaybackSessionInfo,
+  PlaybackAudioSession,
   PlaybackStartResult,
   ReadingHistoryRecord,
   RendererAudioBridge,

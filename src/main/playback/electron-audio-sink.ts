@@ -1,5 +1,5 @@
 import type { BrowserWindow } from "electron";
-import { usesPlaybackOverlayFeedback, type PlaybackSessionInfo } from "../../shared/app-contracts.js";
+import { usesPlaybackOverlayFeedback, type PlaybackAudioSession } from "../../shared/app-contracts.js";
 import type { PlaybackAudioSink } from "./playback-service.js";
 import type { PlaybackOverlayController } from "./playback-overlay-controller.js";
 
@@ -12,7 +12,7 @@ export class ElectronAudioSink implements PlaybackAudioSink {
     private readonly overlay: PlaybackOverlayController
   ) {}
 
-  startSession(session: PlaybackSessionInfo): void {
+  startSession(session: PlaybackAudioSession): void {
     this.stopActiveOverlayBeforeNextSession(session.sessionId);
     const usesPlaybackOverlay = usesPlaybackOverlayFeedback(session.feedbackSurface);
     const deliveredToPlaybackWindow = this.sendToPlaybackWindow("playback:start-session", session);

@@ -1,4 +1,4 @@
-import type { DetectedLanguage, MiniMaxVoice, ReadingTarget } from "./types.js";
+import type { DetectedLanguage, MiniMaxVoice, ReadingSource } from "./types.js";
 
 export type AppRoute = "home" | "history" | "settings";
 
@@ -33,7 +33,7 @@ export interface ReadingHistoryRecord {
   preview: string;
   durationEstimateSeconds: number;
   languageSummary: string;
-  source: "clipboard";
+  source: ReadingSource;
 }
 
 export interface MiniMaxSetupResult {
@@ -67,9 +67,8 @@ export interface ShortcutUpdateResult {
   error?: string;
 }
 
-export interface PlaybackSessionInfo {
+export interface PlaybackAudioSession {
   sessionId: number;
-  target: ReadingTarget;
   speechRate: number;
   feedbackSurface: PlaybackFeedbackSurface;
 }
@@ -109,14 +108,14 @@ export interface ReaderWindowBridge {
   listReadingHistory: () => Promise<ReadingHistoryRecord[]>;
   deleteReadingHistoryRecord: (id: string) => Promise<void>;
   clearReadingHistory: () => Promise<void>;
-  playClipboard: () => Promise<PlaybackStartResult>;
+  playReadingTarget: () => Promise<PlaybackStartResult>;
   playHistoryRecord: (id: string) => Promise<PlaybackStartResult>;
   stopPlayback: () => Promise<void>;
   copyText: (text: string) => Promise<void>;
 }
 
 export interface RendererAudioBridge {
-  onPlaybackStart: (listener: (session: PlaybackSessionInfo) => void) => () => void;
+  onPlaybackStart: (listener: (session: PlaybackAudioSession) => void) => () => void;
   onAudioChunk: (listener: (payload: AudioChunkPayload) => void) => () => void;
   onSegmentEnd: (listener: (payload: SessionPayload) => void) => () => void;
   onPlaybackFinish: (listener: (payload: SessionPayload) => void) => () => void;

@@ -1,6 +1,7 @@
 import type { PlaybackCommandDataStore } from "../data/app-data-store.js";
 import type { PlaybackSessionLifecycle } from "./playback-session-lifecycle.js";
 import type { PlaybackStartResult, ShortcutUpdateResult } from "../../shared/app-contracts.js";
+import type { ReadingTargetInput } from "../../shared/types.js";
 
 export interface PlaybackShortcutRegistry {
   register(shortcut: string, callback: () => void): boolean;
@@ -14,11 +15,11 @@ export class PlaybackCommandController {
     private readonly store: PlaybackCommandDataStore,
     private readonly lifecycle: PlaybackSessionLifecycle,
     private readonly shortcuts: PlaybackShortcutRegistry,
-    private readonly readClipboardText: () => Promise<string>
+    private readonly readReadingTargetInput: () => Promise<ReadingTargetInput>
   ) {}
 
-  async startClipboardPlayback(): Promise<PlaybackStartResult> {
-    return this.lifecycle.startClipboardPlayback(await this.readClipboardText());
+  async startReadingTargetPlayback(): Promise<PlaybackStartResult> {
+    return this.lifecycle.startReadingTargetPlayback(await this.readReadingTargetInput());
   }
 
   async startHistoryReplay(recordId: string): Promise<PlaybackStartResult> {
@@ -36,7 +37,7 @@ export class PlaybackCommandController {
   registerActivationShortcut(): void {
     const shortcut = this.store.getSettings().activationShortcut;
     this.shortcuts.unregister(shortcut);
-    const registered = this.shortcuts.register(shortcut, this.startClipboardPlaybackFromShortcut);
+    const registered = this.shortcuts.register(shortcut, this.startReadingTargetPlaybackFromShortcut);
     this.store.updateSettings({
       shortcutRegistrationError: registered ? undefined : SHORTCUT_REGISTRATION_ERROR
     });
@@ -53,10 +54,10 @@ export class PlaybackCommandController {
 
     const previousShortcut = this.store.getSettings().activationShortcut;
     this.shortcuts.unregister(previousShortcut);
-    const registered = this.shortcuts.register(nextShortcut, this.startClipboardPlaybackFromShortcut);
+    const registered = this.shortcuts.register(nextShortcut, this.startReadingTargetPlaybackFromShortcut);
 
     if (!registered) {
-      this.shortcuts.register(previousShortcut, this.startClipboardPlaybackFromShortcut);
+      this.shortcuts.register(previousShortcut, this.startReadingTargetPlaybackFromShortcut);
       const settings = this.store.updateSettings({
         shortcutRegistrationError: SHORTCUT_REGISTRATION_ERROR
       });
@@ -70,8 +71,8 @@ export class PlaybackCommandController {
     return { ok: true, settings };
   }
 
-  private readonly startClipboardPlaybackFromShortcut = (): void => {
-    void this.startClipboardPlayback();
+  private readonly startReadingTargetPlaybackFromShortcut = (): void => {
+    void this.startReadingTargetPlayback();
   };
 }
 

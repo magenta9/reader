@@ -137,8 +137,8 @@ function Home(): ReactElement {
     setSettings(next);
   };
   const canPlay = Boolean(hasApiKey && settings?.apiKeyStatus === "verified" && settings.voices.length);
-  const playClipboard = async (): Promise<void> => {
-    await readerBridge.playClipboard();
+  const playReadingTarget = async (): Promise<void> => {
+    await readerBridge.playReadingTarget();
   };
 
   return (
@@ -147,7 +147,7 @@ function Home(): ReactElement {
         <p className="section-kicker">选择文本优先</p>
         <h2 id="home-title">播放当前选择文本或剪切板</h2>
         <p className="muted">有选中文本时优先朗读选中内容；否则读取剪切板。主页不会显示全文。</p>
-        <button className="primary-action" disabled={!canPlay} onClick={playClipboard} type="button">
+        <button className="primary-action" disabled={!canPlay} onClick={playReadingTarget} type="button">
           播放
         </button>
       </div>
@@ -350,7 +350,7 @@ function History(): ReactElement {
           <>
             <p className="section-kicker">详情</p>
             <h2>选择一条历史记录</h2>
-            <p className="muted">朗读当前剪切板后，历史记录会显示在这里。</p>
+            <p className="muted">朗读选中文本或剪切板后，历史记录会显示在这里。</p>
           </>
         )}
       </div>

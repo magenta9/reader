@@ -5,7 +5,7 @@ import type {
   AppSettings,
   BootstrapState,
   MiniMaxSetupResult,
-  PlaybackSessionInfo,
+  PlaybackAudioSession,
   PlaybackStartResult,
   PlaybackOverlayBridge,
   ReaderWindowBridge,
@@ -49,7 +49,8 @@ const readerWindowBridge: ReaderWindowBridge = {
   deleteReadingHistoryRecord: (id: string) =>
     ipcRenderer.invoke("app-data:delete-reading-history-record", id) as Promise<void>,
   clearReadingHistory: () => ipcRenderer.invoke("app-data:clear-reading-history") as Promise<void>,
-  playClipboard: () => ipcRenderer.invoke("playback:play-clipboard") as Promise<PlaybackStartResult>,
+  playReadingTarget: () =>
+    ipcRenderer.invoke("playback:play-reading-target") as Promise<PlaybackStartResult>,
   playHistoryRecord: (id: string) =>
     ipcRenderer.invoke("playback:play-history-record", id) as Promise<PlaybackStartResult>,
   stopPlayback,
@@ -64,7 +65,7 @@ const readerWindowBridge: ReaderWindowBridge = {
 const rendererAudioBridge: RendererAudioBridge = {
   notifyPlaybackIdle: (sessionId: number) =>
     ipcRenderer.invoke("playback:renderer-idle", sessionId) as Promise<void>,
-  onPlaybackStart: (listener: (session: PlaybackSessionInfo) => void) =>
+  onPlaybackStart: (listener: (session: PlaybackAudioSession) => void) =>
     subscribe("playback:start-session", listener),
   onAudioChunk: (listener: (payload: AudioChunkPayload) => void) =>
     subscribe("playback:audio-chunk", listener),

@@ -1,4 +1,4 @@
-import type { PlaybackSessionInfo, RendererAudioBridge } from "./bridge.js";
+import type { PlaybackAudioSession, RendererAudioBridge } from "./bridge.js";
 import { usesPlaybackOverlayFeedback } from "../shared/app-contracts.js";
 import { getRendererAudioBridge } from "../shared/voice-reader-bridge.js";
 
@@ -16,7 +16,7 @@ export class PlaybackAudioQueue {
 
   constructor(private readonly bridge: RendererAudioBridge = getRendererAudioBridge()) {}
 
-  startSession(session: PlaybackSessionInfo): void {
+  startSession(session: PlaybackAudioSession): void {
     this.stop();
     this.sessionId = session.sessionId;
     this.speechRate = session.speechRate;

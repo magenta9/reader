@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
 import type { AppRoute, AppSettings, HistoryRetention, ReadingHistoryRecord } from "../../shared/app-contracts.js";
+import type { ReadingSource } from "../../shared/types.js";
 import {
   createReadingHistoryRecord,
   readingHistoryRetentionCutoff,
@@ -188,7 +189,7 @@ export class AppDataStore
 
   saveOrReuseReadingHistoryRecord(input: ReadingHistoryInput): ReadingHistoryRecord {
     const createdAt = input.createdAt ?? Date.now();
-    const existing = this.findRecentReadingHistoryRecord(input.text, createdAt);
+    const existing = this.findRecentReadingHistoryRecord(input.text, input.source, createdAt);
     if (existing) {
       this.cleanupExpiredReadingHistory(createdAt);
       return existing;
@@ -311,16 +312,20 @@ export class AppDataStore
       .run(MAX_ERROR_LOG_ENTRIES);
   }
 
-  private findRecentReadingHistoryRecord(text: string, now: number): ReadingHistoryRecord | undefined {
+  private findRecentReadingHistoryRecord(
+    text: string,
+    source: ReadingSource,
+    now: number
+  ): ReadingHistoryRecord | undefined {
     const row = this.db
       .prepare(
         `SELECT id, created_at, text, preview, duration_estimate_seconds, language_summary, source
          FROM reading_history
-         WHERE text = ? AND created_at >= ?
+         WHERE text = ? AND source = ? AND created_at >= ?
          ORDER BY created_at DESC, id DESC
          LIMIT 1`
       )
-      .get(text, now - READING_HISTORY_DEDUPE_WINDOW_MS) as unknown as ReadingHistoryRow | undefined;
+      .get(text, source, now - READING_HISTORY_DEDUPE_WINDOW_MS) as unknown as ReadingHistoryRow | undefined;
     return row ? toReadingHistoryRecord(row) : undefined;
   }
 
@@ -370,7 +375,7 @@ interface ReadingHistoryRow {
   preview: string;
   duration_estimate_seconds: number;
   language_summary: string;
-  source: "clipboard";
+  source: string;
 }
 
 function normalizeSettings(value: Partial<AppSettings>): AppSettings {
@@ -428,6 +433,10 @@ function toReadingHistoryRecord(row: ReadingHistoryRow): ReadingHistoryRecord {
     preview: row.preview,
     durationEstimateSeconds: row.duration_estimate_seconds,
     languageSummary: row.language_summary,
-    source: row.source
+    source: normalizeReadingSource(row.source)
   };
+}
+
+function normalizeReadingSource(value: string): ReadingSource {
+  return value === "selected_text" ? "selected_text" : "clipboard";
 }

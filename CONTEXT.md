@@ -1,15 +1,19 @@
 # VoiceReader
 
-VoiceReader is a macOS voice reader for user-chosen text. It focuses on turning explicit clipboard Reading Targets into spoken audio.
+VoiceReader is a macOS voice reader for user-chosen text. It focuses on turning explicit Selected Text or Clipboard Text Reading Targets into spoken audio.
 
 ## Language
 
+**Selected Text**:
+The non-empty plain text currently selected in the frontmost macOS app when the user explicitly asks VoiceReader to read. If selection capture is unavailable or empty, Selected Text is skipped and VoiceReader may fall back to Clipboard Text.
+_Avoid_: Highlighted text, current selection, selected content
+
 **Clipboard Text**:
-The non-empty plain text currently available from the user's clipboard when the user explicitly asks VoiceReader to speak from the clipboard. Empty or non-text clipboard contents are skipped and are not Reading Targets.
+The non-empty plain text currently available from the user's clipboard when the user explicitly asks VoiceReader to read and no Selected Text is available. Empty or non-text clipboard contents are skipped and are not Reading Targets.
 _Avoid_: Copied text, pasteboard content, current text
 
 **Reading Target**:
-The text chosen for playback after an explicit user action. In the macOS app, Reading Targets come from Clipboard Text.
+The text chosen for playback after an explicit user action. In the macOS app, Reading Targets come from Selected Text when available, otherwise Clipboard Text.
 _Avoid_: Playback source, input text, content
 
 **Reading History**:
@@ -17,7 +21,7 @@ The local list of past Reading Targets that VoiceReader saves so the user can re
 _Avoid_: Playback log, audio history, recent items
 
 **Reading History Record**:
-A saved Reading History entry for one Reading Target. It is created after Play finds valid Clipboard Text and before VoiceReader calls MiniMax for speech generation. It includes the full text, creation time, preview text, estimated duration, detected language summary, and clipboard source, but not generated audio or raw MiniMax responses. Replaying a Reading History Record plays the full saved text. Replaying the same Clipboard Text within five minutes reuses the recent record instead of creating a duplicate.
+A saved Reading History entry for one Reading Target. It is created after Play finds valid Selected Text or Clipboard Text and before VoiceReader calls MiniMax for speech generation. It includes the full text, creation time, preview text, estimated duration, detected language summary, and Reading Target source, but not generated audio or raw MiniMax responses. Replaying a Reading History Record plays the full saved text. Replaying the same Reading Target source and text within five minutes reuses the recent record instead of creating a duplicate.
 _Avoid_: History item, transcript, saved playback
 
 **History Replay**:
@@ -25,7 +29,7 @@ A Playback Session started from a Reading History Record. History Replay plays t
 _Avoid_: History playback, replay item, restored session
 
 **Feedback Surface**:
-The named UI surface that receives progress and completion feedback for a Playback Session. Clipboard Text playback uses the Playback Overlay feedback surface; History Replay uses the history detail feedback surface.
+The named UI surface that receives progress and completion feedback for a Playback Session. Current Reading Target playback uses the Playback Overlay feedback surface; History Replay uses the history detail feedback surface.
 _Avoid_: Output target, display mode, status destination
 
 **Activation Shortcut**:
@@ -45,11 +49,11 @@ The menu opened from VoiceReader's macOS menu bar icon. It contains high-frequen
 _Avoid_: Tray menu, popup, dropdown
 
 **Playback Overlay**:
-A small system-level floating window that appears while current Clipboard Text is preparing or playing. It stays outside the Reader Window, shows only a waveform-style playback animation and a close control, and disappears when playback ends or fails. History Replay does not use the Playback Overlay.
+A small system-level floating window that appears while the current Reading Target is preparing or playing. It stays outside the Reader Window, shows only a waveform-style playback animation and a close control, and disappears when playback ends or fails. History Replay does not use the Playback Overlay.
 _Avoid_: Notification, toast, in-window capsule
 
 **Error Log**:
-The local non-content record of VoiceReader runtime failures. Error Log entries help diagnose playback problems, but do not include empty or non-text clipboard skips, missing API key skips, Clipboard Text, Reading Targets, generated audio, or raw MiniMax responses. Settings may show the number of Error Log entries, but not detailed diagnostics.
+The local non-content record of VoiceReader runtime failures. Error Log entries help diagnose playback problems, but do not include empty Selected Text skips, empty or non-text clipboard skips, missing API key skips, Selected Text, Clipboard Text, Reading Targets, generated audio, or raw MiniMax responses. Settings may show the number of Error Log entries, but not detailed diagnostics.
 _Avoid_: Failure history, debug transcript, crash history
 
 **Reading Segment**:

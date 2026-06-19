@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { HistoryRetention, ReadingHistoryRecord } from "../../shared/app-contracts.js";
-import type { DetectedLanguage, ReadingSegment } from "../../shared/types.js";
+import type { DetectedLanguage, ReadingSegment, ReadingSource } from "../../shared/types.js";
 
 export interface ReadingHistoryInput {
   text: string;
+  source: ReadingSource;
   segments: ReadingSegment[];
   createdAt?: number;
 }
@@ -19,7 +20,7 @@ export function createReadingHistoryRecord(input: ReadingHistoryInput): ReadingH
     preview: createReadingHistoryPreview(input.text),
     durationEstimateSeconds: estimateReadingDurationSeconds(input.text),
     languageSummary: summarizeReadingSegmentLanguages(input.segments),
-    source: "clipboard"
+    source: input.source
   };
 }
 

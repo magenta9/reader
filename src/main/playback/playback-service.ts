@@ -5,14 +5,15 @@ import {
   PLAYBACK_FEEDBACK_SURFACES,
   type AppSettings,
   type PlaybackFeedbackSurface,
-  type PlaybackSessionInfo,
+  type PlaybackAudioSession,
+  type ReadingHistoryRecord,
   type PlaybackStartResult
 } from "../../shared/app-contracts.js";
-import type { ReadingTarget } from "../../shared/types.js";
+import type { ReadingTarget, ReadingTargetInput } from "../../shared/types.js";
 import type { PlaybackDataStore, RuntimeErrorCategory } from "../data/app-data-store.js";
 
 export interface PlaybackAudioSink {
-  startSession: (session: PlaybackSessionInfo) => void;
+  startSession: (session: PlaybackAudioSession) => void;
   audioChunk: (sessionId: number, bytes: Uint8Array) => void;
   endSegment: (sessionId: number) => void;
   finishSession: (sessionId: number) => void;
@@ -22,6 +23,9 @@ export interface PlaybackAudioSink {
 }
 
 type StreamTts = (request: MiniMaxTtsRequest) => Promise<void>;
+type PlaybackReadiness =
+  | { ok: true; settings: AppSettings; apiKey: string }
+  | { ok: false; result: PlaybackStartResult };
 
 export class PlaybackService {
   private sessionCounter = 0;
@@ -39,32 +43,28 @@ export class PlaybackService {
     private readonly streamTts: StreamTts = streamMiniMaxTts
   ) {}
 
-  async playClipboardText(rawText: string): Promise<PlaybackStartResult> {
-    const text = normalizeReadableText(rawText);
+  async playReadingTarget(input: ReadingTargetInput): Promise<PlaybackStartResult> {
+    const text = normalizeReadableText(input.text);
     if (!text) {
       this.store.recordSkippedPlaybackInput("empty_clipboard");
       return { started: false, skipped: "empty_clipboard" };
     }
 
-    const settings = this.store.getSettings();
-    if (!this.store.hasMiniMaxApiKey()) return { started: false, skipped: "missing_api_key" };
-    if (settings.apiKeyStatus !== "verified") return { started: false, skipped: "unverified_api_key" };
-    if (!settings.voices.length) return { started: false, skipped: "missing_voice" };
+    const readiness = this.readPlaybackReadiness();
+    if (!readiness.ok) return readiness.result;
 
-    const apiKey = this.store.readMiniMaxApiKey();
-    if (!apiKey) return { started: false, skipped: "missing_api_key" };
-
-    const target = createClipboardReadingTarget(text);
+    const target = createReadingTarget({ text, source: input.source });
     if (!target.segments.length) return { started: false, skipped: "empty_clipboard" };
     this.store.saveOrReuseReadingHistoryRecord({
       text: target.text,
+      source: target.source,
       segments: target.segments
     });
 
     return this.startTargetPlayback(
       target,
-      settings,
-      apiKey,
+      readiness.settings,
+      readiness.apiKey,
       PLAYBACK_FEEDBACK_SURFACES.playbackOverlay
     );
   }
@@ -73,20 +73,15 @@ export class PlaybackService {
     const record = this.store.getReadingHistoryRecord(recordId);
     if (!record) return { started: false, skipped: "missing_history_record" };
 
-    const settings = this.store.getSettings();
-    if (!this.store.hasMiniMaxApiKey()) return { started: false, skipped: "missing_api_key" };
-    if (settings.apiKeyStatus !== "verified") return { started: false, skipped: "unverified_api_key" };
-    if (!settings.voices.length) return { started: false, skipped: "missing_voice" };
+    const readiness = this.readPlaybackReadiness();
+    if (!readiness.ok) return readiness.result;
 
-    const apiKey = this.store.readMiniMaxApiKey();
-    if (!apiKey) return { started: false, skipped: "missing_api_key" };
-
-    const target = createHistoryReadingTarget(record.id, record.text);
+    const target = createHistoryReadingTarget(record);
     if (!target.segments.length) return { started: false, skipped: "empty_clipboard" };
     return this.startTargetPlayback(
       target,
-      settings,
-      apiKey,
+      readiness.settings,
+      readiness.apiKey,
       PLAYBACK_FEEDBACK_SURFACES.historyDetail
     );
   }
@@ -119,6 +114,25 @@ export class PlaybackService {
     return this.active?.done ?? Promise.resolve();
   }
 
+  private readPlaybackReadiness(): PlaybackReadiness {
+    const settings = this.store.getSettings();
+    if (!this.store.hasMiniMaxApiKey()) {
+      return { ok: false, result: { started: false, skipped: "missing_api_key" } };
+    }
+    if (settings.apiKeyStatus !== "verified") {
+      return { ok: false, result: { started: false, skipped: "unverified_api_key" } };
+    }
+    if (!settings.voices.length) {
+      return { ok: false, result: { started: false, skipped: "missing_voice" } };
+    }
+
+    const apiKey = this.store.readMiniMaxApiKey();
+    if (!apiKey) {
+      return { ok: false, result: { started: false, skipped: "missing_api_key" } };
+    }
+    return { ok: true, settings, apiKey };
+  }
+
   private startTargetPlayback(
     target: ReadingTarget,
     settings: AppSettings,
@@ -128,25 +142,25 @@ export class PlaybackService {
     this.stop();
     const sessionId = ++this.sessionCounter;
     const abortController = new AbortController();
-    const session: PlaybackSessionInfo = {
+    const audioSession: PlaybackAudioSession = {
       sessionId,
-      target,
       speechRate: settings.speechRate,
       feedbackSurface
     };
-    const done = this.runSession(session, settings, apiKey, abortController);
+    const done = this.runSession(audioSession, target, settings, apiKey, abortController);
     this.active = { sessionId, abortController, done };
     return { started: true, sessionId };
   }
 
   private async runSession(
-    session: PlaybackSessionInfo,
+    audioSession: PlaybackAudioSession,
+    target: ReadingTarget,
     settings: AppSettings,
     apiKey: string,
     abortController: AbortController
   ): Promise<void> {
-    this.sink.startSession(session);
-    const { sessionId, target } = session;
+    this.sink.startSession(audioSession);
+    const { sessionId } = audioSession;
 
     try {
       for (const segment of target.segments) {
@@ -191,23 +205,23 @@ export class PlaybackService {
   }
 }
 
-function createClipboardReadingTarget(text: string): ReadingTarget {
+function createReadingTarget(input: ReadingTargetInput): ReadingTarget {
   return {
-    title: "Clipboard",
+    title: input.source === "selected_text" ? "Selected Text" : "Clipboard",
     url: "",
-    source: "clipboard",
-    text,
-    segments: createReadingSegments(text)
+    source: input.source,
+    text: input.text,
+    segments: createReadingSegments(input.text)
   };
 }
 
-function createHistoryReadingTarget(recordId: string, text: string): ReadingTarget {
+function createHistoryReadingTarget(record: Pick<ReadingHistoryRecord, "id" | "text" | "source">): ReadingTarget {
   return {
     title: "History Replay",
-    url: `history:${recordId}`,
-    source: "clipboard",
-    text,
-    segments: createReadingSegments(text)
+    url: `history:${record.id}`,
+    source: record.source,
+    text: record.text,
+    segments: createReadingSegments(record.text)
   };
 }
 

@@ -1,4 +1,9 @@
-export type ReadingSource = "clipboard";
+export type ReadingSource = "clipboard" | "selected_text";
+
+export interface ReadingTargetInput {
+  text: string;
+  source: ReadingSource;
+}
 
 export type DetectedLanguage = "zh" | "en" | "ja" | "ko" | "latin" | "unknown";
 

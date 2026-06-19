@@ -97,7 +97,8 @@ assert.equal(mainBundle.includes("PlaybackCommandController"), true);
 assert.equal(mainBundle.includes("PlaybackSessionLifecycle"), true);
 assert.equal(mainBundle.includes("stopSession"), true);
 assert.equal(mainBundle.includes("app-data:set-activation-shortcut"), true);
-assert.equal(mainBundle.includes("readSelectedTextOrClipboardText"), true);
+assert.equal(mainBundle.includes("readSelectedTextOrClipboardTarget"), true);
+assert.equal(mainBundle.includes("selected_text"), true);
 assert.equal(mainBundle.includes("/usr/bin/osascript"), true);
 assert.equal(mainBundle.includes("System Events"), true);
 assert.equal(mainBundle.includes("__dirname"), false);
@@ -291,13 +292,14 @@ const historyRecordSegments = [
 const historyRecordText = "第一行会作为预览。\n\n第二段会保留在全文里。";
 const recordFromInput = createReadingHistoryRecord({
   text: historyRecordText,
+  source: "selected_text",
   segments: historyRecordSegments,
   createdAt: 123_456
 });
 assert.equal(recordFromInput.createdAt, 123_456);
 assert.equal(recordFromInput.preview, "第一行会作为预览。");
 assert.equal(recordFromInput.languageSummary, "中文 / 英文 / 未知");
-assert.equal(recordFromInput.source, "clipboard");
+assert.equal(recordFromInput.source, "selected_text");
 assert.equal(createReadingHistoryPreview(` ${"a".repeat(130)} `), `${"a".repeat(119)}…`);
 assert.equal(summarizeReadingSegmentLanguages([]), "未知");
 assert.ok(estimateReadingDurationSeconds("这是一段中文。English words here.") > 0);
@@ -446,6 +448,7 @@ const historySegments = [
 ];
 const historyA = store.saveOrReuseReadingHistoryRecord({
   text: "第一段中文文本。\n\nSecond English paragraph for duration.",
+  source: "clipboard",
   segments: historySegments,
   createdAt: 10_000_000
 });
@@ -467,23 +470,38 @@ assert.deepEqual(Object.keys(historyA).sort(), [
 
 const historyReuse = store.saveOrReuseReadingHistoryRecord({
   text: "第一段中文文本。\n\nSecond English paragraph for duration.",
+  source: "clipboard",
   segments: historySegments,
   createdAt: 10_000_000 + 4 * 60 * 1000
 });
 assert.equal(historyReuse.id, historyA.id);
+assert.equal(historyReuse.source, "clipboard");
 assert.equal(store.getReadingHistoryCount(), 1);
+
+const historySelectedSource = store.saveOrReuseReadingHistoryRecord({
+  text: "第一段中文文本。\n\nSecond English paragraph for duration.",
+  source: "selected_text",
+  segments: historySegments,
+  createdAt: 10_000_000 + 4 * 60 * 1000
+});
+assert.notEqual(historySelectedSource.id, historyA.id);
+assert.equal(historySelectedSource.source, "selected_text");
+assert.equal(store.getReadingHistoryCount(), 2);
 
 const historyB = store.saveOrReuseReadingHistoryRecord({
   text: "第一段中文文本。\n\nSecond English paragraph for duration.",
+  source: "clipboard",
   segments: historySegments,
   createdAt: 10_000_000 + 6 * 60 * 1000
 });
 assert.notEqual(historyB.id, historyA.id);
-assert.equal(store.getReadingHistoryCount(), 2);
+assert.equal(historyB.source, "clipboard");
+assert.equal(store.getReadingHistoryCount(), 3);
 
 store.updateSettings({ historyRetention: "7d" });
 store.saveOrReuseReadingHistoryRecord({
   text: "旧记录",
+  source: "clipboard",
   segments: createReadingSegments("旧记录"),
   createdAt: 1
 });
@@ -493,6 +511,7 @@ assert.equal(store.listReadingHistoryRecords().some((record) => record.text === 
 store.updateSettings({ historyRetention: "forever" });
 store.saveOrReuseReadingHistoryRecord({
   text: "永久保留记录",
+  source: "clipboard",
   segments: createReadingSegments("永久保留记录"),
   createdAt: 2
 });
@@ -502,11 +521,13 @@ store.clearReadingHistory();
 assert.equal(store.getReadingHistoryCount(), 0);
 const deleteA = store.saveOrReuseReadingHistoryRecord({
   text: "待删除记录 A",
+  source: "clipboard",
   segments: createReadingSegments("待删除记录 A"),
   createdAt: 20_000
 });
 const deleteB = store.saveOrReuseReadingHistoryRecord({
   text: "待删除记录 B",
+  source: "clipboard",
   segments: createReadingSegments("待删除记录 B"),
   createdAt: 21_000
 });
@@ -610,7 +631,7 @@ const playbackEvents = [];
 const sink = createPlaybackSinkForTest(playbackEvents, (session) => [
   "start",
   session.sessionId,
-  session.target.source,
+  hasReadingTargetPayload(session),
   session.speechRate,
   session.feedbackSurface
 ]);
@@ -627,15 +648,18 @@ store.updateSettings({ apiKeyStatus: "verified" });
 const playback = new PlaybackService(store, sink, async (request) => {
   assert.equal(request.apiKey, "playback-key");
   assert.equal(request.voiceId, "voice-zh");
-  assert.equal(store.getReadingHistoryCount(), 1);
-  assert.equal(store.listReadingHistoryRecords()[0]?.text, "这是一段剪切板文本。");
   await request.onAudioHex("abcd");
 });
-const playbackResult = await playback.playClipboardText("  这是一段剪切板文本。  ");
+const playbackResult = await playback.playReadingTarget(clipboardTargetInput("  这是一段剪切板文本。  "));
 assert.equal(playbackResult.started, true);
+assertLatestHistoryRecord(store, {
+  count: 1,
+  text: "这是一段剪切板文本。",
+  source: "clipboard"
+});
 await playback.waitForCurrentSession();
 assert.deepEqual(playbackEvents.slice(-4), [
-  ["start", playbackResult.sessionId, "clipboard", 1.5, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay],
+  ["start", playbackResult.sessionId, false, 1.5, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay],
   ["chunk", playbackResult.sessionId, "171,205"],
   ["segment-end", playbackResult.sessionId],
   ["finish", playbackResult.sessionId]
@@ -644,26 +668,41 @@ playback.stopSession(playbackResult.sessionId);
 assert.deepEqual(playbackEvents.at(-1), ["stop", playbackResult.sessionId]);
 assert.equal(store.getReadingHistoryCount(), 1);
 
-const duplicatePlayback = await playback.playClipboardText("这是一段剪切板文本。");
+const duplicatePlayback = await playback.playReadingTarget(clipboardTargetInput("这是一段剪切板文本。"));
 assert.equal(duplicatePlayback.started, true);
 await playback.waitForCurrentSession();
 assert.equal(store.getReadingHistoryCount(), 1);
 
+const selectedTextPlayback = await playback.playReadingTarget(selectedTextTargetInput("这是一段选中文本。"));
+assert.equal(selectedTextPlayback.started, true);
+assertLatestHistoryRecord(store, {
+  count: 2,
+  text: "这是一段选中文本。",
+  source: "selected_text"
+});
+await playback.waitForCurrentSession();
+assert.deepEqual(playbackEvents.slice(-4), [
+  ["start", selectedTextPlayback.sessionId, false, 1.5, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay],
+  ["chunk", selectedTextPlayback.sessionId, "171,205"],
+  ["segment-end", selectedTextPlayback.sessionId],
+  ["finish", selectedTextPlayback.sessionId]
+]);
+
 store.updateSettings({ apiKeyStatus: "missing" });
-const missingPlaybackKey = await playback.playClipboardText("text");
+const missingPlaybackKey = await playback.playReadingTarget(clipboardTargetInput("text"));
 assert.equal(missingPlaybackKey.started, false);
 assert.equal(missingPlaybackKey.skipped, "unverified_api_key");
 assert.equal(store.getErrorLogCount(), 0);
 
 store.updateSettings({ apiKeyStatus: "verified", voices: [] });
-const missingVoice = await playback.playClipboardText("text");
+const missingVoice = await playback.playReadingTarget(clipboardTargetInput("text"));
 assert.equal(missingVoice.started, false);
 assert.equal(missingVoice.skipped, "missing_voice");
 assert.equal(store.getErrorLogCount(), 0);
 
 store.updateSettings({ voices: [zhVoice], preferredVoicesByLanguage: { zh: "voice-zh" } });
 const commandShortcuts = createShortcutRegistryForTest();
-let commandRawText = "命令播放文本。";
+let commandTargetInput = selectedTextTargetInput("命令播放文本。");
 const commandPlaybackEvents = [];
 const commandPlaybackSink = createPlaybackSinkForTest(commandPlaybackEvents);
 const commandPlayback = new PlaybackService(store, commandPlaybackSink, async (request) => {
@@ -674,17 +713,17 @@ const commands = new PlaybackCommandController(
   store,
   commandLifecycle,
   commandShortcuts,
-  async () => commandRawText
+  async () => commandTargetInput
 );
 commands.registerActivationShortcut();
 assert.ok(commandShortcuts.handlers.has("Command+Shift+R"));
-const commandResult = await commands.startClipboardPlayback();
+const commandResult = await commands.startReadingTargetPlayback();
 assert.equal(commandResult.started, true);
 assert.ok(commandShortcuts.handlers.has("Escape"));
 commands.handleRendererIdle(commandResult.sessionId);
 assert.equal(commandShortcuts.handlers.has("Escape"), false);
-commandRawText = "第二次命令播放。";
-const stoppedCommand = await commands.startClipboardPlayback();
+commandTargetInput = clipboardTargetInput("第二次命令播放。");
+const stoppedCommand = await commands.startReadingTargetPlayback();
 assert.equal(stoppedCommand.started, true);
 commands.stopPlayback();
 assert.deepEqual(commandPlaybackEvents.at(-1), ["stop", stoppedCommand.sessionId]);
@@ -701,6 +740,7 @@ assert.equal(store.getSettings().activationShortcut, "Control+Shift+R");
 store.clearReadingHistory();
 const commandReplayRecord = store.saveOrReuseReadingHistoryRecord({
   text: "命令历史重播。",
+  source: "selected_text",
   segments: createReadingSegments("命令历史重播。"),
   createdAt: 888_000
 });
@@ -710,8 +750,7 @@ assert.ok(commandShortcuts.handlers.has("Escape"));
 assert.deepEqual(commandPlaybackEvents.at(-4), [
   "start",
   commandReplayResult.sessionId,
-  "History Replay",
-  `history:${commandReplayRecord.id}`,
+  false,
   PLAYBACK_FEEDBACK_SURFACES.historyDetail
 ]);
 assert.deepEqual(commandPlaybackEvents.at(-3), ["chunk", commandReplayResult.sessionId, "171,205"]);
@@ -722,7 +761,7 @@ assert.equal(commandShortcuts.handlers.has("Escape"), false);
 const failingPlayback = new PlaybackService(store, sink, async () => {
   throw new Error("MiniMax TTS failed with HTTP 500");
 });
-const failingPlaybackResult = await failingPlayback.playClipboardText("这是一段会失败的文本。");
+const failingPlaybackResult = await failingPlayback.playReadingTarget(clipboardTargetInput("这是一段会失败的文本。"));
 assert.equal(failingPlaybackResult.started, true);
 await failingPlayback.waitForCurrentSession();
 assert.equal(store.getErrorLogCount(), 1);
@@ -733,13 +772,19 @@ store.clearErrorLogs();
 store.clearReadingHistory();
 const replayRecord = store.saveOrReuseReadingHistoryRecord({
   text: "这是一条历史重播文本。",
+  source: "selected_text",
   segments: createReadingSegments("这是一条历史重播文本。"),
   createdAt: 777_000
 });
 const replayEvents = [];
 const replayPlayback = new PlaybackService(
   store,
-  createPlaybackSinkForTest(replayEvents),
+  createPlaybackSinkForTest(replayEvents, (session) => [
+    "start",
+    session.sessionId,
+    "target" in session,
+    session.feedbackSurface,
+  ]),
   async (request) => {
     assert.equal(request.text, "这是一条历史重播文本。");
     await request.onAudioHex("abcd");
@@ -753,8 +798,7 @@ assert.equal(store.getReadingHistoryRecord(replayRecord.id)?.createdAt, 777_000)
 assert.deepEqual(replayEvents[0], [
   "start",
   replayResult.sessionId,
-  "History Replay",
-  `history:${replayRecord.id}`,
+  false,
   PLAYBACK_FEEDBACK_SURFACES.historyDetail
 ]);
 const missingReplay = await replayPlayback.playHistoryRecord("missing-record");
@@ -764,7 +808,7 @@ assert.equal(missingReplay.skipped, "missing_history_record");
 const { overlaySink, overlayActions, sentPlaybackMessages } = createElectronAudioSinkScenario();
 overlaySink.startSession(createOverlayPlaybackSessionForTest(101));
 assert.deepEqual(overlayActions, ["show"]);
-assert.deepEqual(sentPlaybackMessages.at(-1), ["playback:start-session", "Clipboard"]);
+assert.deepEqual(sentPlaybackMessages.at(-1), ["playback:start-session", 101, false]);
 overlaySink.finishSession(101);
 assert.deepEqual(overlayActions, ["show"]);
 assert.deepEqual(sentPlaybackMessages.at(-1), ["playback:finish-session", 101]);
@@ -792,14 +836,14 @@ replacementScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest
 replacementScenario.overlaySink.finishSession(107);
 replacementScenario.overlaySink.startSession(createHistoryReplaySessionForTest(108));
 assert.deepEqual(replacementScenario.overlayActions, ["show", "stop"]);
-assert.deepEqual(replacementScenario.sentPlaybackMessages.at(-1), ["playback:start-session", "History Replay"]);
+assert.deepEqual(replacementScenario.sentPlaybackMessages.at(-1), ["playback:start-session", 108, false]);
 replacementScenario.overlaySink.stopSession(107);
 assert.deepEqual(replacementScenario.overlayActions, ["show", "stop"]);
 
 const historySinkScenario = createElectronAudioSinkScenario();
 historySinkScenario.overlaySink.startSession(createHistoryReplaySessionForTest(104));
 assert.deepEqual(historySinkScenario.overlayActions, []);
-assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), ["playback:start-session", "History Replay"]);
+assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), ["playback:start-session", 104, false]);
 historySinkScenario.overlaySink.finishSession(104);
 assert.deepEqual(historySinkScenario.overlayActions, []);
 assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), ["playback:finish-session", 104]);
@@ -889,9 +933,9 @@ const replacementPlayback = new PlaybackService(store, sink, async (request) => 
   }
   await request.onAudioHex("ef01");
 });
-const firstReplacement = await replacementPlayback.playClipboardText("第一段文本。");
+const firstReplacement = await replacementPlayback.playReadingTarget(clipboardTargetInput("第一段文本。"));
 assert.equal(firstReplacement.started, true);
-const secondReplacement = await replacementPlayback.playClipboardText("第二段文本。");
+const secondReplacement = await replacementPlayback.playReadingTarget(selectedTextTargetInput("第二段文本。"));
 assert.equal(secondReplacement.started, true);
 await replacementPlayback.waitForCurrentSession();
 assert.equal(firstStreamAborted, true);
@@ -910,6 +954,21 @@ function run(script, args) {
       else reject(new Error(`${script} exited with code ${code}`));
     });
   });
+}
+
+function clipboardTargetInput(text) {
+  return { text, source: "clipboard" };
+}
+
+function selectedTextTargetInput(text) {
+  return { text, source: "selected_text" };
+}
+
+function assertLatestHistoryRecord(store, expected) {
+  assert.equal(store.getReadingHistoryCount(), expected.count);
+  const latestRecord = store.listReadingHistoryRecords()[0];
+  assert.equal(latestRecord?.text, expected.text);
+  assert.equal(latestRecord?.source, expected.source);
 }
 
 function createShortcutRegistryForTest() {
@@ -962,34 +1021,11 @@ function createHistoryReplaySessionForTest(sessionId) {
 }
 
 function createPlaybackSessionForTest(sessionId, feedbackSurface) {
-  const target = playbackSessionTargetForSurface(feedbackSurface);
   return {
     sessionId,
     speechRate: 1,
-    feedbackSurface,
-    target: {
-      title: target.title,
-      url: target.url,
-      source: "clipboard",
-      text: target.text,
-      segments: []
-    }
+    feedbackSurface
   };
-}
-
-function playbackSessionTargetForSurface(feedbackSurface) {
-  return {
-    [PLAYBACK_FEEDBACK_SURFACES.playbackOverlay]: {
-      title: "Clipboard",
-      url: "",
-      text: "剪切板播放"
-    },
-    [PLAYBACK_FEEDBACK_SURFACES.historyDetail]: {
-      title: "History Replay",
-      url: "history:record-id",
-      text: "历史重播"
-    }
-  }[feedbackSurface];
 }
 
 function createOverlayControllerForTest(actions) {
@@ -1026,7 +1062,11 @@ function createPlaybackWindowForTest(sentPlaybackMessages) {
     isDestroyed: () => false,
     webContents: {
       send(channel, payload) {
-        sentPlaybackMessages.push([channel, payload?.target?.title ?? payload?.sessionId]);
+        if (channel === "playback:start-session") {
+          sentPlaybackMessages.push([channel, payload?.sessionId, hasReadingTargetPayload(payload)]);
+          return;
+        }
+        sentPlaybackMessages.push([channel, payload?.sessionId]);
       }
     }
   };
@@ -1158,8 +1198,7 @@ function replaceProperty(restoreCallbacks, object, key, value) {
 function createPlaybackSinkForTest(events, startEvent = (session) => [
   "start",
   session.sessionId,
-  session.target.title,
-  session.target.url,
+  hasReadingTargetPayload(session),
   session.feedbackSurface
 ]) {
   return {
@@ -1182,4 +1221,8 @@ function createPlaybackSinkForTest(events, startEvent = (session) => [
       events.push(["stop", sessionId]);
     }
   };
+}
+
+function hasReadingTargetPayload(payload) {
+  return Boolean(payload && typeof payload === "object" && "target" in payload);
 }

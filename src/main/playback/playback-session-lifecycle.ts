@@ -1,7 +1,8 @@
 import type { PlaybackStartResult } from "../../shared/app-contracts.js";
+import type { ReadingTargetInput } from "../../shared/types.js";
 
 export interface PlaybackSessionRunner {
-  playClipboardText(rawText: string): Promise<PlaybackStartResult>;
+  playReadingTarget(input: ReadingTargetInput): Promise<PlaybackStartResult>;
   playHistoryRecord(recordId: string): Promise<PlaybackStartResult>;
   stopSession(sessionId: number | undefined): void;
   handleRendererIdle(sessionId: number): void;
@@ -20,8 +21,8 @@ export class PlaybackSessionLifecycle {
     private readonly stopShortcuts: StopShortcutRegistry
   ) {}
 
-  async startClipboardPlayback(rawText: string): Promise<PlaybackStartResult> {
-    const result = await this.playback.playClipboardText(rawText);
+  async startReadingTargetPlayback(input: ReadingTargetInput): Promise<PlaybackStartResult> {
+    const result = await this.playback.playReadingTarget(input);
     this.registerStopShortcutIfStarted(result);
     return result;
   }

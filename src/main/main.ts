@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { AppDataStore } from "./data/app-data-store.js";
 import { electronSafeStorageCipher } from "./data/electron-safe-storage.js";
 import { MiniMaxAccountService } from "./data/minimax-account-service.js";
-import type { DetectedLanguage } from "../shared/types.js";
+import type { DetectedLanguage, ReadingTargetInput } from "../shared/types.js";
 import type {
   AppRoute,
   AppSettings,
@@ -60,7 +60,7 @@ async function bootstrap(): Promise<void> {
     appDataStore,
     playbackLifecycle,
     globalShortcut,
-    readSelectedTextOrClipboardText
+    readSelectedTextOrClipboardTarget
   );
   registerIpcHandlers();
   syncLaunchAtLoginFromSettings();
@@ -181,7 +181,7 @@ function registerIpcHandlers(): void {
     appDataStore.deleteReadingHistoryRecord(id)
   );
   ipcMain.handle("app-data:clear-reading-history", () => appDataStore.clearReadingHistory());
-  ipcMain.handle("playback:play-clipboard", () => playbackCommands.startClipboardPlayback());
+  ipcMain.handle("playback:play-reading-target", () => playbackCommands.startReadingTargetPlayback());
   ipcMain.handle("playback:play-history-record", (_event, id: string) => playbackCommands.startHistoryReplay(id));
   ipcMain.handle("playback:stop", () => {
     playbackCommands.stopPlayback();
@@ -208,7 +208,7 @@ function createMenuBarMenu(): void {
       {
         label: "播放",
         click: () => {
-          void playbackCommands.startClipboardPlayback();
+          void playbackCommands.startReadingTargetPlayback();
         }
       },
       {
@@ -261,9 +261,13 @@ function syncLaunchAtLoginFromSettings(): void {
   app.setLoginItemSettings({ openAtLogin: appDataStore.getSettings().launchAtLogin });
 }
 
-async function readSelectedTextOrClipboardText(): Promise<string> {
+async function readSelectedTextOrClipboardTarget(): Promise<ReadingTargetInput> {
   const snapshot = snapshotClipboard();
   const marker = `__VOICEREADER_SELECTION_${randomUUID()}__`;
+  let target: ReadingTargetInput = {
+    text: snapshot.text,
+    source: "clipboard"
+  };
   clipboard.writeText(marker);
 
   try {
@@ -271,18 +275,17 @@ async function readSelectedTextOrClipboardText(): Promise<string> {
     await delay(80);
     const selectedText = clipboard.readText();
     if (selectedText.trim() && selectedText !== marker) {
-      return restoreClipboardAndReturn(snapshot, selectedText);
+      target = {
+        text: selectedText,
+        source: "selected_text"
+      };
     }
   } catch {
     // Selection capture needs macOS Automation/Accessibility permission. Fall back silently.
   }
 
-  return restoreClipboardAndReturn(snapshot, snapshot.text);
-}
-
-function restoreClipboardAndReturn(snapshot: ClipboardSnapshot, text: string): string {
   restoreClipboard(snapshot);
-  return text;
+  return target;
 }
 
 function copyCurrentSelection(): Promise<void> {
