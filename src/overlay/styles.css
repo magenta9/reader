@@ -1,0 +1,208 @@
+:root {
+  color-scheme: light dark;
+  --pill: rgba(248, 248, 246, 0.82);
+  --pill-top: rgba(255, 255, 255, 0.62);
+  --pill-border: rgba(22, 23, 24, 0.12);
+  --bar: rgba(20, 22, 24, 0.86);
+  --bar-soft: rgba(20, 22, 24, 0.22);
+  --progress: rgba(32, 97, 255, 0.18);
+  --button: rgba(20, 22, 24, 0.07);
+  --button-border: rgba(20, 22, 24, 0.08);
+  --button-hover: rgba(20, 22, 24, 0.12);
+  --button-active: rgba(20, 22, 24, 0.16);
+  --shadow: 0 20px 54px rgba(0, 0, 0, 0.2), 0 3px 16px rgba(0, 0, 0, 0.1);
+  font-family:
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    "PingFang SC",
+    "Hiragino Sans GB",
+    sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --pill: rgba(27, 28, 30, 0.78);
+    --pill-top: rgba(255, 255, 255, 0.08);
+    --pill-border: rgba(255, 255, 255, 0.13);
+    --bar: rgba(255, 255, 255, 0.9);
+    --bar-soft: rgba(255, 255, 255, 0.22);
+    --progress: rgba(126, 161, 255, 0.22);
+    --button: rgba(255, 255, 255, 0.09);
+    --button-border: rgba(255, 255, 255, 0.1);
+    --button-hover: rgba(255, 255, 255, 0.16);
+    --button-active: rgba(255, 255, 255, 0.22);
+    --shadow: 0 22px 64px rgba(0, 0, 0, 0.46), 0 4px 20px rgba(0, 0, 0, 0.26);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+body {
+  -webkit-app-region: no-drag;
+}
+
+button {
+  font: inherit;
+}
+
+.overlay-root {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  opacity: 0;
+  transform: translateY(10px) scale(0.975);
+  transition:
+    opacity 170ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.overlay-root.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.overlay-root.is-leaving {
+  opacity: 0;
+  transform: translateY(8px) scale(0.985);
+}
+
+.overlay-pill {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 46px;
+  align-items: center;
+  width: 318px;
+  height: 58px;
+  overflow: hidden;
+  border: 1px solid var(--pill-border);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, var(--pill-top), transparent 42%),
+    var(--pill);
+  box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(28px) saturate(1.55);
+  backdrop-filter: blur(28px) saturate(1.55);
+}
+
+.overlay-pill::after {
+  position: absolute;
+  inset: 1px;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  content: "";
+}
+
+.hover-progress {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.overlay-pill:hover .hover-progress {
+  opacity: 1;
+}
+
+.hover-progress span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background:
+    linear-gradient(90deg, var(--progress), rgba(255, 255, 255, 0)),
+    var(--progress);
+  transform-origin: left center;
+  transition: transform 90ms linear;
+}
+
+.waveform {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding-left: 28px;
+}
+
+.waveform-bar {
+  width: 3px;
+  height: 36px;
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, var(--bar-soft), var(--bar) 42%, var(--bar-soft));
+  transform-origin: center;
+  transition:
+    transform 82ms linear,
+    opacity 70ms linear;
+}
+
+.close-button {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  margin-right: 8px;
+  place-items: center;
+  border: 1px solid var(--button-border);
+  border-radius: 999px;
+  background: var(--button);
+  color: var(--bar);
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
+}
+
+.close-button::before {
+  position: absolute;
+  inset: -5px;
+  content: "";
+}
+
+.close-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-width: 1.9;
+}
+
+.close-button:hover {
+  background: var(--button-hover);
+}
+
+.close-button:active {
+  background: var(--button-active);
+  transform: scale(0.92);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay-root,
+  .waveform-bar,
+  .close-button,
+  .hover-progress,
+  .hover-progress span {
+    transition-duration: 1ms;
+  }
+}

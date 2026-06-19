@@ -1,0 +1,27 @@
+{
+  "name": "voicereader",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "package:mac": "node scripts/package-mac.mjs",
+    "start": "electron .",
+    "test": "node scripts/run-core-tests.mjs",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "electron": "^41.5.1",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.9.3"
+  }
+}
