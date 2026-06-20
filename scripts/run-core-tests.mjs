@@ -28,6 +28,7 @@ const { MiniMaxAccountService } = await import("../dist/main/data/minimax-accoun
 const { normalizeShortcutInput, PlaybackCommandController } = await import("../dist/main/playback/playback-command-controller.js");
 const { PlaybackSessionLifecycle } = await import("../dist/main/playback/playback-session-lifecycle.js");
 const { PlaybackService } = await import("../dist/main/playback/playback-service.js");
+const { ReadingTargetAcquirer } = await import("../dist/main/reading-target/reading-target-acquirer.js");
 const { ElectronAudioSink } = await import("../dist/main/playback/electron-audio-sink.js");
 const { PlaybackAudioQueue } = await import("../dist/renderer/audio-player.js");
 const {
@@ -43,6 +44,7 @@ const {
 
 for (const path of [
   "../dist/main/main.js",
+  "../dist/main/reading-target/reading-target-acquirer.js",
   "../dist/shared/app-contracts.js",
   "../dist/preload/preload.cjs",
   "../dist/renderer/index.html",
@@ -84,6 +86,7 @@ const playbackServiceSource = await readFile(new URL("../src/main/playback/playb
 const playbackCommandSource = await readFile(new URL("../src/main/playback/playback-command-controller.ts", import.meta.url), "utf8");
 const playbackLifecycleSource = await readFile(new URL("../src/main/playback/playback-session-lifecycle.ts", import.meta.url), "utf8");
 const playbackOverlayControllerSource = await readFile(new URL("../src/main/playback/playback-overlay-controller.ts", import.meta.url), "utf8");
+const readingTargetAcquirerSource = await readFile(new URL("../src/main/reading-target/reading-target-acquirer.ts", import.meta.url), "utf8");
 const rendererCssSource = await readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 const packageScript = await readFile(new URL("../scripts/package-mac.mjs", import.meta.url), "utf8");
 assertIncludes(mainBundle, [
@@ -131,7 +134,7 @@ assertIncludes(mainBundle, [
   "app-data:list-favorites",
   "app-data:delete-favorite-record",
   "playback:play-favorite-record",
-  "readSelectedTextOrClipboardTarget",
+  "ReadingTargetAcquirer",
   "selected_text",
   "selection-copy-macos.node",
   "readSelectedText",
@@ -139,10 +142,18 @@ assertIncludes(mainBundle, [
 ]);
 assertMissing(mainBundle, ["../preload/preload.js", "safeStorage", "isTrustedAccessibilityClient", "/usr/bin/osascript", "__dirname"]);
 assertIncludes(mainSource, [
-  "startReadingTargetPlaybackFromReaderWindow(event.sender.id)",
   "shouldRevealPreviousAppBeforeSelectionCapture",
   "hideReaderAppForSelectionCapture",
-  "app.hide()",
+  "ReadingTargetAcquirer",
+  "registerIpcHandlers(readingTargetAcquirer)",
+  "readingTargetAcquirer.revealPreviousAppBeforeCapture()",
+  "playbackCommands.startReadingTargetPlayback()",
+  "() => readingTargetAcquirer.acquire()",
+  "app.hide()"
+]);
+assertIncludes(readingTargetAcquirerSource, [
+  "class ReadingTargetAcquirer",
+  "revealPreviousAppBeforeCapture",
   "readClipboardTextAfterSelectionCopy",
   "REVEAL_PREVIOUS_APP_DELAY_MS",
   "SELECTION_COPY_DELAY_MS",
@@ -150,7 +161,22 @@ assertIncludes(mainSource, [
   "SELECTION_COPY_POLL_INTERVAL_MS",
   "Date.now() - startedAt < SELECTION_COPY_POLL_TIMEOUT_MS",
   "Selected Text capture failed",
-  "safeSelectionCaptureErrorMessage"
+  "safeSelectionCaptureErrorMessage",
+  "selection-copy-macos.node",
+  "createRequire(import.meta.url)",
+  "resolveNativeSelectionCopyAddonPath",
+  "../../native/selection-copy-macos.node"
+]);
+assertMissing(mainSource, [
+  "readClipboardTextAfterSelectionCopy",
+  "REVEAL_PREVIOUS_APP_DELAY_MS",
+  "SELECTION_COPY_DELAY_MS",
+  "SELECTION_COPY_POLL_TIMEOUT_MS",
+  "SELECTION_COPY_POLL_INTERVAL_MS",
+  "Date.now() - startedAt < SELECTION_COPY_POLL_TIMEOUT_MS",
+  "Selected Text capture failed",
+  "safeSelectionCaptureErrorMessage",
+  "selection-copy-macos.node"
 ]);
 assertMissing(mainSource, [
   "x-apple.systempreferences",
@@ -913,6 +939,88 @@ assert.equal(missingVoice.started, false);
 assert.equal(missingVoice.skipped, "missing_voice");
 assert.equal(store.getErrorLogCount(), 0);
 
+const clipboardAcquirerLog = [];
+const clipboardAcquirerClipboard = createClipboardForReadingTargetTest({
+  text: "剪切板后备文本",
+  html: "<p>html</p>"
+});
+const clipboardAcquirer = createReadingTargetAcquirerForTest({
+  clipboard: clipboardAcquirerClipboard,
+  errorLog: { addErrorLog: (entry) => clipboardAcquirerLog.push(entry) },
+  hidePreviousAppForSelectionCapture: () => clipboardAcquirerLog.push({ hidden: true }),
+  loadSelectionCopyAddon: () => {
+    throw new Error("accessibility unavailable");
+  },
+  delay: async () => undefined
+});
+await clipboardAcquirer.revealPreviousAppBeforeCapture();
+const clipboardAcquiredTarget = await clipboardAcquirer.acquire();
+assert.deepEqual(clipboardAcquiredTarget, {
+  text: "剪切板后备文本",
+  source: "clipboard"
+});
+assert.deepEqual(clipboardAcquirerClipboard.snapshot(), {
+  text: "剪切板后备文本",
+  html: "<p>html</p>",
+  rtf: "",
+  hasImage: false
+});
+assert.equal(clipboardAcquirerLog.some((entry) => entry.hidden === true), true);
+assert.equal(clipboardAcquirerLog.some((entry) => entry.message?.startsWith("Selected Text capture failed:")), true);
+
+const selectedAcquirerClipboard = createClipboardForReadingTargetTest({ text: "原剪切板" });
+const selectedAcquirer = createReadingTargetAcquirerForTest({
+  clipboard: selectedAcquirerClipboard,
+  loadSelectionCopyAddon: () => ({
+    readSelectedText: () => "通过辅助功能读取的选中文本",
+    copySelection: () => assert.fail("copySelection should not run after accessibility text succeeds")
+  })
+});
+assert.deepEqual(await selectedAcquirer.acquire(), {
+  text: "通过辅助功能读取的选中文本",
+  source: "selected_text"
+});
+
+const copiedSelectionClipboard = createClipboardForReadingTargetTest({ text: "原剪切板" });
+const copiedSelectionAcquirer = createReadingTargetAcquirerForTest({
+  clipboard: copiedSelectionClipboard,
+  createMarker: () => "__TEST_SELECTION_MARKER__",
+  loadSelectionCopyAddon: () => ({
+    readSelectedText: () => "",
+    copySelection: () => copiedSelectionClipboard.writeText("通过复制读取的选中文本")
+  })
+});
+assert.deepEqual(await copiedSelectionAcquirer.acquire(), {
+  text: "通过复制读取的选中文本",
+  source: "selected_text"
+});
+assert.deepEqual(copiedSelectionClipboard.snapshot(), {
+  text: "原剪切板",
+  html: "",
+  rtf: "",
+  hasImage: false
+});
+
+const unchangedClipboardAfterCopy = createClipboardForReadingTargetTest({ text: "复制前剪切板" });
+const unchangedCopyAcquirer = createReadingTargetAcquirerForTest({
+  clipboard: unchangedClipboardAfterCopy,
+  createMarker: () => "__TEST_SELECTION_MARKER__",
+  loadSelectionCopyAddon: () => ({
+    readSelectedText: () => "",
+    copySelection: () => undefined
+  })
+});
+assert.deepEqual(await unchangedCopyAcquirer.acquire(), {
+  text: "复制前剪切板",
+  source: "clipboard"
+});
+assert.deepEqual(unchangedClipboardAfterCopy.snapshot(), {
+  text: "复制前剪切板",
+  html: "",
+  rtf: "",
+  hasImage: false
+});
+
 store.updateSettings({ voices: [zhVoice], preferredVoicesByLanguage: { zh: "voice-zh" } });
 const commandShortcuts = createShortcutRegistryForTest();
 let commandTargetInput = selectedTextTargetInput("命令播放文本。");
@@ -1638,4 +1746,56 @@ function createPlaybackSinkForTest(events, startEvent = (session) => [
 
 function hasReadingTargetPayload(payload) {
   return Boolean(payload && typeof payload === "object" && "target" in payload);
+}
+
+function createReadingTargetAcquirerForTest(options = {}) {
+  return new ReadingTargetAcquirer({
+    clipboard: options.clipboard ?? createClipboardForReadingTargetTest(),
+    errorLog: options.errorLog ?? {
+      addErrorLog: () => assert.fail("Reading Target acquisition should not log an error")
+    },
+    hidePreviousAppForSelectionCapture: options.hidePreviousAppForSelectionCapture ?? (() => undefined),
+    loadSelectionCopyAddon: options.loadSelectionCopyAddon,
+    createMarker: options.createMarker,
+    delay: async () => undefined
+  });
+}
+
+function createClipboardForReadingTargetTest(initial = {}) {
+  const image = initial.image ?? { isEmpty: () => true };
+  let state = {
+    text: initial.text ?? "",
+    html: initial.html ?? "",
+    rtf: initial.rtf ?? "",
+    image
+  };
+
+  return {
+    readText: () => state.text,
+    readHTML: () => state.html,
+    readRTF: () => state.rtf,
+    readImage: () => state.image,
+    writeText(text) {
+      state = { text, html: "", rtf: "", image: { isEmpty: () => true } };
+    },
+    clear() {
+      state = { text: "", html: "", rtf: "", image: { isEmpty: () => true } };
+    },
+    write(next) {
+      state = {
+        text: next.text ?? "",
+        html: next.html ?? "",
+        rtf: next.rtf ?? "",
+        image: next.image ?? { isEmpty: () => true }
+      };
+    },
+    snapshot() {
+      return {
+        text: state.text,
+        html: state.html,
+        rtf: state.rtf,
+        hasImage: !state.image.isEmpty()
+      };
+    }
+  };
 }
