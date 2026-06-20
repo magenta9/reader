@@ -11,6 +11,8 @@ const electronAppPath = resolve(root, "node_modules/electron/dist/Electron.app")
 const iconsetPath = join(releaseDir, "VoiceReader.iconset");
 const iconPath = join(releaseDir, "VoiceReader.icns");
 const appIconSvgPath = resolve(root, "assets/voicereader-icon.svg");
+const appBundleIdentifier = "com.local.voicereader";
+const appDesignatedRequirement = `=designated => identifier "${appBundleIdentifier}"`;
 
 await run(process.execPath, [resolve(root, "scripts/build.mjs")], root);
 await rm(appPath, { recursive: true, force: true });
@@ -53,7 +55,7 @@ async function generateIcon() {
   await rm(iconPath, { force: true });
   await mkdir(iconsetPath, { recursive: true });
   const renderedSource = join(releaseDir, "VoiceReader-icon-source.png");
-  await run("/usr/bin/sips", ["-s", "format", "png", appIconSvgPath, "--out", renderedSource], root);
+  await renderAppIconSource(renderedSource);
   const sizes = [
     [16, "icon_16x16.png"],
     [32, "icon_16x16@2x.png"],
@@ -73,13 +75,20 @@ async function generateIcon() {
   await rm(renderedSource, { force: true });
 }
 
+async function renderAppIconSource(renderedSource) {
+  const quickLookOutput = join(releaseDir, "voicereader-icon.svg.png");
+  await rm(quickLookOutput, { force: true });
+  await run("/usr/bin/qlmanage", ["-t", "-s", "1024", "-o", releaseDir, appIconSvgPath], root);
+  await rename(quickLookOutput, renderedSource);
+}
+
 async function updateInfoPlist() {
   const plistPath = join(appPath, "Contents/Info.plist");
   let plist = await readFile(plistPath, "utf8");
   plist = replacePlistValue(plist, "CFBundleDisplayName", appName);
   plist = replacePlistValue(plist, "CFBundleExecutable", appName);
   plist = replacePlistValue(plist, "CFBundleIconFile", "VoiceReader.icns");
-  plist = replacePlistValue(plist, "CFBundleIdentifier", "com.local.voicereader");
+  plist = replacePlistValue(plist, "CFBundleIdentifier", appBundleIdentifier);
   plist = replacePlistValue(plist, "CFBundleName", appName);
   plist = replacePlistValue(plist, "CFBundleShortVersionString", "0.1.0");
   plist = replacePlistValue(plist, "CFBundleVersion", "0.1.0");
@@ -106,6 +115,7 @@ function helperBundleIdentifier(helperApp) {
 
 async function signAppBundle() {
   await run("/usr/bin/codesign", ["--deep", "--force", "--sign", "-", appPath], root);
+  await run("/usr/bin/codesign", ["--force", "--sign", "-", "--requirements", appDesignatedRequirement, appPath], root);
 }
 
 async function verifyAppSignature() {

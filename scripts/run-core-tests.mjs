@@ -289,9 +289,13 @@ assert.equal(packageScript.includes("verbatimSymlinks: true"), true);
 assert.equal(packageScript.includes("default_app.asar"), true);
 assert.equal(packageScript.includes("assets/voicereader-icon.svg"), true);
 assert.equal(packageScript.includes("createAppIconPng"), false);
+assert.equal(packageScript.includes("/usr/bin/qlmanage"), true);
 assert.equal(packageScript.includes("NSAppleEventsUsageDescription"), false);
 assert.equal(packageScript.includes("/usr/bin/codesign"), true);
 assert.equal(packageScript.includes("--deep"), true);
+assert.equal(packageScript.includes("--requirements"), true);
+assert.equal(packageScript.includes("appBundleIdentifier = \"com.local.voicereader\""), true);
+assert.equal(packageScript.includes("=designated => identifier"), true);
 assert.equal(packageScript.includes("--verify"), true);
 
 assert.equal(detectLanguage("这是一个中文段落，用来测试语音阅读。"), "zh");
