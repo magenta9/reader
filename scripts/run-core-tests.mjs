@@ -253,8 +253,13 @@ for (const label of [
 ]) {
   assert.equal(rendererSource.includes(label), true);
 }
-assert.equal(rendererSource.includes("选择文本优先"), true);
-assert.equal(rendererSource.includes("播放当前选择文本或剪切板"), true);
+assert.equal(rendererSource.includes("function Home"), true);
+assert.equal(rendererSource.includes("getSetupRecoveryAction"), true);
+assert.equal(rendererSource.includes('role="group"'), true);
+assert.equal(rendererSource.includes("aria-pressed"), true);
+for (const homeClass of [".home-dashboard", ".health-strip", ".command-panel", ".setup-action", ".voice-panel"]) {
+  assert.equal(rendererCssSource.includes(homeClass), true);
+}
 assert.equal(rendererCssSource.includes("prefers-color-scheme: dark"), true);
 assert.equal(rendererCssSource.includes(".brand-mark"), true);
 assert.equal(rendererCssSource.includes("background: transparent"), true);

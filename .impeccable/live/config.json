@@ -1,0 +1,6 @@
+{
+  "files": ["src/renderer/index.html", "src/overlay/index.html"],
+  "insertBefore": "</body>",
+  "commentSyntax": "html",
+  "cspChecked": true
+}

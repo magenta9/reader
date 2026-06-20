@@ -27,6 +27,21 @@ const LANGUAGE_GROUPS: Array<{ language: DetectedLanguage; label: string }> = [
   { language: "unknown", label: "未知" }
 ];
 
+const SETTINGS_GROUPS = ["账户与连接", "快捷键", "朗读", "历史记录", "通用"] as const;
+
+const SETTINGS_GROUP_DESCRIPTIONS: Record<(typeof SETTINGS_GROUPS)[number], string> = {
+  账户与连接: "完成 MiniMax 连接后才能开始播放。",
+  快捷键: "设置从任意 App 发起朗读的入口。",
+  朗读: "调整播放速度和语音模型。",
+  历史记录: "控制本机全文历史的保留方式。",
+  通用: "低频维护和启动选项。"
+};
+
+type SetupRecoveryAction =
+  | { kind: "open-settings"; label: string }
+  | { kind: "verify-key"; label: string }
+  | { kind: "refresh-voices"; label: string };
+
 function App(): ReactElement {
   const [route, setRoute] = useState<AppRoute>("home");
 
@@ -92,12 +107,14 @@ function App(): ReactElement {
         </nav>
       </aside>
 
-      <main className="workspace" id="main-content">
-        <header className="workspace-header">
-          <p className="eyebrow">VoiceReader</p>
-          <h1>{title}</h1>
-        </header>
-        {route === "home" && <Home />}
+      <main className={route === "home" ? "workspace is-home" : "workspace"} id="main-content">
+        {route === "home" ? null : (
+          <header className="workspace-header">
+            <p className="eyebrow">VoiceReader</p>
+            <h1>{title}</h1>
+          </header>
+        )}
+        {route === "home" && <Home onNavigate={navigate} />}
         {route === "history" && <History />}
         {route === "settings" && <Settings />}
       </main>
@@ -105,10 +122,13 @@ function App(): ReactElement {
   );
 }
 
-function Home(): ReactElement {
+function Home({ onNavigate }: { onNavigate: (route: AppRoute) => void }): ReactElement {
   const [settings, setSettings] = useState<AppSettings | undefined>();
   const [hasApiKey, setHasApiKey] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<DetectedLanguage>("zh");
+  const [playbackMessage, setPlaybackMessage] = useState("准备朗读当前选区");
+  const [isStartingPlayback, setIsStartingPlayback] = useState(false);
+  const [isResolvingSetup, setIsResolvingSetup] = useState(false);
 
   useEffect(() => {
     void Promise.all([readerBridge.getSettings(), readerBridge.hasMiniMaxApiKey()]).then(
@@ -127,44 +147,111 @@ function Home(): ReactElement {
     setSettings(next);
   };
   const canPlay = Boolean(hasApiKey && settings?.apiKeyStatus === "verified" && settings.voices.length);
+  const setupRecoveryAction = getSetupRecoveryAction(hasApiKey, settings);
+
   const playReadingTarget = async (): Promise<void> => {
-    await readerBridge.playReadingTarget();
+    if (isStartingPlayback) return;
+    setIsStartingPlayback(true);
+    setPlaybackMessage("正在读取选区");
+    const result = await readerBridge.playReadingTarget();
+    if (result.started) {
+      setPlaybackMessage("已开始朗读");
+    } else {
+      setPlaybackMessage(playbackSkippedLabel(result.skipped));
+    }
+    setIsStartingPlayback(false);
+  };
+
+  const resolveSetupBlocker = async (): Promise<void> => {
+    if (!setupRecoveryAction || isResolvingSetup) return;
+    if (setupRecoveryAction.kind === "open-settings") {
+      onNavigate("settings");
+      return;
+    }
+    setIsResolvingSetup(true);
+    if (setupRecoveryAction.kind === "verify-key") {
+      setPlaybackMessage("正在验证连接");
+      const result = await readerBridge.verifyMiniMaxKey();
+      setSettings(result.settings);
+      setHasApiKey(await readerBridge.hasMiniMaxApiKey());
+      setPlaybackMessage(result.ok ? "连接验证成功" : result.error ?? "连接验证失败");
+      setIsResolvingSetup(false);
+      return;
+    }
+    if (setupRecoveryAction.kind === "refresh-voices") {
+      setPlaybackMessage("正在刷新 Voice");
+      const result = await readerBridge.refreshVoices();
+      setSettings(result.settings);
+      setPlaybackMessage(
+        result.usedCachedVoices
+          ? `刷新失败，继续使用本地 Voice 缓存：${result.error}`
+          : result.ok
+            ? "Voice 列表已刷新"
+            : result.error ?? "Voice 列表刷新失败"
+      );
+      setIsResolvingSetup(false);
+    }
   };
 
   return (
-    <section className="surface home-layout" aria-labelledby="home-title">
-      <div className="home-primary">
-        <p className="section-kicker">选择文本优先</p>
-        <h2 id="home-title">播放当前选择文本或剪切板</h2>
-        <p className="muted">有选中文本时优先朗读选中内容；否则读取剪切板。主页不会显示全文。</p>
-        <button className="primary-action" disabled={!canPlay} onClick={playReadingTarget} type="button">
-          播放
-        </button>
+    <section className="home-dashboard" aria-labelledby="home-title">
+      <div className="command-panel">
+        <div className="command-copy">
+          <p className="section-kicker">朗读控制台</p>
+          <h2 id="home-title">播放当前选中文本</h2>
+          <p className="command-description">优先读取前台 App 的选区；没有选区时才使用剪切板。正文只在本机历史中保存。</p>
+          <div className="command-actions">
+            <button
+              className="primary-action"
+              disabled={!canPlay || isStartingPlayback}
+              onClick={playReadingTarget}
+              type="button"
+            >
+              {isStartingPlayback ? "读取中" : "播放"}
+            </button>
+            <span aria-live="polite" className={canPlay ? "command-state ready" : "command-state pending"}>
+              {canPlay ? playbackMessage : setupBlockerLabel(hasApiKey, settings)}
+            </span>
+            {setupRecoveryAction && (
+              <button
+                className="setup-action"
+                disabled={isResolvingSetup}
+                onClick={resolveSetupBlocker}
+                type="button"
+              >
+                {isResolvingSetup ? "处理中" : setupRecoveryAction.label}
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="shortcut-card" aria-label="快捷键状态">
+          <p className="section-kicker">快捷键</p>
+          <strong>{settings?.activationShortcut ?? DEFAULT_ACTIVATION_SHORTCUT}</strong>
+          <span>{settings?.shortcutRegistrationError ? "注册失败" : "已注册"}</span>
+        </div>
       </div>
-      <div className="status-panel" aria-label="配置状态">
-        <p className="section-kicker">配置状态</p>
-        <div className="status-row">
-          <span className={`status-dot ${settings?.apiKeyStatus === "verified" ? "ready" : "pending"}`} />
-          <span>{hasApiKey ? apiKeyStatusLabel(settings?.apiKeyStatus) : "等待 MiniMax API Key"}</span>
-        </div>
-        <div className="status-row">
-          <span className={`status-dot ${(settings?.voices.length ?? 0) > 0 ? "ready" : "pending"}`} />
-          <span>{(settings?.voices.length ?? 0) > 0 ? `已加载 ${settings?.voices.length} 个 Voice` : "等待 Voice 列表"}</span>
-        </div>
-        <div className="status-row">
-          <span className="status-dot pending" />
-          <span>默认快捷键 {settings?.activationShortcut ?? DEFAULT_ACTIVATION_SHORTCUT}</span>
-        </div>
-        <div className="status-row">
-          <span className={`status-dot ${settings?.hasCompletedOnboarding ? "ready" : "pending"}`} />
-          <span>{settings?.hasCompletedOnboarding ? "首次配置已完成" : "首次配置未完成"}</span>
-        </div>
+
+      <div className="health-strip" aria-label="配置状态">
+        <StatusChip ready={hasApiKey && settings?.apiKeyStatus === "verified"} label={hasApiKey ? apiKeyStatusLabel(settings?.apiKeyStatus) : "等待 API Key"} />
+        <StatusChip ready={(settings?.voices.length ?? 0) > 0} label={(settings?.voices.length ?? 0) > 0 ? `${settings?.voices.length} 个 Voice` : "等待 Voice"} />
+        <StatusChip ready={!settings?.shortcutRegistrationError} label={settings?.shortcutRegistrationError ? "快捷键异常" : "快捷键可用"} />
+        <StatusChip ready={Boolean(settings?.hasCompletedOnboarding)} label={settings?.hasCompletedOnboarding ? "配置完成" : "待完成配置"} />
       </div>
-      <div className="voice-panel" aria-label="Voice 选择">
-        <p className="section-kicker">Voice</p>
-        <div className="language-tabs" role="tablist" aria-label="语言组">
+
+      <article className="voice-panel" aria-label="Voice 选择">
+        <div className="panel-heading">
+          <div>
+            <p className="section-kicker">Voice</p>
+            <h3>快捷选择</h3>
+          </div>
+          <button className="text-action compact" onClick={() => onNavigate("history")} type="button">
+            查看历史
+          </button>
+        </div>
+        <div className="language-tabs" role="group" aria-label="语言组">
           {LANGUAGE_GROUPS.map((group) => (
             <button
+              aria-pressed={selectedLanguage === group.language}
               className={selectedLanguage === group.language ? "tab is-active" : "tab"}
               key={group.language}
               onClick={() => setSelectedLanguage(group.language)}
@@ -187,11 +274,29 @@ function Home(): ReactElement {
             ))}
           </select>
         ) : (
-          <div className="select-placeholder">Voice 列表将在账户验证后显示</div>
+          <div className="select-placeholder">账户验证后显示 Voice 列表</div>
         )}
-      </div>
+      </article>
     </section>
   );
+}
+
+function StatusChip({ ready, label }: { ready: boolean; label: string }): ReactElement {
+  return (
+    <div className={ready ? "status-chip ready" : "status-chip pending"}>
+      <span className="status-dot" aria-hidden="true" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function getSetupRecoveryAction(hasApiKey: boolean, settings: AppSettings | undefined): SetupRecoveryAction | undefined {
+  if (!settings) return undefined;
+  if (!hasApiKey) return { kind: "open-settings", label: "去设置 API Key" };
+  if (settings.apiKeyStatus !== "verified") return { kind: "verify-key", label: "验证连接" };
+  if (!settings.voices.length) return { kind: "refresh-voices", label: "刷新 Voice" };
+  if (settings.shortcutRegistrationError) return { kind: "open-settings", label: "修复快捷键" };
+  return undefined;
 }
 
 function History(): ReactElement {
@@ -349,7 +454,6 @@ function History(): ReactElement {
 }
 
 function Settings(): ReactElement {
-  const groups = ["账户与连接", "快捷键", "朗读", "历史记录", "通用"];
   const [settings, setSettings] = useState<AppSettings | undefined>();
   const [apiKeyDraft, setApiKeyDraft] = useState("");
   const [customModelDraft, setCustomModelDraft] = useState("");
@@ -498,9 +602,12 @@ function Settings(): ReactElement {
 
   return (
     <section className="settings-layout" aria-label="设置">
-      {groups.map((group) => (
-        <article className="settings-section" key={group}>
-          <h2>{group}</h2>
+      {SETTINGS_GROUPS.map((group) => (
+        <article className={settingsSectionClassName(group)} key={group}>
+          <div className="settings-heading">
+            <h2>{group}</h2>
+            <p>{SETTINGS_GROUP_DESCRIPTIONS[group]}</p>
+          </div>
           {group === "账户与连接" && (
             <div className="settings-stack">
               <p className="muted">
@@ -670,10 +777,39 @@ function Settings(): ReactElement {
   );
 }
 
+function settingsSectionClassName(group: (typeof SETTINGS_GROUPS)[number]): string {
+  return [
+    "settings-section",
+    group === "账户与连接" ? "is-primary" : "",
+    group === "通用" ? "is-quiet" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function apiKeyStatusLabel(status: AppSettings["apiKeyStatus"] | undefined): string {
   if (status === "verified") return "已验证";
   if (status === "failed") return "待验证";
   return "未配置";
+}
+
+function setupBlockerLabel(hasApiKey: boolean, settings: AppSettings | undefined): string {
+  if (!hasApiKey) return "需要 API Key";
+  if (settings?.apiKeyStatus !== "verified") return "需要验证连接";
+  if (!settings.voices.length) return "需要 Voice 列表";
+  return "暂不可播放";
+}
+
+function playbackSkippedLabel(skipped: string | undefined): string {
+  if (skipped === "empty_clipboard") return "没有检测到选区或剪切板文本";
+  if (skipped === "missing_api_key") return "需要 API Key";
+  if (skipped === "unverified_api_key") return "需要验证连接";
+  if (skipped === "missing_voice") return "需要选择 Voice";
+  return "未开始播放";
+}
+
+function readingSourceLabel(source: ReadingHistoryRecord["source"]): string {
+  return source === "selected_text" ? "选区" : "剪切板";
 }
 
 function historyRetentionLabel(retention: AppSettings["historyRetention"]): string {
