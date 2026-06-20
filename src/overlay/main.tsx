@@ -11,13 +11,15 @@ interface OverlayState {
   visible: boolean;
   leaving: boolean;
   amplitude: number;
+  progress: number;
 }
 
 function PlaybackOverlay(): ReactElement {
   const [state, setState] = useState<OverlayState>({
     visible: false,
     leaving: false,
-    amplitude: 0
+    amplitude: 0,
+    progress: 0
   });
   const [phase, setPhase] = useState(0);
 
@@ -43,12 +45,13 @@ function PlaybackOverlay(): ReactElement {
     const subscriptions = [
       overlayBridge.onOverlayShow(() => {
         clearHideTimer();
-        setState({ visible: true, leaving: false, amplitude: 0.1 });
+        setState({ visible: true, leaving: false, amplitude: 0.1, progress: 0 });
       }),
       overlayBridge.onOverlayMetric((metric) => {
         setState((current) => ({
           ...current,
-          amplitude: clamp01(metric.amplitude)
+          amplitude: clamp01(metric.amplitude),
+          progress: Math.max(current.progress, clamp01(metric.progress))
         }));
       }),
       overlayBridge.onOverlayFinish(leave),
@@ -95,6 +98,9 @@ function PlaybackOverlay(): ReactElement {
   return (
     <div className={`overlay-root${state.visible ? " is-visible" : ""}${state.leaving ? " is-leaving" : ""}`}>
       <div className="overlay-pill">
+        <div className="hover-progress" aria-hidden="true">
+          <span style={{ transform: `scaleX(${state.progress})` }} />
+        </div>
         <div className="waveform" aria-hidden="true">
           {bars.map((bar, index) => (
             <span

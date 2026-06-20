@@ -23,7 +23,8 @@ export class PlaybackOverlayController {
 
   sendMetric(metric: OverlayMetric): void {
     this.overlayWindow?.webContents.send("overlay:metric", {
-      amplitude: clamp01(metric.amplitude)
+      amplitude: clamp01(metric.amplitude),
+      progress: clamp01(metric.progress)
     });
   }
 

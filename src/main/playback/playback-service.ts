@@ -145,7 +145,8 @@ export class PlaybackService {
     const audioSession: PlaybackAudioSession = {
       sessionId,
       speechRate: settings.speechRate,
-      feedbackSurface
+      feedbackSurface,
+      segmentWeights: target.segments.map((segment) => Math.max(1, segment.text.length))
     };
     const done = this.runSession(audioSession, target, settings, apiKey, abortController);
     this.active = { sessionId, abortController, done };

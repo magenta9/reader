@@ -29,7 +29,7 @@ A Playback Session started from a Reading History Record. History Replay plays t
 _Avoid_: History playback, replay item, restored session
 
 **Feedback Surface**:
-The named UI surface that receives playback activity and completion feedback for a Playback Session. Current Reading Target playback uses the Playback Overlay feedback surface; History Replay uses the history detail feedback surface.
+The named UI surface that receives playback activity, approximate progress, and completion feedback for a Playback Session. Current Reading Target playback uses the Playback Overlay feedback surface; History Replay uses the history detail feedback surface.
 _Avoid_: Output target, display mode, status destination
 
 **Activation Shortcut**:
@@ -49,7 +49,7 @@ The menu opened from VoiceReader's macOS menu bar icon. It contains high-frequen
 _Avoid_: Tray menu, popup, dropdown
 
 **Playback Overlay**:
-A small system-level floating window that appears while the current Reading Target is preparing or playing. It stays outside the Reader Window, shows only a waveform-style playback animation, provides no in-overlay controls, and disappears when playback ends or fails. History Replay does not use the Playback Overlay.
+A small system-level floating window that appears while the current Reading Target is preparing or playing. It stays outside the Reader Window, shows only a waveform-style playback animation, reveals approximate progress on hover, provides no in-overlay controls, and disappears when playback ends or fails. History Replay does not use the Playback Overlay.
 _Avoid_: Notification, toast, in-window capsule
 
 **Error Log**:

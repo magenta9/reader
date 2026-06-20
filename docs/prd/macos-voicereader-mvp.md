@@ -106,12 +106,13 @@ Playback Overlay 是单独的 Electron BrowserWindow：
 - 不抢焦点
 - 不显示任何文本
 - 只显示真实振幅驱动的波形
-- 不显示关闭按钮、停止按钮或 hover 进度条
+- 不显示关闭按钮或停止按钮
+- hover 时胶囊轻微放大，并显示胶囊式估算进度条，左侧填充颜色更深
 - 不显示播放进度文字
 
 Overlay 波形由真实音频振幅驱动。播放 renderer 从 active audio stream 提取轻量归一化 amplitude 数据，以受限频率发送给 overlay renderer。Overlay 不接收或保存原始音频。
 
-播放完成时 Overlay 快速淡出。
+估算进度允许不准确。播放完成时可补到 100% 后快速淡出。
 
 History Replay 不显示系统级 Playback Overlay。
 

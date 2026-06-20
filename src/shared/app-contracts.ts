@@ -74,6 +74,7 @@ export interface PlaybackAudioSession {
   sessionId: number;
   speechRate: number;
   feedbackSurface: PlaybackFeedbackSurface;
+  segmentWeights: number[];
 }
 
 export interface AudioChunkPayload {
@@ -87,6 +88,7 @@ export interface SessionPayload {
 
 export interface OverlayMetric {
   amplitude: number;
+  progress: number;
 }
 
 export interface ReaderWindowBridge {

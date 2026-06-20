@@ -59,6 +59,7 @@ if (process.platform === "darwin") {
 
 const mainBundle = await readFile(new URL("../dist/main/main.js", import.meta.url), "utf8");
 const appContractsBundle = await readFile(new URL("../dist/shared/app-contracts.js", import.meta.url), "utf8");
+const appContractsSource = await readFile(new URL("../src/shared/app-contracts.ts", import.meta.url), "utf8");
 const preloadBundle = await readFile(new URL("../dist/preload/preload.cjs", import.meta.url), "utf8");
 const preloadSource = await readFile(new URL("../src/preload/preload.ts", import.meta.url), "utf8");
 const rendererHtml = await readFile(new URL("../dist/renderer/index.html", import.meta.url), "utf8");
@@ -269,15 +270,18 @@ assert.equal(rendererCssSource.includes(".range-control"), true);
 assertMissing(overlayHtml, "manifest.json");
 assertIncludes(overlayHtml, ["VoiceReader Overlay", '<link rel="stylesheet" href="./overlay.css"']);
 assertIncludes(overlayBundle, ["onOverlayShow", "onOverlayMetric", "scaleY"]);
-assertMissing(overlayBundle, ["stopPlayback", "progress:", "×", "\\xD7", "播放"]);
-assertMissing(overlaySource, ["viewBox", "progress"]);
-assertIncludes(overlayCss, ["transparent", "--pill: #000", "prefers-reduced-motion", "width: 120px", "height: 32px", "gap: 3px", "padding: 0 16px"]);
-assertMissing(overlayCss, [".close-button", ".overlay-pill:hover .hover-progress", "grid-template-columns:", "--pill: #000;\n    --shadow", "button {"]);
+assertMissing(overlayBundle, ["stopPlayback", "×", "\\xD7", "播放"]);
+assertMissing(overlaySource, "viewBox");
+assertIncludes(overlaySource, ["progress: number", "Math.max(current.progress", "scaleX"]);
+assertIncludes(overlayCss, ["transparent", "--pill: #000", "prefers-reduced-motion", "width: 120px", "height: 32px", "gap: 3px", "padding: 0 16px", ".overlay-root.is-visible .overlay-pill:hover", ".hover-progress span", "scale(1.035)"]);
+assertMissing(overlayCss, [".close-button", "grid-template-columns:", "--pill: #000;\n    --shadow", "button {", "box-shadow: inset 0 1px 0"]);
 assertIncludes(playbackOverlayControllerSource, ["width: 132", "height: 44", 'const overlayWindowLevel = "screen-saver"', "getDisplayNearestPoint(screen.getCursorScreenPoint())"]);
-assertMissing(playbackOverlayControllerSource, ["skipTransformProcessType", "metric.progress"]);
-assertMissing(rendererAudioSource, ["audio.currentTime / audio.duration", "progress:"]);
+assertIncludes(playbackOverlayControllerSource, "metric.progress");
+assertMissing(playbackOverlayControllerSource, "skipTransformProcessType");
+assertIncludes(rendererAudioSource, ["segmentWeights", "getSessionProgress", "progress:"]);
+assertMissing(rendererAudioSource, "const progress = audioProgress");
 assertIncludes(overlaySource, "const BAR_COUNT = 12");
-assertMissing(appContractsBundle, "progress");
+assertIncludes(appContractsSource, "progress: number");
 assert.equal(packageScript.includes("dereference: true"), false);
 assert.equal(packageScript.includes("verbatimSymlinks: true"), true);
 assert.equal(packageScript.includes("default_app.asar"), true);
@@ -722,7 +726,8 @@ const sink = createPlaybackSinkForTest(playbackEvents, (session) => [
   session.sessionId,
   hasReadingTargetPayload(session),
   session.speechRate,
-  session.feedbackSurface
+  session.feedbackSurface,
+  session.segmentWeights
 ]);
 
 store.updateSettings({
@@ -748,7 +753,7 @@ assertReadingHistoryContains(store, {
 });
 await playback.waitForCurrentSession();
 assert.deepEqual(playbackEvents.slice(-4), [
-  ["start", playbackResult.sessionId, false, 1.5, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay],
+  ["start", playbackResult.sessionId, false, 1.5, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay, [10]],
   ["chunk", playbackResult.sessionId, "171,205"],
   ["segment-end", playbackResult.sessionId],
   ["finish", playbackResult.sessionId]
@@ -771,7 +776,7 @@ assertReadingHistoryContains(store, {
 });
 await playback.waitForCurrentSession();
 assert.deepEqual(playbackEvents.slice(-4), [
-  ["start", selectedTextPlayback.sessionId, false, 1.5, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay],
+  ["start", selectedTextPlayback.sessionId, false, 1.5, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay, [9]],
   ["chunk", selectedTextPlayback.sessionId, "171,205"],
   ["segment-end", selectedTextPlayback.sessionId],
   ["finish", selectedTextPlayback.sessionId]
@@ -987,7 +992,7 @@ await withPlaybackAudioQueueScenario(async ({ overlayQueue, overlayQueueEvents }
   overlayQueue.finishSession(201);
   await flushPlaybackMicrotasks();
   assert.deepEqual(overlayQueueEvents, [
-    ["metric", 0],
+    ["metric", 0, 1],
     ["finish-overlay"],
     ["idle", 201]
   ]);
@@ -1028,6 +1033,37 @@ await withPlaybackAudioQueueScenario(async ({ overlayQueue, overlayQueueEvents, 
   assert.equal(animationFrames.length, 0);
   assert.deepEqual(overlayQueueEvents, []);
   overlayQueue.stop();
+});
+
+await withPlaybackAudioQueueScenario(async ({ overlayQueue, overlayQueueEvents, animationFrames, playedAudios }) => {
+  overlayQueue.startSession(createPlaybackSessionForTest(205, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay, [9, 1]));
+  overlayQueue.pushChunk(205, new Uint8Array([1]));
+  overlayQueue.endSegment(205);
+  overlayQueue.pushChunk(205, new Uint8Array([2]));
+  overlayQueue.endSegment(205);
+  overlayQueue.finishSession(205);
+  await flushPlaybackMicrotasks();
+  await flushPlaybackMicrotasks();
+  const firstAudio = playedAudios.at(-1);
+  animationFrames.shift()();
+  const firstMetric = overlayQueueEvents.find((event) => event[0] === "metric");
+  assert.equal(firstMetric[2] > 0.4 && firstMetric[2] < 0.5, true);
+  firstAudio.listeners.ended();
+  await flushPlaybackMicrotasks();
+  await flushPlaybackMicrotasks();
+  const secondAudio = playedAudios.at(-1);
+  const metricCountBeforeSecondSegment = overlayQueueEvents.filter((event) => event[0] === "metric").length;
+  while (
+    animationFrames.length &&
+    overlayQueueEvents.filter((event) => event[0] === "metric").length === metricCountBeforeSecondSegment
+  ) {
+    animationFrames.shift()();
+  }
+  const secondMetric = overlayQueueEvents.filter((event) => event[0] === "metric").at(-1);
+  assert.equal(secondMetric[2] > 0.9 && secondMetric[2] < 1, true);
+  secondAudio.listeners.ended();
+  await flushPlaybackMicrotasks();
+  await flushPlaybackMicrotasks();
 });
 
 let firstStreamAborted = false;
@@ -1163,11 +1199,12 @@ function createHistoryReplaySessionForTest(sessionId) {
   return createPlaybackSessionForTest(sessionId, PLAYBACK_FEEDBACK_SURFACES.historyDetail);
 }
 
-function createPlaybackSessionForTest(sessionId, feedbackSurface) {
+function createPlaybackSessionForTest(sessionId, feedbackSurface, segmentWeights = [1]) {
   return {
     sessionId,
     speechRate: 1,
-    feedbackSurface
+    feedbackSurface,
+    segmentWeights
   };
 }
 
@@ -1245,7 +1282,7 @@ function installPlaybackAudioQueueBrowserFakes() {
   replaceProperty(restoreCallbacks, globalThis, "window", {
     voiceReader: {
       sendOverlayMetric(metric) {
-        overlayQueueEvents.push(["metric", metric.amplitude]);
+        overlayQueueEvents.push(["metric", metric.amplitude, metric.progress]);
         return Promise.resolve();
       },
       finishOverlayPlayback() {

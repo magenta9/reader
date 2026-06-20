@@ -1,0 +1,261 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-06-20T07:52:45Z",
+  "title": "Design System: VoiceReader",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Reader Canvas",
+        "canonical": "#f3f2ef",
+        "tonalRamp": ["oklch(18% 0.006 80)", "oklch(28% 0.006 80)", "oklch(40% 0.006 80)", "oklch(52% 0.006 80)", "oklch(64% 0.006 80)", "oklch(76% 0.006 80)", "oklch(88% 0.006 80)", "oklch(96% 0.006 80)"]
+      },
+      "sidebar": {
+        "role": "neutral",
+        "displayName": "Sidebar Plane",
+        "canonical": "#e7e5e0",
+        "tonalRamp": ["oklch(16% 0.007 80)", "oklch(27% 0.007 80)", "oklch(39% 0.007 80)", "oklch(51% 0.007 80)", "oklch(63% 0.007 80)", "oklch(75% 0.007 80)", "oklch(87% 0.007 80)", "oklch(94% 0.007 80)"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Raised Surface",
+        "canonical": "#fffefa",
+        "tonalRamp": ["oklch(20% 0.004 80)", "oklch(31% 0.004 80)", "oklch(43% 0.004 80)", "oklch(55% 0.004 80)", "oklch(67% 0.004 80)", "oklch(79% 0.004 80)", "oklch(91% 0.004 80)", "oklch(98% 0.004 80)"]
+      },
+      "surface-muted": {
+        "role": "neutral",
+        "displayName": "Muted Surface",
+        "canonical": "#f5f3ee",
+        "tonalRamp": ["oklch(18% 0.006 80)", "oklch(29% 0.006 80)", "oklch(41% 0.006 80)", "oklch(53% 0.006 80)", "oklch(65% 0.006 80)", "oklch(77% 0.006 80)", "oklch(89% 0.006 80)", "oklch(96% 0.006 80)"]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Primary Ink",
+        "canonical": "#1d1d1f",
+        "tonalRamp": ["oklch(15% 0.003 270)", "oklch(24% 0.003 270)", "oklch(34% 0.003 270)", "oklch(46% 0.003 270)", "oklch(58% 0.003 270)", "oklch(70% 0.003 270)", "oklch(82% 0.003 270)", "oklch(94% 0.003 270)"]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted Ink",
+        "canonical": "#696864",
+        "tonalRamp": ["oklch(16% 0.004 80)", "oklch(27% 0.004 80)", "oklch(39% 0.004 80)", "oklch(51% 0.004 80)", "oklch(63% 0.004 80)", "oklch(75% 0.004 80)", "oklch(87% 0.004 80)", "oklch(95% 0.004 80)"]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Utility Action Blue",
+        "canonical": "#2458ef",
+        "tonalRamp": ["oklch(15% 0.16 265)", "oklch(25% 0.18 265)", "oklch(35% 0.2 265)", "oklch(47% 0.22 265)", "oklch(59% 0.2 265)", "oklch(71% 0.16 265)", "oklch(83% 0.1 265)", "oklch(95% 0.04 265)"]
+      },
+      "positive": {
+        "role": "tertiary",
+        "displayName": "Ready Green",
+        "canonical": "#238a52",
+        "tonalRamp": ["oklch(16% 0.1 150)", "oklch(26% 0.12 150)", "oklch(36% 0.13 150)", "oklch(48% 0.14 150)", "oklch(60% 0.12 150)", "oklch(72% 0.09 150)", "oklch(84% 0.06 150)", "oklch(95% 0.03 150)"]
+      },
+      "warning": {
+        "role": "tertiary",
+        "displayName": "Setup Amber",
+        "canonical": "#c9932b",
+        "tonalRamp": ["oklch(18% 0.09 80)", "oklch(30% 0.11 80)", "oklch(42% 0.13 80)", "oklch(54% 0.14 80)", "oklch(66% 0.12 80)", "oklch(78% 0.09 80)", "oklch(89% 0.06 80)", "oklch(96% 0.03 80)"]
+      },
+      "danger": {
+        "role": "tertiary",
+        "displayName": "Destructive Red",
+        "canonical": "#b33b2e",
+        "tonalRamp": ["oklch(16% 0.1 30)", "oklch(26% 0.12 30)", "oklch(36% 0.14 30)", "oklch(48% 0.15 30)", "oklch(60% 0.12 30)", "oklch(72% 0.09 30)", "oklch(84% 0.06 30)", "oklch(95% 0.03 30)"]
+      },
+      "overlay-pill": {
+        "role": "secondary",
+        "displayName": "Playback Black",
+        "canonical": "#000000",
+        "tonalRamp": ["oklch(0% 0 0)", "oklch(12% 0 0)", "oklch(24% 0 0)", "oklch(36% 0 0)", "oklch(48% 0 0)", "oklch(60% 0 0)", "oklch(76% 0 0)", "oklch(94% 0 0)"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Reader Window Title",
+        "purpose": "Page titles in the main Electron window."
+      },
+      "headline": {
+        "displayName": "Command Headline",
+        "purpose": "Primary task headings such as the Home playback command."
+      },
+      "title": {
+        "displayName": "Panel Title",
+        "purpose": "Settings, history, and voice module headings."
+      },
+      "body": {
+        "displayName": "Utility Body",
+        "purpose": "Descriptions, privacy hints, and long history text."
+      },
+      "label": {
+        "displayName": "Compact Label",
+        "purpose": "Status, metadata, form labels, and setup notes."
+      }
+    },
+    "shadows": [
+      {
+        "name": "main-window-low-lift",
+        "value": "0 6px 8px rgba(24, 22, 18, 0.08)",
+        "purpose": "Major Reader Window surfaces above the canvas."
+      },
+      {
+        "name": "dark-window-low-lift",
+        "value": "0 6px 8px rgba(0, 0, 0, 0.32)",
+        "purpose": "Dark appearance version of the main surface lift."
+      },
+      {
+        "name": "overlay-float",
+        "value": "0 10px 26px rgba(0, 0, 0, 0.32), 0 2px 8px rgba(0, 0, 0, 0.2)",
+        "purpose": "Transient Playback Overlay pill only."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "130ms ease",
+        "purpose": "Button, tab, nav, and status state changes."
+      },
+      {
+        "name": "overlay-enter",
+        "value": "170ms cubic-bezier(0.2, 0.8, 0.2, 1)",
+        "purpose": "Playback Overlay opacity and transform transition."
+      },
+      {
+        "name": "waveform-response",
+        "value": "82ms linear",
+        "purpose": "Audio-amplitude bar scaling in the overlay."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "minimum-window",
+        "value": "900px x 620px"
+      }
+    ],
+    "narrative": {
+      "northStar": "The Quiet Menu Bar Instrument",
+      "overview": "VoiceReader should look like a compact macOS utility that happens to speak, not like a media app or an AI dashboard. The design system is restrained, dense, and operational: a user opens the Reader Window to complete setup, confirm status, choose a voice, or inspect local history, then returns to the app they were already using.\n\nThe main window uses low-chroma macOS layering: a sidebar plane, a content canvas, raised utility surfaces, and small status bands. The Playback Overlay is separate and more decisive: a black pill with amplitude-driven waveform motion that confirms playback without stealing focus.\n\nThe system explicitly rejects marketing-site composition, decorative dashboard modules, chat metaphors, gamified voice selection, loud gradients, and any treatment that implies VoiceReader analyzes or summarizes the user's text.",
+      "keyCharacteristics": [
+        "Restrained color with one action accent.",
+        "Native-feeling density and compact Chinese labels.",
+        "Clear setup blockers placed near recovery actions.",
+        "Privacy boundaries expressed in product copy, not decoration.",
+        "Motion only for state feedback, especially playback activity."
+      ],
+      "rules": [
+        {
+          "name": "The One Accent Rule",
+          "body": "Blue is for action, focus, selection, and information only. Never use it as decoration or section theming.",
+          "section": "colors"
+        },
+        {
+          "name": "The Faint-Is-Decorative Rule",
+          "body": "Faint text is never body copy, form labels, or recovery guidance. If a user must read it to proceed, use `muted` or `text`.",
+          "section": "colors"
+        },
+        {
+          "name": "The Overlay-Is-Separate Rule",
+          "body": "The black overlay palette belongs to playback confirmation only. Do not import it into regular Reader Window panels.",
+          "section": "colors"
+        },
+        {
+          "name": "The Product Sans Rule",
+          "body": "Use one system sans family throughout. Do not introduce display fonts, marketing serif pairings, or decorative mono labels.",
+          "section": "typography"
+        },
+        {
+          "name": "The Zero-Tracking Rule",
+          "body": "Chinese UI labels and mixed English product terms use `letter-spacing: 0`. Do not add uppercase tracked eyebrows.",
+          "section": "typography"
+        },
+        {
+          "name": "The One Raised Layer Rule",
+          "body": "A surface may use a shadow or a hairline, but repeated shadowed modules on one screen make the utility feel like a dashboard. Reserve lift for the primary task surface.",
+          "section": "elevation"
+        }
+      ],
+      "dos": [
+        "Do keep the Reader Window compact, dense, and task-first.",
+        "Do keep playback ambient: the main window may show terse status, but live playback confirmation belongs in the Playback Overlay.",
+        "Do place setup blockers beside the action that resolves them.",
+        "Do preserve privacy boundaries in visible copy: local history, MiniMax transmission, and non-storage of audio should be plain.",
+        "Do use Chinese for user-facing copy while keeping stable English product terms such as Voice, Model, MiniMax, and VoiceReader.",
+        "Do respect reduced-motion preferences for the overlay waveform and all state transitions."
+      ],
+      "donts": [
+        "Don't make VoiceReader look like a marketing site, an AI writing dashboard, or a media player with decorative playback chrome.",
+        "Don't use oversized hero layouts, decorative card grids, gamified voice selection, chat-app metaphors, loud gradients, or visual treatments that imply text content is being analyzed or summarized.",
+        "Don't expose Selected Text, Clipboard Text, Reading Targets, raw MiniMax responses, stack traces, or generated audio in status or diagnostic surfaces.",
+        "Don't use repeated shadowed cards when a flat band, hairline, or inline status row can carry the information.",
+        "Don't use side-stripe borders, gradient text, glassmorphism, uppercase tracked eyebrows, or numbered section scaffolding.",
+        "Don't make color the only status indicator; every ready, warning, and error state needs readable text."
+      ]
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single strongest action on a surface, used for Play or direct setup recovery.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">播放</button>",
+      "css": ".ds-btn-primary { min-height: 44px; min-width: 96px; border: 0; border-radius: 999px; background: var(--accent, #2458ef); color: var(--accent-text, #07101f); padding: 0 24px; font: 760 15px/1 ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif; cursor: pointer; transition: transform 130ms ease, background-color 130ms ease, opacity 130ms ease; } .ds-btn-primary:hover { background: var(--accent-pressed, #1f4dd0); } .ds-btn-primary:active { transform: scale(0.96); } .ds-btn-primary:focus-visible { outline: 2px solid var(--accent, #2458ef); outline-offset: 2px; } .ds-btn-primary:disabled { cursor: not-allowed; opacity: 0.48; }"
+    },
+    {
+      "name": "Secondary Action",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A compact utility action for settings and history commands.",
+      "html": "<button class=\"ds-btn-secondary\" type=\"button\">验证连接</button>",
+      "css": ".ds-btn-secondary { min-height: 40px; width: fit-content; border: 0; border-radius: 999px; background: var(--text, #1d1d1f); color: var(--surface, #fffefa); padding: 0 16px; font: 700 14px/1 ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif; cursor: pointer; transition: transform 130ms ease, background-color 130ms ease, opacity 130ms ease; } .ds-btn-secondary:active { transform: scale(0.96); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--accent, #2458ef); outline-offset: 2px; } .ds-btn-secondary:disabled { cursor: not-allowed; opacity: 0.45; }"
+    },
+    {
+      "name": "Text Action",
+      "kind": "button",
+      "refersTo": "button-text",
+      "description": "A low-weight action for secondary navigation, copy, stop, or reset commands.",
+      "html": "<button class=\"ds-btn-text\" type=\"button\">查看历史</button>",
+      "css": ".ds-btn-text { min-height: 40px; border: 0; border-radius: 999px; background: transparent; color: var(--accent, #2458ef); padding: 0 10px; font: 700 14px/1 ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif; cursor: pointer; transition: transform 130ms ease, background-color 130ms ease, color 130ms ease, opacity 130ms ease; } .ds-btn-text:hover { background: color-mix(in srgb, var(--accent, #2458ef) 10%, transparent); } .ds-btn-text:active { transform: scale(0.96); } .ds-btn-text:focus-visible { outline: 2px solid var(--accent, #2458ef); outline-offset: 2px; } .ds-btn-text:disabled { cursor: not-allowed; opacity: 0.45; }"
+    },
+    {
+      "name": "Input Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "The default form field style for API keys, custom models, and selects.",
+      "html": "<label class=\"ds-field-label\">MiniMax API Key<input class=\"ds-input\" placeholder=\"输入后会保存到本机 SQLite\" type=\"password\" /></label>",
+      "css": ".ds-field-label { display: grid; gap: 8px; color: var(--muted, #696864); font: 680 13px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif; } .ds-input { min-height: 42px; border: 0; border-radius: 12px; background: var(--surface-muted, #f5f3ee); color: var(--text, #1d1d1f); padding: 0 14px; font: inherit; outline: 1px solid var(--hairline, #26241f1a); } .ds-input:focus { outline: 2px solid color-mix(in oklch, var(--accent, #2458ef), transparent 40%); } .ds-input::placeholder { color: var(--muted, #696864); }"
+    },
+    {
+      "name": "Status Chip",
+      "kind": "chip",
+      "refersTo": "status-chip",
+      "description": "A compact readiness indicator with text plus a semantic dot.",
+      "html": "<div class=\"ds-status-chip ds-status-ready\"><span class=\"ds-status-dot\" aria-hidden=\"true\"></span><span>快捷键可用</span></div>",
+      "css": ".ds-status-chip { display: inline-flex; min-height: 44px; align-items: center; gap: 9px; border-radius: 12px; background: var(--surface-muted, #f5f3ee); color: var(--muted, #696864); padding: 0 12px; font: 13px/1.2 ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif; } .ds-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint, #96938b); } .ds-status-ready .ds-status-dot { background: var(--positive, #238a52); } .ds-status-pending .ds-status-dot { background: var(--warning, #c9932b); }"
+    },
+    {
+      "name": "Surface Panel",
+      "kind": "card",
+      "refersTo": "card-surface",
+      "description": "A major content container for command, settings, and history surfaces.",
+      "html": "<section class=\"ds-surface\"><p class=\"ds-kicker\">Voice</p><h3>快捷选择</h3><p>账户验证后显示 Voice 列表。</p></section>",
+      "css": ".ds-surface { border-radius: 16px; background: var(--surface, #fffefa); color: var(--text, #1d1d1f); padding: 22px; box-shadow: var(--shadow, 0 6px 8px rgba(24, 22, 18, 0.08)); font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif; } .ds-surface h3 { margin: 5px 0 0; font-size: 20px; line-height: 1.15; } .ds-surface p { max-width: 64ch; margin: 10px 0 0; color: var(--muted, #696864); font-size: 15px; line-height: 1.65; } .ds-kicker { margin: 0; color: var(--muted, #696864); font-size: 12px; font-weight: 700; letter-spacing: 0; }"
+    },
+    {
+      "name": "Sidebar Navigation Item",
+      "kind": "nav",
+      "description": "The labeled macOS navigation item used in the fixed sidebar.",
+      "html": "<button class=\"ds-nav-item ds-nav-active\" type=\"button\"><span class=\"ds-nav-mark\" aria-hidden=\"true\">⌂</span><span>主页</span></button>",
+      "css": ".ds-nav-item { display: flex; width: 100%; min-height: 44px; align-items: center; gap: 12px; border: 0; border-radius: 12px; background: transparent; color: var(--muted, #696864); padding: 0 14px; font: 15px/1 ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif; text-align: left; cursor: pointer; transition: transform 130ms ease, background-color 130ms ease, color 130ms ease; } .ds-nav-item:hover, .ds-nav-active { background: rgba(255, 255, 255, 0.55); color: var(--text, #1d1d1f); } .ds-nav-active { font-weight: 680; } .ds-nav-item:active { transform: scale(0.96); } .ds-nav-item:focus-visible { outline: 2px solid var(--accent, #2458ef); outline-offset: 2px; } .ds-nav-mark { width: 20px; color: var(--faint, #96938b); font-size: 19px; text-align: center; }"
+    },
+    {
+      "name": "Playback Overlay Pill",
+      "kind": "custom",
+      "refersTo": "overlay-pill",
+      "description": "The non-activating playback confirmation surface with waveform bars.",
+      "html": "<div class=\"ds-overlay-pill\"><div class=\"ds-waveform\" aria-hidden=\"true\"><span></span><span></span><span></span><span></span><span></span><span></span></div></div>",
+      "css": ".ds-overlay-pill { position: relative; display: flex; align-items: center; justify-content: center; width: 120px; height: 32px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 999px; background: var(--pill, #000); box-shadow: 0 10px 26px rgba(0, 0, 0, 0.32), 0 2px 8px rgba(0, 0, 0, 0.2); } .ds-overlay-pill::after { position: absolute; inset: 1px; pointer-events: none; border-radius: inherit; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12); content: ''; } .ds-waveform { position: relative; z-index: 1; display: flex; height: 100%; align-items: center; justify-content: center; gap: 3px; padding: 0 16px; } .ds-waveform span { width: 2.2px; height: 21px; border-radius: 999px; background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.98) 42%, rgba(255, 255, 255, 0.28)); transform-origin: center; animation: ds-wave 850ms ease-in-out infinite; } .ds-waveform span:nth-child(2) { animation-delay: 90ms; } .ds-waveform span:nth-child(3) { animation-delay: 180ms; } .ds-waveform span:nth-child(4) { animation-delay: 270ms; } .ds-waveform span:nth-child(5) { animation-delay: 360ms; } .ds-waveform span:nth-child(6) { animation-delay: 450ms; } @keyframes ds-wave { 0%, 100% { transform: scaleY(0.45); opacity: 0.62; } 50% { transform: scaleY(1); opacity: 1; } } @media (prefers-reduced-motion: reduce) { .ds-waveform span { animation-duration: 1ms; animation-iteration-count: 1; } }"
+    }
+  ]
+}

@@ -12,6 +12,14 @@
   --accent-pressed: #1f4dd0;
   --positive: #238a52;
   --warning: #c9932b;
+  --button-secondary-bg: rgba(29, 29, 31, 0.08);
+  --button-secondary-bg-hover: rgba(29, 29, 31, 0.12);
+  --button-secondary-border: rgba(29, 29, 31, 0.1);
+  --button-secondary-fg: #1d1d1f;
+  --button-disabled-bg: rgba(29, 29, 31, 0.05);
+  --button-disabled-border: rgba(29, 29, 31, 0.06);
+  --button-disabled-fg: rgba(29, 29, 31, 0.36);
+  --button-edge: rgba(255, 255, 255, 0.64);
   --shadow: 0 6px 8px rgba(24, 22, 18, 0.08);
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -45,6 +53,14 @@
     --accent-pressed: #adc1ff;
     --positive: #27c46b;
     --warning: #d5a33a;
+    --button-secondary-bg: rgba(255, 255, 255, 0.1);
+    --button-secondary-bg-hover: rgba(255, 255, 255, 0.15);
+    --button-secondary-border: rgba(255, 255, 255, 0.12);
+    --button-secondary-fg: rgba(255, 255, 255, 0.92);
+    --button-disabled-bg: rgba(255, 255, 255, 0.055);
+    --button-disabled-border: rgba(255, 255, 255, 0.07);
+    --button-disabled-fg: rgba(255, 255, 255, 0.34);
+    --button-edge: rgba(255, 255, 255, 0.08);
     --shadow: 0 6px 8px rgba(0, 0, 0, 0.32);
   }
 }
@@ -771,17 +787,22 @@ input:focus-visible {
   transition:
     transform 130ms ease,
     background-color 130ms ease,
-    color 130ms ease,
-    opacity 130ms ease;
+    color 130ms ease;
 }
 
 .secondary-action {
   width: fit-content;
+  outline: 1px solid var(--button-secondary-border);
   border-radius: var(--radius-pill);
-  background: var(--text);
-  color: var(--surface);
+  background: var(--button-secondary-bg);
+  box-shadow: inset 0 1px 0 var(--button-edge);
+  color: var(--button-secondary-fg);
   font-weight: 700;
   padding: 0 16px;
+}
+
+.secondary-action:hover:not(:disabled) {
+  background: var(--button-secondary-bg-hover);
 }
 
 .danger-action {
@@ -797,7 +818,22 @@ input:focus-visible {
 .danger-action:disabled,
 .text-action:disabled {
   cursor: not-allowed;
-  opacity: 0.45;
+}
+
+.secondary-action:disabled {
+  outline-color: var(--button-disabled-border);
+  background: var(--button-disabled-bg);
+  box-shadow: none;
+  color: var(--button-disabled-fg);
+}
+
+.danger-action:disabled {
+  background: var(--button-disabled-bg);
+  color: var(--button-disabled-fg);
+}
+
+.text-action:disabled {
+  color: var(--button-disabled-fg);
 }
 
 .secondary-action:active,
@@ -812,6 +848,10 @@ input:focus-visible {
   color: var(--accent);
   font-weight: 700;
   padding: 0 10px;
+}
+
+.text-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .log-count {
