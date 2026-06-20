@@ -16,6 +16,8 @@ export class PlaybackOverlayController {
     const window = this.getOrCreateWindow();
     keepOverlayAttached(window);
     if (!window.isVisible()) window.showInactive();
+    // Re-bind after show so macOS attaches the panel to active fullscreen Spaces.
+    attachOverlayToFullscreenSpaces(window);
     window.moveTop();
     this.startFollowing();
     this.sendPendingShow();
@@ -56,6 +58,7 @@ export class PlaybackOverlayController {
 
     this.overlayWindow = new BrowserWindow({
       title: "VoiceReader Playback Overlay",
+      type: "panel",
       width: 132,
       height: 44,
       frame: false,
@@ -79,9 +82,7 @@ export class PlaybackOverlayController {
       }
     });
     this.overlayLoaded = false;
-    this.overlayWindow.setVisibleOnAllWorkspaces(true, {
-      visibleOnFullScreen: true
-    });
+    attachOverlayToFullscreenSpaces(this.overlayWindow);
     this.overlayWindow.setAlwaysOnTop(true, overlayWindowLevel);
     this.overlayWindow.webContents.once("did-finish-load", () => {
       this.overlayLoaded = true;
@@ -131,11 +132,23 @@ export class PlaybackOverlayController {
 const mainBundleDir = dirname(fileURLToPath(import.meta.url));
 
 function keepOverlayAttached(window: BrowserWindow): void {
-  window.setVisibleOnAllWorkspaces(true, {
-    visibleOnFullScreen: true
-  });
+  refreshOverlayWorkspaceAttachment(window);
   window.setAlwaysOnTop(true, overlayWindowLevel);
   positionOverlayWindow(window);
+}
+
+function attachOverlayToFullscreenSpaces(window: BrowserWindow): void {
+  window.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: false
+  });
+}
+
+function refreshOverlayWorkspaceAttachment(window: BrowserWindow): void {
+  window.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true
+  });
 }
 
 const overlayWindowLevel = "screen-saver";

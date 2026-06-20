@@ -273,14 +273,15 @@ assertIncludes(overlayBundle, ["onOverlayShow", "onOverlayMetric", "scaleY"]);
 assertMissing(overlayBundle, ["stopPlayback", "×", "\\xD7", "播放"]);
 assertMissing(overlaySource, "viewBox");
 assertIncludes(overlaySource, ["progress: number", "Math.max(current.progress", "scaleX"]);
-assertIncludes(overlayCss, ["transparent", "--pill: #000", "prefers-reduced-motion", "width: 120px", "height: 32px", "gap: 3px", "padding: 0 16px", ".overlay-root.is-visible .overlay-pill:hover", ".hover-progress span", "scale(1.035)"]);
+assertIncludes(overlayCss, ["transparent", "--pill: #000", "--pill-border", "border: 1px solid var(--pill-border)", "prefers-reduced-motion", "width: 120px", "height: 32px", "gap: 4px", "padding: 0 15px", "width: 3.6px", ".overlay-root.is-visible .overlay-pill:hover", ".hover-progress span", "scale(1.035)"]);
 assertMissing(overlayCss, [".close-button", "grid-template-columns:", "--pill: #000;\n    --shadow", "button {", "box-shadow: inset 0 1px 0"]);
-assertIncludes(playbackOverlayControllerSource, ["width: 132", "height: 44", 'const overlayWindowLevel = "screen-saver"', "getDisplayNearestPoint(screen.getCursorScreenPoint())"]);
+assertIncludes(playbackOverlayControllerSource, ["type: \"panel\"", "width: 132", "height: 44", 'const overlayWindowLevel = "screen-saver"', "getDisplayNearestPoint(screen.getCursorScreenPoint())", "skipTransformProcessType"]);
+assertIncludes(playbackOverlayControllerSource, "attachOverlayToFullscreenSpaces(window);\n    window.moveTop()");
+assertIncludes(playbackOverlayControllerSource, "refreshOverlayWorkspaceAttachment(window)");
 assertIncludes(playbackOverlayControllerSource, "metric.progress");
-assertMissing(playbackOverlayControllerSource, "skipTransformProcessType");
 assertIncludes(rendererAudioSource, ["segmentWeights", "getSessionProgress", "progress:"]);
 assertMissing(rendererAudioSource, "const progress = audioProgress");
-assertIncludes(overlaySource, "const BAR_COUNT = 12");
+assertIncludes(overlaySource, "const BAR_COUNT = 10");
 assertIncludes(appContractsSource, "progress: number");
 assert.equal(packageScript.includes("dereference: true"), false);
 assert.equal(packageScript.includes("verbatimSymlinks: true"), true);
@@ -310,17 +311,28 @@ const segments = createReadingSegments(Array.from({ length: 80 }, (_, index) => 
 assert.ok(segments.length > 1);
 assert.ok(segments.every((segment) => segment.language === "en"));
 assert.ok(segments.every((segment) => segment.text.length <= 900));
+assert.ok(segments[0].text.length <= 240);
 
 const chineseSentence = `这是一句用于验证中文分段边界的长句子，它需要在自然标点处切分，而不是在句子的中间被硬切断。`;
 const chineseSegments = createReadingSegments(Array.from({ length: 30 }, () => chineseSentence).join(""));
 assert.ok(chineseSegments.length > 1);
 assert.ok(chineseSegments.every((segment) => segment.text.length <= 900));
+assert.ok(chineseSegments[0].text.length <= 240);
 assert.ok(chineseSegments.every((segment) => segment.text.endsWith("。")));
 assert.ok(chineseSegments.every((segment) => segment.language === "zh"));
 
 const unpunctuatedSegments = createReadingSegments("长".repeat(1900));
 assert.ok(unpunctuatedSegments.length > 1);
 assert.ok(unpunctuatedSegments.every((segment) => segment.text.length <= 900));
+assert.ok(unpunctuatedSegments[0].text.length <= 240);
+
+const unpunctuatedEnglish = "a".repeat(1900);
+const unpunctuatedEnglishSegments = createReadingSegments(unpunctuatedEnglish);
+assert.ok(unpunctuatedEnglishSegments.length > 1);
+assert.equal(
+  unpunctuatedEnglishSegments.map((segment) => segment.text).join(""),
+  unpunctuatedEnglish
+);
 
 const normalizedVoices = normalizeMiniMaxVoices({
   system_voice: [

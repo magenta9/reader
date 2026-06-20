@@ -4,7 +4,7 @@ import type { ReactElement } from "react";
 import { getPlaybackOverlayBridge } from "../shared/voice-reader-bridge.js";
 import "./styles.css";
 
-const BAR_COUNT = 12;
+const BAR_COUNT = 10;
 const overlayBridge = getPlaybackOverlayBridge();
 
 interface OverlayState {
@@ -79,7 +79,7 @@ function PlaybackOverlay(): ReactElement {
     return () => window.cancelAnimationFrame(frame);
   }, [state.amplitude, state.leaving, state.visible]);
 
-  const bars = useMemo(
+  const barScales = useMemo(
     () =>
       Array.from({ length: BAR_COUNT }, (_, index) => {
         const center = 1 - Math.abs((index - (BAR_COUNT - 1) / 2) / ((BAR_COUNT - 1) / 2));
@@ -87,10 +87,7 @@ function PlaybackOverlay(): ReactElement {
         const detail = 0.5 + Math.cos(phase * 0.74 + index * 1.17) * 0.5;
         const energy = Math.max(0.12, state.amplitude);
         const scale = 0.2 + center * 0.28 + energy * (0.16 + center * (0.9 * carrier + 0.42 * detail));
-        return {
-          scale: Math.min(1, scale),
-          opacity: Math.min(1, 0.5 + center * 0.24 + energy * 0.42)
-        };
+        return Math.min(1, scale);
       }),
     [phase, state.amplitude]
   );
@@ -102,13 +99,12 @@ function PlaybackOverlay(): ReactElement {
           <span style={{ transform: `scaleX(${state.progress})` }} />
         </div>
         <div className="waveform" aria-hidden="true">
-          {bars.map((bar, index) => (
+          {barScales.map((barScale, index) => (
             <span
               className="waveform-bar"
               key={index}
               style={{
-                opacity: bar.opacity,
-                transform: `scaleY(${bar.scale})`
+                transform: `scaleY(${barScale})`
               }}
             />
           ))}

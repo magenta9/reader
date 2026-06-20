@@ -1,6 +1,7 @@
 import { detectLanguage } from "./language.js";
 import type { ReadingSegment } from "./types.js";
 
+const FIRST_SEGMENT_MAX_LENGTH = 240;
 const MIN_SEGMENT_LENGTH = 120;
 const MAX_SEGMENT_LENGTH = 900;
 const SENTENCE_BOUNDARY = /[。！？!?；;.!?]/;
@@ -38,8 +39,7 @@ export function createReadingSegments(text: string): ReadingSegment[] {
   }
   if (buffer) roughSegments.push(buffer);
 
-  return roughSegments
-    .flatMap(splitLongSegment)
+  return splitRoughSegmentsForPlayback(roughSegments)
     .map((segmentText, index) => ({
       id: `segment-${index + 1}`,
       text: segmentText,
@@ -47,8 +47,31 @@ export function createReadingSegments(text: string): ReadingSegment[] {
     }));
 }
 
-function splitLongSegment(text: string): string[] {
-  if (text.length <= MAX_SEGMENT_LENGTH) return [text];
+function splitRoughSegmentsForPlayback(roughSegments: string[]): string[] {
+  if (!roughSegments.length) return [];
+  const [firstSegment, ...remainingSegments] = roughSegments;
+  return [
+    ...splitFirstSegmentForFastStart(firstSegment),
+    ...remainingSegments.flatMap((segment) => splitLongSegment(segment, MAX_SEGMENT_LENGTH))
+  ];
+}
+
+function splitFirstSegmentForFastStart(text: string): string[] {
+  if (text.length <= FIRST_SEGMENT_MAX_LENGTH) return [text];
+  const sentences = splitIntoSentences(text);
+  const leading = takeLeadingSentences(sentences, FIRST_SEGMENT_MAX_LENGTH);
+  if (leading.text) {
+    const rest = joinTextSequence(sentences.slice(leading.count));
+    return [leading.text, ...splitLongSegment(rest, MAX_SEGMENT_LENGTH)];
+  }
+  const startupSegment = text.slice(0, FIRST_SEGMENT_MAX_LENGTH).trimEnd();
+  const rest = text.slice(FIRST_SEGMENT_MAX_LENGTH).trimStart();
+  return [startupSegment, ...splitLongSegment(rest, MAX_SEGMENT_LENGTH)];
+}
+
+function splitLongSegment(text: string, maxLength: number): string[] {
+  if (!text) return [];
+  if (text.length <= maxLength) return [text];
 
   const sentences = splitIntoSentences(text);
 
@@ -62,7 +85,7 @@ function splitLongSegment(text: string): string[] {
     }
 
     const candidate = joinTextParts(buffer, sentence);
-    if (candidate.length <= MAX_SEGMENT_LENGTH) {
+    if (candidate.length <= maxLength) {
       buffer = candidate;
     } else {
       parts.push(buffer);
@@ -71,7 +94,20 @@ function splitLongSegment(text: string): string[] {
   }
   if (buffer) parts.push(buffer);
 
-  return parts.flatMap((part) => hardSplit(part, MAX_SEGMENT_LENGTH));
+  return parts.flatMap((part) => hardSplit(part, maxLength));
+}
+
+function takeLeadingSentences(sentences: string[], maxLength: number): { count: number; text: string } {
+  let count = 0;
+  let text = "";
+  for (const sentence of sentences) {
+    const next = joinTextParts(text, sentence);
+    if (count && next.length > maxLength) break;
+    if (sentence.length > maxLength) break;
+    count += 1;
+    text = next;
+  }
+  return { count, text };
 }
 
 function splitIntoSentences(text: string): string[] {
@@ -101,6 +137,14 @@ function joinTextParts(left: string, right: string): string {
   if (!left) return right;
   if (!right) return left;
   return needsJoinSpace(left, right) ? `${left} ${right}` : `${left}${right}`;
+}
+
+function joinTextSequence(parts: string[]): string {
+  let text = "";
+  for (const part of parts) {
+    text = joinTextParts(text, part);
+  }
+  return text;
 }
 
 function needsJoinSpace(left: string, right: string): boolean {
