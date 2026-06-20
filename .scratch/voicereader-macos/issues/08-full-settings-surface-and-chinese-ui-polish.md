@@ -20,7 +20,7 @@ Complete the Chinese Settings experience and UI polish around configuration. Set
 - [x] `历史记录` includes retention selection, clear-history in-page confirmation, and privacy copy that states history is local, audio is not saved, and current text is sent to MiniMax.
 - [x] `通用` includes Launch at Login, Error Log count, and Error Log clear.
 - [x] Settings follows system light/dark appearance and uses Chinese user-facing labels.
-- [x] Home does not show playback state and remains focused on Play Clipboard, Voice choice, and configuration status.
+- [x] Home does not show playback state and remains focused on `播放`, Voice choice, and configuration status.
 - [x] Tests or UI verification cover all Settings groups, validation/silent-skip states, privacy copy presence, clear actions, and light/dark appearance.
 
 ## Implementation status
@@ -29,6 +29,6 @@ Completed in this workspace. Verification: `npm run verify`.
 
 ## Blocked by
 
-- `.scratch/voicereader-macos/issues/02-local-settings-sqlite-and-encrypted-minimax-key-storage.md`
+- `.scratch/voicereader-macos/issues/02-local-settings-sqlite-and-minimax-key-storage.md`
 - `.scratch/voicereader-macos/issues/03-minimax-connection-verification-and-voice-preferences.md`
 - `.scratch/voicereader-macos/issues/05-reading-history-records-and-retention-cleanup.md`

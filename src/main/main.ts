@@ -8,19 +8,20 @@ import {
   clipboard,
   globalShortcut
 } from "electron";
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AppDataStore } from "./data/app-data-store.js";
-import { electronSafeStorageCipher } from "./data/electron-safe-storage.js";
 import { MiniMaxAccountService } from "./data/minimax-account-service.js";
 import type { DetectedLanguage, ReadingTargetInput } from "../shared/types.js";
 import type {
   AppRoute,
   AppSettings,
   BootstrapState,
-  OverlayMetric
+  OverlayMetric,
+  PlaybackStartResult
 } from "../shared/app-contracts.js";
 import { PlaybackService } from "./playback/playback-service.js";
 import { ElectronAudioSink } from "./playback/electron-audio-sink.js";
@@ -38,7 +39,15 @@ let playbackCommands: PlaybackCommandController;
 let overlayController: PlaybackOverlayController;
 
 const mainBundleDir = dirname(fileURLToPath(import.meta.url));
+const requireNative = createRequire(import.meta.url);
 const rendererEntry = join(mainBundleDir, "../renderer/index.html");
+const appIconAssetPath = join(mainBundleDir, "../assets/voicereader-icon.svg");
+const trayIconAssetPath = join(mainBundleDir, "../assets/voicereader-template-icon.svg");
+const fallbackTemplateTrayIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><g transform="rotate(-18 9 9)"><ellipse cx="9" cy="9" rx="6.4" ry="4.7" fill="none" stroke="black" stroke-linecap="round" stroke-width="3.2"/></g></svg>`;
+const REVEAL_PREVIOUS_APP_DELAY_MS = 300;
+const SELECTION_COPY_DELAY_MS = 120;
+const SELECTION_COPY_POLL_TIMEOUT_MS = 1000;
+const SELECTION_COPY_POLL_INTERVAL_MS = 25;
 
 app.setName("VoiceReader");
 app.setPath("userData", join(app.getPath("appData"), "VoiceReader"));
@@ -48,10 +57,7 @@ void bootstrap();
 async function bootstrap(): Promise<void> {
   await app.whenReady();
 
-  appDataStore = new AppDataStore(
-    join(app.getPath("userData"), "voicereader.sqlite"),
-    electronSafeStorageCipher
-  );
+  appDataStore = new AppDataStore(join(app.getPath("userData"), "voicereader.sqlite"));
   minimaxAccountService = new MiniMaxAccountService(appDataStore);
   overlayController = new PlaybackOverlayController();
   const playbackService = new PlaybackService(appDataStore, new ElectronAudioSink(() => readerWindow, overlayController));
@@ -64,6 +70,7 @@ async function bootstrap(): Promise<void> {
   );
   registerIpcHandlers();
   syncLaunchAtLoginFromSettings();
+  syncDockIcon();
   createMenuBarMenu();
   playbackCommands.registerActivationShortcut();
 
@@ -162,7 +169,7 @@ function registerIpcHandlers(): void {
     playbackCommands.setActivationShortcut(shortcut)
   );
   ipcMain.handle("app-data:set-minimax-api-key", (_event, apiKey: string) => {
-    appDataStore.saveEncryptedMiniMaxApiKey(apiKey);
+    appDataStore.saveMiniMaxApiKey(apiKey);
   });
   ipcMain.handle("app-data:clear-minimax-api-key", () => {
     appDataStore.clearMiniMaxApiKey();
@@ -181,7 +188,9 @@ function registerIpcHandlers(): void {
     appDataStore.deleteReadingHistoryRecord(id)
   );
   ipcMain.handle("app-data:clear-reading-history", () => appDataStore.clearReadingHistory());
-  ipcMain.handle("playback:play-reading-target", () => playbackCommands.startReadingTargetPlayback());
+  ipcMain.handle("playback:play-reading-target", (event) =>
+    startReadingTargetPlaybackFromReaderWindow(event.sender.id)
+  );
   ipcMain.handle("playback:play-history-record", (_event, id: string) => playbackCommands.startHistoryReplay(id));
   ipcMain.handle("playback:stop", () => {
     playbackCommands.stopPlayback();
@@ -236,12 +245,27 @@ function createMenuBarMenu(): void {
 }
 
 function createTemplateTrayIcon(): Electron.NativeImage {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><path fill="black" d="M2 11V7h3l4-3v10l-4-3H2Zm9-4c.8.9.8 3.1 0 4l1.2 1.2c1.5-1.6 1.5-4.8 0-6.4L11 7Zm2.4-2.4c2.4 2.5 2.4 6.3 0 8.8l1.2 1.2c3.1-3.2 3.1-8.8 0-12l-1.2 1.2Z"/></svg>`;
-  const image = nativeImage.createFromDataURL(
-    `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
-  );
+  const image = nativeImage.createFromDataURL(svgDataUrl(readAssetText(trayIconAssetPath, fallbackTemplateTrayIconSvg)));
   image.setTemplateImage(true);
   return image;
+}
+
+function syncDockIcon(): void {
+  if (!app.dock) return;
+  const image = nativeImage.createFromDataURL(svgDataUrl(readAssetText(appIconAssetPath)));
+  if (!image.isEmpty()) app.dock.setIcon(image);
+}
+
+function readAssetText(path: string, fallback = ""): string {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return fallback;
+  }
+}
+
+function svgDataUrl(svg: string): string {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
 function readBootstrapState(): BootstrapState {
@@ -261,6 +285,23 @@ function syncLaunchAtLoginFromSettings(): void {
   app.setLoginItemSettings({ openAtLogin: appDataStore.getSettings().launchAtLogin });
 }
 
+async function startReadingTargetPlaybackFromReaderWindow(senderWebContentsId: number): Promise<PlaybackStartResult> {
+  if (shouldRevealPreviousAppBeforeSelectionCapture(senderWebContentsId)) {
+    hideReaderAppForSelectionCapture();
+    await delay(REVEAL_PREVIOUS_APP_DELAY_MS);
+  }
+  return playbackCommands.startReadingTargetPlayback();
+}
+
+function shouldRevealPreviousAppBeforeSelectionCapture(senderWebContentsId: number): boolean {
+  return Boolean(
+    readerWindow &&
+      !readerWindow.isDestroyed() &&
+      readerWindow.webContents.id === senderWebContentsId &&
+      readerWindow.isFocused()
+  );
+}
+
 async function readSelectedTextOrClipboardTarget(): Promise<ReadingTargetInput> {
   const snapshot = snapshotClipboard();
   const marker = `__VOICEREADER_SELECTION_${randomUUID()}__`;
@@ -268,38 +309,70 @@ async function readSelectedTextOrClipboardTarget(): Promise<ReadingTargetInput> 
     text: snapshot.text,
     source: "clipboard"
   };
-  clipboard.writeText(marker);
 
   try {
-    await copyCurrentSelection();
-    await delay(80);
-    const selectedText = clipboard.readText();
+    const selectionCopyAddon = loadDarwinSelectionCopyAddon();
+    const accessibilitySelectedText = selectionCopyAddon.readSelectedText();
+    if (accessibilitySelectedText.trim()) {
+      return {
+        text: accessibilitySelectedText,
+        source: "selected_text"
+      };
+    }
+
+    clipboard.writeText(marker);
+    await copyCurrentSelection(selectionCopyAddon);
+    const selectedText = await readClipboardTextAfterSelectionCopy(marker);
     if (selectedText.trim() && selectedText !== marker) {
       target = {
         text: selectedText,
         source: "selected_text"
       };
     }
-  } catch {
-    // Selection capture needs macOS Automation/Accessibility permission. Fall back silently.
+  } catch (error) {
+    appDataStore.addErrorLog({
+      category: "playback_runtime",
+      message: `Selected Text capture failed: ${safeSelectionCaptureErrorMessage(error)}`
+    });
   }
 
   restoreClipboard(snapshot);
   return target;
 }
 
-function copyCurrentSelection(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      "/usr/bin/osascript",
-      ["-e", 'tell application "System Events" to keystroke "c" using command down'],
-      { timeout: 1200 },
-      (error) => {
-        if (error) reject(error);
-        else resolve();
-      }
-    );
-  });
+interface SelectionCopyAddon {
+  readSelectedText: () => string;
+  copySelection: () => void;
+}
+
+function loadDarwinSelectionCopyAddon(): SelectionCopyAddon {
+  if (process.platform !== "darwin") {
+    throw new Error("Selected Text capture is only supported on macOS.");
+  }
+  return requireNative(join(mainBundleDir, "../native/selection-copy-macos.node")) as SelectionCopyAddon;
+}
+
+async function copyCurrentSelection(selectionCopyAddon: SelectionCopyAddon): Promise<void> {
+  selectionCopyAddon.copySelection();
+  await delay(SELECTION_COPY_DELAY_MS);
+}
+
+function hideReaderAppForSelectionCapture(): void {
+  if (process.platform === "darwin") {
+    app.hide();
+    return;
+  }
+  readerWindow?.hide();
+}
+
+async function readClipboardTextAfterSelectionCopy(marker: string): Promise<string> {
+  const startedAt = Date.now();
+  let current = clipboard.readText();
+  while (current === marker && Date.now() - startedAt < SELECTION_COPY_POLL_TIMEOUT_MS) {
+    await delay(SELECTION_COPY_POLL_INTERVAL_MS);
+    current = clipboard.readText();
+  }
+  return current;
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -330,4 +403,8 @@ function restoreClipboard(snapshot: ClipboardSnapshot): void {
     rtf: snapshot.rtf || undefined,
     image: snapshot.image.isEmpty() ? undefined : snapshot.image
   });
+}
+
+function safeSelectionCaptureErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 160) : "Unknown selection capture failure";
 }

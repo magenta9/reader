@@ -1,7 +1,14 @@
 import { DatabaseSync } from "node:sqlite";
 import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
-import type { AppRoute, AppSettings, HistoryRetention, ReadingHistoryRecord } from "../../shared/app-contracts.js";
+import {
+  DEFAULT_ACTIVATION_SHORTCUT,
+  LEGACY_DEFAULT_ACTIVATION_SHORTCUT,
+  type AppRoute,
+  type AppSettings,
+  type HistoryRetention,
+  type ReadingHistoryRecord
+} from "../../shared/app-contracts.js";
 import type { ReadingSource } from "../../shared/types.js";
 import {
   createReadingHistoryRecord,
@@ -31,18 +38,13 @@ export interface ErrorLogEntry {
   message: string;
 }
 
-export interface SecretCipher {
-  encryptString(value: string): Uint8Array;
-  decryptString(value: Uint8Array): string;
-}
-
 export interface AppSettingsStore {
   getSettings(): AppSettings;
   updateSettings(patch: Partial<AppSettings>): AppSettings;
 }
 
 export interface MiniMaxCredentialStore {
-  saveEncryptedMiniMaxApiKey(apiKey: string): void;
+  saveMiniMaxApiKey(apiKey: string): void;
   readMiniMaxApiKey(): string | undefined;
   clearMiniMaxApiKey(): void;
   hasMiniMaxApiKey(): boolean;
@@ -76,13 +78,14 @@ export type PlaybackDataStore = AppSettingsStore &
   Pick<ReadingHistoryStore, "getReadingHistoryRecord" | "saveOrReuseReadingHistoryRecord">;
 
 const SETTINGS_KEY = "app.settings";
-const MINIMAX_API_KEY = "minimax.apiKey.encrypted";
+const MINIMAX_API_KEY = "minimax.apiKey";
+const LEGACY_ENCRYPTED_MINIMAX_API_KEY = "minimax.apiKey.encrypted";
 const MAX_ERROR_LOG_ENTRIES = 100;
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   hasCompletedOnboarding: false,
   lastRoute: "home",
   launchAtLogin: false,
-  activationShortcut: "Command+Shift+R",
+  activationShortcut: DEFAULT_ACTIVATION_SHORTCUT,
   speechRate: 1,
   model: "speech-2.8-turbo",
   historyRetention: "1m",
@@ -96,10 +99,7 @@ export class AppDataStore
 {
   private readonly db: DatabaseSync;
 
-  constructor(
-    private readonly dbPath: string,
-    private readonly cipher: SecretCipher
-  ) {
+  constructor(private readonly dbPath: string) {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
     this.migrate();
@@ -125,16 +125,13 @@ export class AppDataStore
     return next;
   }
 
-  saveEncryptedMiniMaxApiKey(apiKey: string): void {
-    const encrypted = this.cipher.encryptString(apiKey);
-    this.setTextSetting(MINIMAX_API_KEY, Buffer.from(encrypted).toString("base64"));
+  saveMiniMaxApiKey(apiKey: string): void {
+    this.setTextSetting(MINIMAX_API_KEY, apiKey);
     this.updateSettings({ apiKeyStatus: apiKey.trim() ? "failed" : "missing" });
   }
 
   readMiniMaxApiKey(): string | undefined {
-    const encoded = this.getTextSetting(MINIMAX_API_KEY);
-    if (!encoded) return undefined;
-    return this.cipher.decryptString(Buffer.from(encoded, "base64"));
+    return this.getTextSetting(MINIMAX_API_KEY);
   }
 
   clearMiniMaxApiKey(): void {
@@ -297,6 +294,17 @@ export class AppDataStore
       CREATE INDEX IF NOT EXISTS idx_error_log_created_at
       ON error_log (created_at DESC);
     `);
+    this.deleteSetting(LEGACY_ENCRYPTED_MINIMAX_API_KEY);
+    this.migrateLegacyDefaultActivationShortcut();
+  }
+
+  private migrateLegacyDefaultActivationShortcut(): void {
+    const stored = this.getJsonSetting<Partial<AppSettings>>(SETTINGS_KEY);
+    if (stored?.activationShortcut !== LEGACY_DEFAULT_ACTIVATION_SHORTCUT) return;
+    this.setJsonSetting(SETTINGS_KEY, {
+      ...stored,
+      activationShortcut: DEFAULT_ACTIVATION_SHORTCUT
+    });
   }
 
   private capErrorLogs(): void {
@@ -379,9 +387,14 @@ interface ReadingHistoryRow {
 }
 
 function normalizeSettings(value: Partial<AppSettings>): AppSettings {
+  const activationShortcut =
+    value.activationShortcut === LEGACY_DEFAULT_ACTIVATION_SHORTCUT
+      ? DEFAULT_ACTIVATION_SHORTCUT
+      : value.activationShortcut;
   return {
     ...DEFAULT_APP_SETTINGS,
     ...value,
+    activationShortcut: activationShortcut ?? DEFAULT_APP_SETTINGS.activationShortcut,
     hasCompletedOnboarding: Boolean(value.hasCompletedOnboarding),
     launchAtLogin: Boolean(value.launchAtLogin),
     lastRoute: normalizeAppRoute(value.lastRoute),

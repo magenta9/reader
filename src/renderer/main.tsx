@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { ReactElement } from "react";
 import type { AppRoute, AppSettings, ReadingHistoryRecord } from "./bridge.js";
+import { DEFAULT_ACTIVATION_SHORTCUT } from "../shared/app-contracts.js";
 import type { DetectedLanguage, MiniMaxVoice } from "../shared/types.js";
 import { MODEL_OPTIONS } from "../shared/models.js";
 import { getReaderWindowBridge, getRendererAudioBridge } from "../shared/voice-reader-bridge.js";
@@ -66,7 +67,7 @@ function App(): ReactElement {
       <aside className="sidebar" aria-label="VoiceReader navigation">
         <div className="brand">
           <div className="brand-mark" aria-hidden="true">
-            <span />
+            <img src="./assets/voicereader-icon.svg" alt="" />
           </div>
           <div>
             <p className="brand-name">VoiceReader</p>
@@ -89,17 +90,6 @@ function App(): ReactElement {
             </button>
           ))}
         </nav>
-
-        <div className="sidebar-footer">
-          <button
-            aria-label="打开设置"
-            className="gear-button"
-            onClick={() => navigate("settings")}
-            type="button"
-          >
-            ⚙
-          </button>
-        </div>
       </aside>
 
       <main className="workspace" id="main-content">
@@ -163,7 +153,7 @@ function Home(): ReactElement {
         </div>
         <div className="status-row">
           <span className="status-dot pending" />
-          <span>默认快捷键 {settings?.activationShortcut ?? "Command+Shift+R"}</span>
+          <span>默认快捷键 {settings?.activationShortcut ?? DEFAULT_ACTIVATION_SHORTCUT}</span>
         </div>
         <div className="status-row">
           <span className={`status-dot ${settings?.hasCompletedOnboarding ? "ready" : "pending"}`} />
@@ -414,7 +404,7 @@ function Settings(): ReactElement {
   const saveApiKey = async (): Promise<void> => {
     await readerBridge.setMiniMaxApiKey(apiKeyDraft);
     setApiKeyDraft("");
-    setSetupMessage("API Key 已加密保存，等待验证");
+    setSetupMessage("API Key 已保存到本机 SQLite，等待验证");
     await refreshSettings();
   };
 
@@ -523,7 +513,7 @@ function Settings(): ReactElement {
                 MiniMax API Key
                 <input
                   onChange={(event) => setApiKeyDraft(event.target.value)}
-                  placeholder="输入后会加密保存到本机配置"
+                  placeholder="输入后会保存到本机 SQLite"
                   type="password"
                   value={apiKeyDraft}
                 />
@@ -547,7 +537,7 @@ function Settings(): ReactElement {
           )}
           {group === "快捷键" && (
             <div className="settings-stack">
-              <p className="muted">当前快捷键：{settings?.activationShortcut ?? "Command+Shift+R"}</p>
+              <p className="muted">当前快捷键：{settings?.activationShortcut ?? DEFAULT_ACTIVATION_SHORTCUT}</p>
               <button
                 className={isRecordingShortcut ? "shortcut-recorder is-recording" : "shortcut-recorder"}
                 onClick={() => {
@@ -556,7 +546,7 @@ function Settings(): ReactElement {
                 }}
                 type="button"
               >
-                {isRecordingShortcut ? "按下新的组合键" : settings?.activationShortcut ?? "Command+Shift+R"}
+                {isRecordingShortcut ? "按下新的组合键" : settings?.activationShortcut ?? DEFAULT_ACTIVATION_SHORTCUT}
               </button>
               {settings?.shortcutRegistrationError ? (
                 <p className="inline-error">{settings.shortcutRegistrationError}</p>
@@ -565,7 +555,7 @@ function Settings(): ReactElement {
               )}
               <button
                 className="text-action"
-                onClick={() => void saveActivationShortcut("Command+Shift+R")}
+                onClick={() => void saveActivationShortcut(DEFAULT_ACTIVATION_SHORTCUT)}
                 type="button"
               >
                 恢复默认快捷键

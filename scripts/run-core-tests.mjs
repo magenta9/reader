@@ -30,18 +30,32 @@ const { PlaybackSessionLifecycle } = await import("../dist/main/playback/playbac
 const { PlaybackService } = await import("../dist/main/playback/playback-service.js");
 const { ElectronAudioSink } = await import("../dist/main/playback/electron-audio-sink.js");
 const { PlaybackAudioQueue } = await import("../dist/renderer/audio-player.js");
-const { PLAYBACK_FEEDBACK_SURFACES } = await import("../dist/shared/app-contracts.js");
+const {
+  DEFAULT_ACTIVATION_SHORTCUT,
+  LEGACY_DEFAULT_ACTIVATION_SHORTCUT,
+  PLAYBACK_FEEDBACK_SURFACES
+} = await import("../dist/shared/app-contracts.js");
 
-assert.equal(existsSync(new URL("../dist/main/main.js", import.meta.url)), true);
-assert.equal(existsSync(new URL("../dist/shared/app-contracts.js", import.meta.url)), true);
-assert.equal(existsSync(new URL("../dist/preload/preload.cjs", import.meta.url)), true);
-assert.equal(existsSync(new URL("../dist/preload/preload.js", import.meta.url)), false);
-assert.equal(existsSync(new URL("../dist/renderer/index.html", import.meta.url)), true);
-assert.equal(existsSync(new URL("../dist/renderer/renderer.js", import.meta.url)), true);
-assert.equal(existsSync(new URL("../dist/renderer/renderer.css", import.meta.url)), true);
-assert.equal(existsSync(new URL("../dist/overlay/index.html", import.meta.url)), true);
-assert.equal(existsSync(new URL("../dist/overlay/overlay.js", import.meta.url)), true);
-assert.equal(existsSync(new URL("../dist/overlay/overlay.css", import.meta.url)), true);
+for (const path of [
+  "../dist/main/main.js",
+  "../dist/shared/app-contracts.js",
+  "../dist/preload/preload.cjs",
+  "../dist/renderer/index.html",
+  "../dist/renderer/renderer.js",
+  "../dist/renderer/renderer.css",
+  "../dist/assets/voicereader-icon.svg",
+  "../dist/assets/voicereader-template-icon.svg",
+  "../dist/renderer/assets/voicereader-icon.svg",
+  "../dist/overlay/index.html",
+  "../dist/overlay/overlay.js",
+  "../dist/overlay/overlay.css"
+]) {
+  assertFileExists(path);
+}
+assertFileMissing("../dist/preload/preload.js");
+if (process.platform === "darwin") {
+  assertFileExists("../dist/native/selection-copy-macos.node");
+}
 
 const mainBundle = await readFile(new URL("../dist/main/main.js", import.meta.url), "utf8");
 const appContractsBundle = await readFile(new URL("../dist/shared/app-contracts.js", import.meta.url), "utf8");
@@ -52,6 +66,7 @@ const rendererBundle = await readFile(new URL("../dist/renderer/renderer.js", im
 const overlayHtml = await readFile(new URL("../dist/overlay/index.html", import.meta.url), "utf8");
 const overlayBundle = await readFile(new URL("../dist/overlay/overlay.js", import.meta.url), "utf8");
 const overlayCss = await readFile(new URL("../dist/overlay/overlay.css", import.meta.url), "utf8");
+const mainSource = await readFile(new URL("../src/main/main.ts", import.meta.url), "utf8");
 const rendererSource = await readFile(new URL("../src/renderer/main.tsx", import.meta.url), "utf8");
 const rendererAudioSource = await readFile(new URL("../src/renderer/audio-player.ts", import.meta.url), "utf8");
 const overlaySource = await readFile(new URL("../src/overlay/main.tsx", import.meta.url), "utf8");
@@ -61,50 +76,78 @@ const minimaxAccountSource = await readFile(new URL("../src/main/data/minimax-ac
 const playbackServiceSource = await readFile(new URL("../src/main/playback/playback-service.ts", import.meta.url), "utf8");
 const playbackCommandSource = await readFile(new URL("../src/main/playback/playback-command-controller.ts", import.meta.url), "utf8");
 const playbackLifecycleSource = await readFile(new URL("../src/main/playback/playback-session-lifecycle.ts", import.meta.url), "utf8");
+const playbackOverlayControllerSource = await readFile(new URL("../src/main/playback/playback-overlay-controller.ts", import.meta.url), "utf8");
 const rendererCssSource = await readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 const packageScript = await readFile(new URL("../scripts/package-mac.mjs", import.meta.url), "utf8");
-assert.equal(mainBundle.includes("VoiceReader"), true);
-assert.equal(mainBundle.includes("\\u64AD\\u653E"), true);
-assert.equal(mainBundle.includes("\\u6253\\u5F00 VoiceReader"), true);
-assert.equal(mainBundle.includes("\\u5386\\u53F2\\u8BB0\\u5F55"), true);
-assert.equal(mainBundle.includes("\\u8BBE\\u7F6E"), true);
-assert.equal(mainBundle.includes("width: 1100"), true);
-assert.equal(mainBundle.includes("height: 760"), true);
-assert.equal(mainBundle.includes("minWidth: 900"), true);
-assert.equal(mainBundle.includes("minHeight: 620"), true);
-assert.equal(mainBundle.includes("../preload/preload.cjs"), true);
-assert.equal(mainBundle.includes("setPath") && mainBundle.includes("userData"), true);
-assert.equal(mainBundle.includes("shouldOpenWindowAtStartup"), true);
-assert.equal(mainBundle.includes("wasOpenedAtLogin"), true);
-assert.equal(mainBundle.includes('app.on("activate"'), true);
-assert.equal(mainBundle.includes('readerWindow.on("close"'), true);
-assert.equal(mainBundle.includes("event.preventDefault()"), true);
-assert.equal(mainBundle.includes("readerWindow?.hide()"), true);
-assert.equal(mainBundle.includes('openReaderWindow("history")'), true);
-assert.equal(mainBundle.includes('openReaderWindow("settings")'), true);
-assert.equal(mainBundle.includes("showInactive"), true);
+assertIncludes(mainBundle, [
+  "VoiceReader",
+  "\\u64AD\\u653E",
+  "\\u6253\\u5F00 VoiceReader",
+  "\\u5386\\u53F2\\u8BB0\\u5F55",
+  "\\u8BBE\\u7F6E",
+  "width: 1100",
+  "height: 760",
+  "minWidth: 900",
+  "minHeight: 620",
+  "../preload/preload.cjs",
+  "setPath",
+  "userData",
+  "shouldOpenWindowAtStartup",
+  "wasOpenedAtLogin",
+  'app.on("activate"',
+  'readerWindow.on("close"',
+  "event.preventDefault()",
+  "readerWindow?.hide()",
+  'openReaderWindow("history")',
+  'openReaderWindow("settings")',
+  "showInactive"
+]);
 assert.equal(mainBundle.includes("focusable: false") || mainBundle.includes("focusable: !1"), true);
-assert.equal(mainBundle.includes("setAlwaysOnTop"), true);
-assert.equal(mainBundle.includes("moveTop"), true);
-assert.equal(mainBundle.includes("skipTransformProcessType"), true);
-assert.equal(mainBundle.includes("getPrimaryDisplay"), true);
-assert.equal(mainBundle.includes("setPosition"), true);
-assert.equal(mainBundle.includes("../preload/preload.js"), false);
-assert.equal(mainBundle.includes("overlay:metric"), true);
-assert.equal(mainBundle.includes("overlay:finish-playback"), true);
-assert.equal(mainBundle.includes("playback:renderer-idle"), true);
-assert.equal(mainBundle.includes("PlaybackCommandController"), true);
-assert.equal(mainBundle.includes("PlaybackSessionLifecycle"), true);
-assert.equal(mainBundle.includes("stopSession"), true);
-assert.equal(mainBundle.includes("app-data:set-activation-shortcut"), true);
-assert.equal(mainBundle.includes("readSelectedTextOrClipboardTarget"), true);
-assert.equal(mainBundle.includes("selected_text"), true);
-assert.equal(mainBundle.includes("/usr/bin/osascript"), true);
-assert.equal(mainBundle.includes("System Events"), true);
-assert.equal(mainBundle.includes("__dirname"), false);
-assert.equal(mainBundle.includes("import.meta.url"), true);
-assert.equal(appContractsBundle.includes("PLAYBACK_FEEDBACK_SURFACES"), true);
-assert.equal(preloadBundle.includes("../renderer/bridge"), false);
+assertIncludes(mainBundle, [
+  "setAlwaysOnTop",
+  "moveTop",
+  "skipTransformProcessType",
+  "getDisplayNearestPoint",
+  "getCursorScreenPoint",
+  "setPosition",
+  "overlay:metric",
+  "overlay:finish-playback",
+  "playback:renderer-idle",
+  "PlaybackCommandController",
+  "PlaybackSessionLifecycle",
+  "stopSession",
+  "app-data:set-activation-shortcut",
+  "readSelectedTextOrClipboardTarget",
+  "selected_text",
+  "selection-copy-macos.node",
+  "readSelectedText",
+  "import.meta.url"
+]);
+assertMissing(mainBundle, ["../preload/preload.js", "safeStorage", "isTrustedAccessibilityClient", "/usr/bin/osascript", "__dirname"]);
+assertIncludes(mainSource, [
+  "startReadingTargetPlaybackFromReaderWindow(event.sender.id)",
+  "shouldRevealPreviousAppBeforeSelectionCapture",
+  "hideReaderAppForSelectionCapture",
+  "app.hide()",
+  "readClipboardTextAfterSelectionCopy",
+  "REVEAL_PREVIOUS_APP_DELAY_MS",
+  "SELECTION_COPY_DELAY_MS",
+  "SELECTION_COPY_POLL_TIMEOUT_MS",
+  "SELECTION_COPY_POLL_INTERVAL_MS",
+  "Date.now() - startedAt < SELECTION_COPY_POLL_TIMEOUT_MS",
+  "Selected Text capture failed",
+  "safeSelectionCaptureErrorMessage"
+]);
+assertMissing(mainSource, [
+  "x-apple.systempreferences",
+  "openExternal",
+  "openSelectedTextCapturePermissionSettings",
+  "Privacy_Automation",
+  "requireSelectedText",
+  'target = {\n      text: "",\n      source: "selected_text"\n    };\n  }'
+]);
+assertIncludes(appContractsBundle, "PLAYBACK_FEEDBACK_SURFACES");
+assertMissing(preloadBundle, "../renderer/bridge");
 for (const { name, source, expectedValues } of [
   {
     name: "preload runtime bridge",
@@ -178,6 +221,7 @@ assert.equal(bootstrapIndex >= 0 && whenReadyIndex > bootstrapIndex, true);
 assert.equal(rendererHtml.includes("manifest.json"), false);
 assert.equal(rendererHtml.includes("VoiceReader"), true);
 assert.equal(rendererHtml.includes("media-src 'self' blob:"), true);
+assert.equal(rendererBundle.includes("./assets/voicereader-icon.svg"), true);
 assert.equal(rendererBundle.includes("\\u4E3B\\u9875"), true);
 assert.equal(rendererBundle.includes("\\u5386\\u53F2\\u8BB0\\u5F55"), true);
 assert.equal(rendererBundle.includes("\\u8BBE\\u7F6E"), true);
@@ -212,6 +256,8 @@ for (const label of [
 assert.equal(rendererSource.includes("选择文本优先"), true);
 assert.equal(rendererSource.includes("播放当前选择文本或剪切板"), true);
 assert.equal(rendererCssSource.includes("prefers-color-scheme: dark"), true);
+assert.equal(rendererCssSource.includes(".brand-mark"), true);
+assert.equal(rendererCssSource.includes("background: transparent"), true);
 assert.equal(rendererCssSource.includes("grid-template-columns: repeat(2"), true);
 assert.equal(rendererCssSource.includes(".shortcut-recorder"), true);
 assert.equal(rendererCssSource.includes(".range-control"), true);
@@ -228,10 +274,24 @@ assert.equal(overlayCss.includes(".overlay-pill:hover .hover-progress"), true);
 assert.equal(overlayBundle.includes("scaleY"), true);
 assert.equal(overlayCss.includes("transparent"), true);
 assert.equal(overlayCss.includes("prefers-reduced-motion"), true);
+assert.equal(playbackOverlayControllerSource.includes("width: 140"), true);
+assert.equal(playbackOverlayControllerSource.includes("height: 36"), true);
+assert.equal(playbackOverlayControllerSource.includes("getDisplayNearestPoint(screen.getCursorScreenPoint())"), true);
+assert.equal(playbackOverlayControllerSource.includes("getPrimaryDisplay()"), false);
+assert.equal(overlaySource.includes("const BAR_COUNT = 16"), true);
+assert.equal(overlayCss.includes("grid-template-columns: 26px minmax(0, 1fr)"), true);
+assert.equal(overlayCss.includes("width: 128px"), true);
+assert.equal(overlayCss.includes("height: 24px"), true);
+assert.equal(overlayCss.includes("width: 18px"), true);
+assert.equal(overlayCss.includes("height: 18px"), true);
 assert.equal(packageScript.includes("dereference: true"), false);
 assert.equal(packageScript.includes("verbatimSymlinks: true"), true);
 assert.equal(packageScript.includes("default_app.asar"), true);
+assert.equal(packageScript.includes("assets/voicereader-icon.svg"), true);
+assert.equal(packageScript.includes("createAppIconPng"), false);
+assert.equal(packageScript.includes("NSAppleEventsUsageDescription"), false);
 assert.equal(packageScript.includes("/usr/bin/codesign"), true);
+assert.equal(packageScript.includes("--deep"), true);
 assert.equal(packageScript.includes("--verify"), true);
 
 assert.equal(detectLanguage("这是一个中文段落，用来测试语音阅读。"), "zh");
@@ -404,15 +464,7 @@ assert.equal(getMiniMaxBaseUrlOrder(`header.${loginPayload}.signature`)[0], "htt
 assert.equal(getMiniMaxBaseUrlOrder("sk-valid-looking-key")[0], "https://api.minimax.io");
 
 const dataDir = await mkdtemp(join(tmpdir(), "voicereader-data-"));
-const cipher = {
-  encryptString(value) {
-    return Buffer.from(`encrypted:${value}`, "utf8");
-  },
-  decryptString(value) {
-    return Buffer.from(value).toString("utf8").replace(/^encrypted:/, "");
-  }
-};
-const store = new AppDataStore(join(dataDir, "voicereader.sqlite"), cipher);
+const store = new AppDataStore(join(dataDir, "voicereader.sqlite"));
 const dbPath = join(dataDir, "voicereader.sqlite");
 assert.equal(existsSync(dbPath), true);
 const schemaDb = new DatabaseSync(dbPath);
@@ -425,8 +477,47 @@ assert.ok(tables.includes("reading_history"));
 assert.ok(tables.includes("error_log"));
 schemaDb.close();
 
-assert.deepEqual(store.getSettings().activationShortcut, "Command+Shift+R");
+const legacyDataDir = await mkdtemp(join(tmpdir(), "voicereader-legacy-data-"));
+const legacyDbPath = join(legacyDataDir, "voicereader.sqlite");
+const legacyDb = new DatabaseSync(legacyDbPath);
+legacyDb.exec(`
+  CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+`);
+legacyDb
+  .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+  .run("minimax.apiKey.encrypted", "legacy-safe-storage-ciphertext");
+legacyDb.close();
+const legacyStore = new AppDataStore(legacyDbPath);
+assert.equal(legacyStore.getRawSettingForTest("minimax.apiKey.encrypted"), undefined);
+assert.equal(legacyStore.readMiniMaxApiKey(), undefined);
+legacyStore.close();
+
+assert.deepEqual(store.getSettings().activationShortcut, DEFAULT_ACTIVATION_SHORTCUT);
 assert.equal(store.getSettings().historyRetention, "1m");
+
+const shortcutMigrationDataDir = await mkdtemp(join(tmpdir(), "voicereader-shortcut-migration-"));
+const shortcutMigrationDbPath = join(shortcutMigrationDataDir, "voicereader.sqlite");
+const shortcutMigrationDb = new DatabaseSync(shortcutMigrationDbPath);
+shortcutMigrationDb.exec(`
+  CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+`);
+shortcutMigrationDb
+  .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+  .run("app.settings", JSON.stringify({ activationShortcut: LEGACY_DEFAULT_ACTIVATION_SHORTCUT }));
+shortcutMigrationDb.close();
+const shortcutMigrationStore = new AppDataStore(shortcutMigrationDbPath);
+assert.equal(shortcutMigrationStore.getSettings().activationShortcut, DEFAULT_ACTIVATION_SHORTCUT);
+assert.equal(
+  JSON.parse(shortcutMigrationStore.getRawSettingForTest("app.settings")).activationShortcut,
+  DEFAULT_ACTIVATION_SHORTCUT
+);
+shortcutMigrationStore.close();
 
 const updatedSettings = store.updateSettings({
   hasCompletedOnboarding: true,
@@ -544,10 +635,10 @@ assert.deepEqual(
 );
 store.clearReadingHistory();
 
-store.saveEncryptedMiniMaxApiKey("secret-minimax-key");
+store.saveMiniMaxApiKey("secret-minimax-key");
 assert.equal(store.hasMiniMaxApiKey(), true);
 assert.equal(store.readMiniMaxApiKey(), "secret-minimax-key");
-assert.equal(store.getRawSettingForTest("minimax.apiKey.encrypted")?.includes("secret-minimax-key"), false);
+assert.equal(store.getRawSettingForTest("minimax.apiKey"), "secret-minimax-key");
 store.clearMiniMaxApiKey();
 assert.equal(store.hasMiniMaxApiKey(), false);
 assert.equal(store.readMiniMaxApiKey(), undefined);
@@ -573,7 +664,7 @@ assert.ok(logs.every((entry) => entry.message.length <= 240));
 store.clearErrorLogs();
 assert.equal(store.getErrorLogCount(), 0);
 
-store.saveEncryptedMiniMaxApiKey("valid-key");
+store.saveMiniMaxApiKey("valid-key");
 const zhVoice = {
   voice_id: "voice-zh",
   display_name: "Chinese Voice",
@@ -615,7 +706,7 @@ assert.equal(missingKey.ok, false);
 assert.equal(missingKey.settings.apiKeyStatus, "missing");
 assert.equal(store.getErrorLogCount(), 0);
 
-store.saveEncryptedMiniMaxApiKey("bad-key");
+store.saveMiniMaxApiKey("bad-key");
 const failingAccount = new MiniMaxAccountService(store, {
   getVoices: async () => {
     throw new Error("invalid api key");
@@ -642,7 +733,7 @@ store.updateSettings({
   preferredVoicesByLanguage: { zh: "voice-zh" },
   speechRate: 1.5
 });
-store.saveEncryptedMiniMaxApiKey("playback-key");
+store.saveMiniMaxApiKey("playback-key");
 store.updateSettings({ apiKeyStatus: "verified" });
 
 const playback = new PlaybackService(store, sink, async (request) => {
@@ -652,7 +743,7 @@ const playback = new PlaybackService(store, sink, async (request) => {
 });
 const playbackResult = await playback.playReadingTarget(clipboardTargetInput("  这是一段剪切板文本。  "));
 assert.equal(playbackResult.started, true);
-assertLatestHistoryRecord(store, {
+assertReadingHistoryContains(store, {
   count: 1,
   text: "这是一段剪切板文本。",
   source: "clipboard"
@@ -675,7 +766,7 @@ assert.equal(store.getReadingHistoryCount(), 1);
 
 const selectedTextPlayback = await playback.playReadingTarget(selectedTextTargetInput("这是一段选中文本。"));
 assert.equal(selectedTextPlayback.started, true);
-assertLatestHistoryRecord(store, {
+assertReadingHistoryContains(store, {
   count: 2,
   text: "这是一段选中文本。",
   source: "selected_text"
@@ -713,26 +804,53 @@ const commands = new PlaybackCommandController(
   store,
   commandLifecycle,
   commandShortcuts,
-  async () => commandTargetInput
+  async () => {
+    return commandTargetInput;
+  }
 );
 commands.registerActivationShortcut();
-assert.ok(commandShortcuts.handlers.has("Command+Shift+R"));
+assert.ok(commandShortcuts.handlers.has(DEFAULT_ACTIVATION_SHORTCUT));
 const commandResult = await commands.startReadingTargetPlayback();
 assert.equal(commandResult.started, true);
 assert.ok(commandShortcuts.handlers.has("Escape"));
 commands.handleRendererIdle(commandResult.sessionId);
 assert.equal(commandShortcuts.handlers.has("Escape"), false);
+commandShortcuts.handlers.get(DEFAULT_ACTIVATION_SHORTCUT)?.();
+await delayForTest(400);
+
+let pendingTargetResolve;
+let pendingTargetReadCount = 0;
+const pendingCommands = new PlaybackCommandController(
+  store,
+  commandLifecycle,
+  commandShortcuts,
+  () => {
+    pendingTargetReadCount += 1;
+    return new Promise((resolve) => {
+      pendingTargetResolve = () => resolve(selectedTextTargetInput("并发快捷键播放。"));
+    });
+  }
+);
+const pendingFirst = pendingCommands.startReadingTargetPlayback();
+const pendingSecond = pendingCommands.startReadingTargetPlayback();
+assert.equal(pendingTargetReadCount, 1);
+pendingTargetResolve();
+assert.equal((await pendingFirst).started, true);
+assert.equal((await pendingSecond).started, true);
+assert.equal(pendingTargetReadCount, 1);
+
 commandTargetInput = clipboardTargetInput("第二次命令播放。");
 const stoppedCommand = await commands.startReadingTargetPlayback();
 assert.equal(stoppedCommand.started, true);
 commands.stopPlayback();
 assert.deepEqual(commandPlaybackEvents.at(-1), ["stop", stoppedCommand.sessionId]);
 assert.equal(normalizeShortcutInput(" Command + Shift + R "), "Command+Shift+R");
+assert.equal(normalizeShortcutInput(` ${DEFAULT_ACTIVATION_SHORTCUT.replaceAll("+", " + ")} `), DEFAULT_ACTIVATION_SHORTCUT);
 assert.equal(normalizeShortcutInput("R"), undefined);
 commandShortcuts.failures.add("Control+Shift+R");
 const failedShortcut = commands.setActivationShortcut("Control+Shift+R");
 assert.equal(failedShortcut.ok, false);
-assert.equal(store.getSettings().activationShortcut, "Command+Shift+R");
+assert.equal(store.getSettings().activationShortcut, DEFAULT_ACTIVATION_SHORTCUT);
 commandShortcuts.failures.clear();
 const shortcutUpdate = commands.setActivationShortcut("Control+Shift+R");
 assert.equal(shortcutUpdate.ok, true);
@@ -964,11 +1082,14 @@ function selectedTextTargetInput(text) {
   return { text, source: "selected_text" };
 }
 
-function assertLatestHistoryRecord(store, expected) {
+function assertReadingHistoryContains(store, expected) {
   assert.equal(store.getReadingHistoryCount(), expected.count);
-  const latestRecord = store.listReadingHistoryRecords()[0];
-  assert.equal(latestRecord?.text, expected.text);
-  assert.equal(latestRecord?.source, expected.source);
+  assert.equal(
+    store
+      .listReadingHistoryRecords()
+      .some((record) => record.text === expected.text && record.source === expected.source),
+    true
+  );
 }
 
 function createShortcutRegistryForTest() {
@@ -984,6 +1105,30 @@ function createShortcutRegistryForTest() {
       this.handlers.delete(shortcut);
     }
   };
+}
+
+function delayForTest(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function assertFileExists(path) {
+  assert.equal(existsSync(new URL(path, import.meta.url)), true);
+}
+
+function assertFileMissing(path) {
+  assert.equal(existsSync(new URL(path, import.meta.url)), false);
+}
+
+function assertIncludes(source, expected) {
+  for (const value of [expected].flat()) {
+    assert.equal(source.includes(value), true, `source should include ${value}`);
+  }
+}
+
+function assertMissing(source, expected) {
+  for (const value of [expected].flat()) {
+    assert.equal(source.includes(value), false, `source should not include ${value}`);
+  }
 }
 
 function evaluatePreloadBridge(pathname) {

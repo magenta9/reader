@@ -56,8 +56,8 @@ export class PlaybackOverlayController {
 
     this.overlayWindow = new BrowserWindow({
       title: "VoiceReader Playback Overlay",
-      width: 320,
-      height: 80,
+      width: 140,
+      height: 36,
       frame: false,
       show: false,
       transparent: true,
@@ -141,7 +141,7 @@ function keepOverlayAttached(window: BrowserWindow): void {
 }
 
 function positionOverlayWindow(window: BrowserWindow): void {
-  const display = screen.getPrimaryDisplay();
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const bounds = display.workArea;
   const [width, height] = window.getSize();
   window.setPosition(

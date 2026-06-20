@@ -8,7 +8,7 @@ Status: completed
 
 ## What to build
 
-Finish the VoiceReader macOS MVP as a packaged local app. Add the approved product naming and icon treatment, verify the app can be packaged and launched locally, and run focused tests and UI checks that cover the complete MVP across Home, History, Settings, current Clipboard Text playback, History Replay, and Overlay behavior.
+Finish the VoiceReader macOS MVP as a packaged local app. Add the approved product naming and icon treatment, verify the app can be packaged and launched locally, and run focused tests and UI checks that cover the complete MVP across Home, History, Settings, current Reading Target playback, History Replay, and Overlay behavior.
 
 ## Acceptance criteria
 

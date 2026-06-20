@@ -9,7 +9,11 @@ const dist = resolve(root, "dist");
 
 await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
-await run("node_modules/typescript/bin/tsc", ["-p", "tsconfig.build.json"], root);
+await mkdir(resolve(dist, "assets"), { recursive: true });
+await mkdir(resolve(dist, "renderer/assets"), { recursive: true });
+await mkdir(resolve(dist, "native"), { recursive: true });
+await runNodeScript("node_modules/typescript/bin/tsc", ["-p", "tsconfig.build.json"], root);
+await buildNativeSelectionCopyAddon();
 
 await bundle({
   entryPoints: [resolve(root, "src/main/main.ts")],
@@ -49,6 +53,9 @@ await bundle({
 });
 
 await cp(resolve(root, "src/renderer/index.html"), resolve(dist, "renderer/index.html"));
+await cp(resolve(root, "assets/voicereader-icon.svg"), resolve(dist, "assets/voicereader-icon.svg"));
+await cp(resolve(root, "assets/voicereader-template-icon.svg"), resolve(dist, "assets/voicereader-template-icon.svg"));
+await cp(resolve(root, "assets/voicereader-icon.svg"), resolve(dist, "renderer/assets/voicereader-icon.svg"));
 
 await bundle({
   entryPoints: [resolve(root, "src/overlay/main.tsx")],
@@ -63,9 +70,17 @@ await bundle({
 
 await cp(resolve(root, "src/overlay/index.html"), resolve(dist, "overlay/index.html"));
 
-function run(command, args, cwd) {
+function runNodeScript(command, args, cwd) {
+  return spawnCommand(process.execPath, [command, ...args], cwd);
+}
+
+function runExecutable(command, args, cwd) {
+  return spawnCommand(command, args, cwd);
+}
+
+function spawnCommand(command, args, cwd) {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(process.execPath, [command, ...args], {
+    const child = spawn(command, args, {
       cwd,
       stdio: "inherit"
     });
@@ -74,4 +89,28 @@ function run(command, args, cwd) {
       else reject(new Error(`${command} exited with code ${code}`));
     });
   });
+}
+
+async function buildNativeSelectionCopyAddon() {
+  if (process.platform !== "darwin") return;
+  await runExecutable(
+    "/usr/bin/xcrun",
+    [
+      "clang++",
+      "-std=c++17",
+      "-dynamiclib",
+      "-undefined",
+      "dynamic_lookup",
+      "-I",
+      process.execPath.replace(/\/bin\/node$/, "/include/node"),
+      "-framework",
+      "ApplicationServices",
+      "-framework",
+      "AppKit",
+      "-o",
+      resolve(dist, "native/selection-copy-macos.node"),
+      resolve(root, "src/native/selection-copy-macos.mm")
+    ],
+    root
+  );
 }

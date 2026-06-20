@@ -4,6 +4,9 @@ export type AppRoute = "home" | "history" | "settings";
 
 export type HistoryRetention = "7d" | "1m" | "3m" | "forever";
 
+export const DEFAULT_ACTIVATION_SHORTCUT = "Control+Command+R";
+export const LEGACY_DEFAULT_ACTIVATION_SHORTCUT = "Command+Shift+R";
+
 export interface AppSettings {
   hasCompletedOnboarding: boolean;
   lastRoute: AppRoute;

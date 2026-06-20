@@ -33,7 +33,7 @@ The named UI surface that receives progress and completion feedback for a Playba
 _Avoid_: Output target, display mode, status destination
 
 **Activation Shortcut**:
-The user-configured keyboard shortcut that explicitly asks VoiceReader to start clipboard reading from anywhere on macOS. VoiceReader provides a default Activation Shortcut, but the user can change it when it conflicts with another app or system shortcut.
+The user-configured keyboard shortcut that explicitly asks VoiceReader to start Reading Target playback from anywhere on macOS. VoiceReader first tries Selected Text from the frontmost app, then falls back to Clipboard Text when no Selected Text is available. VoiceReader provides a default Activation Shortcut, but the user can change it when it conflicts with another app or system shortcut.
 _Avoid_: Hotkey, keyboard command, trigger key
 
 **Stop Shortcut**:
@@ -41,7 +41,7 @@ The Escape key while a Playback Session is active; it is globally active only du
 _Avoid_: Toggle key, cancel key, pause key
 
 **Reader Window**:
-The main macOS window for VoiceReader. It contains Home, History, and Settings surfaces for clipboard reading status, Reading History, and user configuration.
+The main macOS window for VoiceReader. It contains Home, History, and Settings surfaces for Reading Target playback status, Reading History, and user configuration.
 _Avoid_: Main screen, dashboard, control panel
 
 **Menu Bar Menu**:

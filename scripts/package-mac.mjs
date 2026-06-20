@@ -1,8 +1,7 @@
-import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { deflateSync } from "node:zlib";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const releaseDir = resolve(root, "release/mac");
@@ -11,6 +10,7 @@ const appPath = join(releaseDir, `${appName}.app`);
 const electronAppPath = resolve(root, "node_modules/electron/dist/Electron.app");
 const iconsetPath = join(releaseDir, "VoiceReader.iconset");
 const iconPath = join(releaseDir, "VoiceReader.icns");
+const appIconSvgPath = resolve(root, "assets/voicereader-icon.svg");
 
 await run(process.execPath, [resolve(root, "scripts/build.mjs")], root);
 await rm(appPath, { recursive: true, force: true });
@@ -41,6 +41,7 @@ await writeFile(
 
 await rename(join(appPath, "Contents/MacOS/Electron"), join(appPath, `Contents/MacOS/${appName}`));
 await updateInfoPlist();
+await updateHelperInfoPlists();
 await rm(iconsetPath, { recursive: true, force: true });
 await signAppBundle();
 await verifyAppSignature();
@@ -52,7 +53,7 @@ async function generateIcon() {
   await rm(iconPath, { force: true });
   await mkdir(iconsetPath, { recursive: true });
   const renderedSource = join(releaseDir, "VoiceReader-icon-source.png");
-  await writeFile(renderedSource, createAppIconPng(1024));
+  await run("/usr/bin/sips", ["-s", "format", "png", appIconSvgPath, "--out", renderedSource], root);
   const sizes = [
     [16, "icon_16x16.png"],
     [32, "icon_16x16@2x.png"],
@@ -85,12 +86,30 @@ async function updateInfoPlist() {
   await writeFile(plistPath, plist);
 }
 
+async function updateHelperInfoPlists() {
+  const frameworksPath = join(appPath, "Contents/Frameworks");
+  const helperApps = await readdir(frameworksPath);
+  for (const helperApp of helperApps.filter((name) => name.startsWith("Electron Helper") && name.endsWith(".app"))) {
+    const plistPath = join(frameworksPath, helperApp, "Contents/Info.plist");
+    let plist = await readFile(plistPath, "utf8");
+    plist = replacePlistValue(plist, "CFBundleIdentifier", helperBundleIdentifier(helperApp));
+    await writeFile(plistPath, plist);
+  }
+}
+
+function helperBundleIdentifier(helperApp) {
+  if (helperApp.includes("(Renderer)")) return "com.local.voicereader.helper.renderer";
+  if (helperApp.includes("(GPU)")) return "com.local.voicereader.helper.gpu";
+  if (helperApp.includes("(Plugin)")) return "com.local.voicereader.helper.plugin";
+  return "com.local.voicereader.helper";
+}
+
 async function signAppBundle() {
-  await run("/usr/bin/codesign", ["--force", "--sign", "-", appPath], root);
+  await run("/usr/bin/codesign", ["--deep", "--force", "--sign", "-", appPath], root);
 }
 
 async function verifyAppSignature() {
-  await run("/usr/bin/codesign", ["--verify", "--strict", "--verbose=4", appPath], root);
+  await run("/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=4", appPath], root);
 }
 
 function replacePlistValue(plist, key, value) {
@@ -113,115 +132,10 @@ function run(command, args, cwd) {
   });
 }
 
-function createAppIconPng(size) {
-  const rows = [];
-  const radius = size * 0.226;
-  const center = size / 2;
-  const circleRadius = size * 0.332;
-  const pixels = Buffer.alloc((size * 4 + 1) * size);
-  let offset = 0;
-  for (let y = 0; y < size; y += 1) {
-    pixels[offset] = 0;
-    offset += 1;
-    for (let x = 0; x < size; x += 1) {
-      const inside = roundedRectContains(x, y, size, radius);
-      const gradient = x / size * 0.55 + y / size * 0.45;
-      const base = gradientColor(gradient);
-      let r = base[0];
-      let g = base[1];
-      let b = base[2];
-      let a = inside ? 255 : 0;
-      const dx = x - center;
-      const dy = y - center;
-      if (inside && Math.sqrt(dx * dx + dy * dy) < circleRadius) {
-        r = mix(r, 255, 0.14);
-        g = mix(g, 255, 0.14);
-        b = mix(b, 255, 0.14);
-      }
-      if (inside && isWhiteGlyph(x, y, size)) {
-        r = 255;
-        g = 255;
-        b = 255;
-        a = 255;
-      }
-      pixels[offset] = r;
-      pixels[offset + 1] = g;
-      pixels[offset + 2] = b;
-      pixels[offset + 3] = a;
-      offset += 4;
-    }
-  }
-  rows.push(pngChunk("IHDR", Buffer.concat([uint32(size), uint32(size), Buffer.from([8, 6, 0, 0, 0])])));
-  rows.push(pngChunk("IDAT", deflateSync(pixels)));
-  rows.push(pngChunk("IEND", Buffer.alloc(0)));
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), ...rows]);
-}
-
-function roundedRectContains(x, y, size, radius) {
-  const max = size - 1;
-  const cx = x < radius ? radius : x > max - radius ? max - radius : x;
-  const cy = y < radius ? radius : y > max - radius ? max - radius : y;
-  const dx = x - cx;
-  const dy = y - cy;
-  return dx * dx + dy * dy <= radius * radius;
-}
-
-function gradientColor(t) {
-  if (t < 0.48) return lerpColor([47, 107, 255], [17, 168, 123], t / 0.48);
-  return lerpColor([17, 168, 123], [244, 182, 63], (t - 0.48) / 0.52);
-}
-
-function lerpColor(a, b, t) {
-  return [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)];
-}
-
-function mix(a, b, t) {
-  return Math.round(a + (b - a) * t);
-}
-
-function isWhiteGlyph(x, y, size) {
-  const speaker =
-    x >= size * 0.27 &&
-    x <= size * 0.43 &&
-    y >= size * 0.4 &&
-    y <= size * 0.6 &&
-    x <= size * 0.34 + Math.abs(y - size * 0.5) * 0.8;
-  const barA = roundedVerticalBar(x, y, size * 0.49, size * 0.5, size * 0.056, size * 0.39);
-  const barB = roundedVerticalBar(x, y, size * 0.6, size * 0.5, size * 0.062, size * 0.52);
-  const barC = roundedVerticalBar(x, y, size * 0.71, size * 0.5, size * 0.056, size * 0.29);
-  return speaker || barA || barB || barC;
-}
-
-function roundedVerticalBar(x, y, cx, cy, width, height) {
-  const radius = width / 2;
-  const top = cy - height / 2 + radius;
-  const bottom = cy + height / 2 - radius;
-  const closestY = y < top ? top : y > bottom ? bottom : y;
-  const dx = x - cx;
-  const dy = y - closestY;
-  return dx * dx + dy * dy <= radius * radius;
-}
-
-function pngChunk(type, data) {
-  const typeBuffer = Buffer.from(type);
-  return Buffer.concat([uint32(data.length), typeBuffer, data, uint32(crc32(Buffer.concat([typeBuffer, data])))]);
-}
-
 function uint32(value) {
   const buffer = Buffer.alloc(4);
   buffer.writeUInt32BE(value >>> 0);
   return buffer;
-}
-
-function crc32(buffer) {
-  let crc = 0xffffffff;
-  for (const byte of buffer) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit += 1) {
-      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
-    }
-  }
-  return (crc ^ 0xffffffff) >>> 0;
 }
 
 async function writeIcnsFromIconset(iconset, outputPath) {

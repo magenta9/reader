@@ -24,7 +24,7 @@ Implement the MiniMax account and Voice setup path. Users should be able to ente
 
 ## Blocked by
 
-- `.scratch/voicereader-macos/issues/02-local-settings-sqlite-and-encrypted-minimax-key-storage.md`
+- `.scratch/voicereader-macos/issues/02-local-settings-sqlite-and-minimax-key-storage.md`
 
 ## Verification
 

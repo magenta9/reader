@@ -9,8 +9,12 @@ export interface PlaybackShortcutRegistry {
 }
 
 const SHORTCUT_REGISTRATION_ERROR = "快捷键注册失败，可能已被其他应用占用。";
+const GLOBAL_SHORTCUT_SELECTION_CAPTURE_DELAY_MS = 350;
 
 export class PlaybackCommandController {
+  private pendingReadingTargetPlayback: Promise<PlaybackStartResult> | undefined;
+  private pendingShortcutPlaybackTimer: ReturnType<typeof setTimeout> | undefined;
+
   constructor(
     private readonly store: PlaybackCommandDataStore,
     private readonly lifecycle: PlaybackSessionLifecycle,
@@ -19,7 +23,13 @@ export class PlaybackCommandController {
   ) {}
 
   async startReadingTargetPlayback(): Promise<PlaybackStartResult> {
-    return this.lifecycle.startReadingTargetPlayback(await this.readReadingTargetInput());
+    if (this.pendingReadingTargetPlayback) return this.pendingReadingTargetPlayback;
+    this.pendingReadingTargetPlayback = this.startReadingTargetPlaybackOnce();
+    try {
+      return await this.pendingReadingTargetPlayback;
+    } finally {
+      this.pendingReadingTargetPlayback = undefined;
+    }
   }
 
   async startHistoryReplay(recordId: string): Promise<PlaybackStartResult> {
@@ -72,8 +82,16 @@ export class PlaybackCommandController {
   }
 
   private readonly startReadingTargetPlaybackFromShortcut = (): void => {
-    void this.startReadingTargetPlayback();
+    if (this.pendingShortcutPlaybackTimer) return;
+    this.pendingShortcutPlaybackTimer = setTimeout(() => {
+      this.pendingShortcutPlaybackTimer = undefined;
+      void this.startReadingTargetPlayback();
+    }, GLOBAL_SHORTCUT_SELECTION_CAPTURE_DELAY_MS);
   };
+
+  private async startReadingTargetPlaybackOnce(): Promise<PlaybackStartResult> {
+    return this.lifecycle.startReadingTargetPlayback(await this.readReadingTargetInput());
+  }
 }
 
 export function normalizeShortcutInput(shortcut: string): string | undefined {

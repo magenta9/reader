@@ -4,7 +4,7 @@ import type { ReactElement } from "react";
 import { getPlaybackOverlayBridge } from "../shared/voice-reader-bridge.js";
 import "./styles.css";
 
-const BAR_COUNT = 34;
+const BAR_COUNT = 16;
 const overlayBridge = getPlaybackOverlayBridge();
 
 interface OverlayState {
