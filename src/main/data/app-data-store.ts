@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
@@ -6,6 +7,7 @@ import {
   LEGACY_DEFAULT_ACTIVATION_SHORTCUT,
   type AppRoute,
   type AppSettings,
+  type FavoriteRecord,
   type HistoryRetention,
   type ReadingHistoryRecord
 } from "../../shared/app-contracts.js";
@@ -68,6 +70,13 @@ export interface ReadingHistoryStore {
   cleanupExpiredReadingHistory(now?: number, retention?: HistoryRetention): void;
 }
 
+export interface FavoriteRecordStore {
+  createFavoriteFromHistoryRecord(id: string, favoritedAt?: number): FavoriteRecord | undefined;
+  listFavoriteRecords(): FavoriteRecord[];
+  getFavoriteRecord(id: string): FavoriteRecord | undefined;
+  deleteFavoriteRecord(id: string): void;
+}
+
 export type MiniMaxAccountDataStore = AppSettingsStore & Pick<MiniMaxCredentialStore, "readMiniMaxApiKey">;
 
 export type PlaybackCommandDataStore = AppSettingsStore;
@@ -75,12 +84,15 @@ export type PlaybackCommandDataStore = AppSettingsStore;
 export type PlaybackDataStore = AppSettingsStore &
   Pick<MiniMaxCredentialStore, "hasMiniMaxApiKey" | "readMiniMaxApiKey"> &
   Pick<ErrorLogStore, "addErrorLog" | "recordSkippedPlaybackInput"> &
-  Pick<ReadingHistoryStore, "getReadingHistoryRecord" | "saveOrReuseReadingHistoryRecord">;
+  Pick<ReadingHistoryStore, "getReadingHistoryRecord" | "saveOrReuseReadingHistoryRecord"> &
+  Pick<FavoriteRecordStore, "getFavoriteRecord">;
 
 const SETTINGS_KEY = "app.settings";
 const MINIMAX_API_KEY = "minimax.apiKey";
 const LEGACY_ENCRYPTED_MINIMAX_API_KEY = "minimax.apiKey.encrypted";
 const MAX_ERROR_LOG_ENTRIES = 100;
+const FAVORITE_RECORD_COLUMNS =
+  "id, favorited_at, source_created_at, text, preview, duration_estimate_seconds, language_summary, source";
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   hasCompletedOnboarding: false,
   lastRoute: "home",
@@ -95,7 +107,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
 };
 
 export class AppDataStore
-  implements AppSettingsStore, MiniMaxCredentialStore, ErrorLogStore, ReadingHistoryStore
+  implements AppSettingsStore, MiniMaxCredentialStore, ErrorLogStore, ReadingHistoryStore, FavoriteRecordStore
 {
   private readonly db: DatabaseSync;
 
@@ -260,6 +272,72 @@ export class AppDataStore
     this.db.prepare("DELETE FROM reading_history WHERE created_at < ?").run(cutoff);
   }
 
+  createFavoriteFromHistoryRecord(id: string, favoritedAt = Date.now()): FavoriteRecord | undefined {
+    const historyRecord = this.getReadingHistoryRecord(id);
+    if (!historyRecord) return undefined;
+    const favorite: FavoriteRecord = {
+      id: randomUUID(),
+      favoritedAt,
+      sourceCreatedAt: historyRecord.createdAt,
+      text: historyRecord.text,
+      preview: historyRecord.preview,
+      durationEstimateSeconds: historyRecord.durationEstimateSeconds,
+      languageSummary: historyRecord.languageSummary,
+      source: historyRecord.source
+    };
+    this.db
+      .prepare(
+        `INSERT INTO favorite_records (
+          id,
+          favorited_at,
+          source_created_at,
+          text,
+          preview,
+          duration_estimate_seconds,
+          language_summary,
+          source
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        favorite.id,
+        favorite.favoritedAt,
+        favorite.sourceCreatedAt,
+        favorite.text,
+        favorite.preview,
+        favorite.durationEstimateSeconds,
+        favorite.languageSummary,
+        favorite.source
+      );
+    return favorite;
+  }
+
+  listFavoriteRecords(): FavoriteRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT ${FAVORITE_RECORD_COLUMNS}
+         FROM favorite_records
+         ORDER BY favorited_at DESC, id DESC`
+      )
+      .all() as unknown as FavoriteRecordRow[];
+    return rows.map(toFavoriteRecord);
+  }
+
+  getFavoriteRecord(id: string): FavoriteRecord | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT ${FAVORITE_RECORD_COLUMNS}
+         FROM favorite_records
+         WHERE id = ?`
+      )
+      .get(id) as unknown as FavoriteRecordRow | undefined;
+    return row ? toFavoriteRecord(row) : undefined;
+  }
+
+  deleteFavoriteRecord(id: string): void {
+    this.db.prepare("DELETE FROM favorite_records WHERE id = ?").run(id);
+  }
+
   getRawSettingForTest(key: string): string | undefined {
     return this.getTextSetting(key);
   }
@@ -283,6 +361,20 @@ export class AppDataStore
 
       CREATE INDEX IF NOT EXISTS idx_reading_history_created_at
       ON reading_history (created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS favorite_records (
+        id TEXT PRIMARY KEY,
+        favorited_at INTEGER NOT NULL,
+        source_created_at INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        preview TEXT NOT NULL,
+        duration_estimate_seconds INTEGER NOT NULL,
+        language_summary TEXT NOT NULL,
+        source TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_favorite_records_favorited_at
+      ON favorite_records (favorited_at DESC);
 
       CREATE TABLE IF NOT EXISTS error_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -386,6 +478,17 @@ interface ReadingHistoryRow {
   source: string;
 }
 
+interface FavoriteRecordRow {
+  id: string;
+  favorited_at: number;
+  source_created_at: number;
+  text: string;
+  preview: string;
+  duration_estimate_seconds: number;
+  language_summary: string;
+  source: string;
+}
+
 function normalizeSettings(value: Partial<AppSettings>): AppSettings {
   const activationShortcut =
     value.activationShortcut === LEGACY_DEFAULT_ACTIVATION_SHORTCUT
@@ -418,7 +521,9 @@ function normalizeHistoryRetention(value: unknown): HistoryRetention {
 }
 
 function normalizeAppRoute(value: unknown): AppRoute {
-  return value === "home" || value === "history" || value === "settings" ? value : "home";
+  return value === "home" || value === "history" || value === "favorites" || value === "settings"
+    ? value
+    : "home";
 }
 
 function normalizeApiKeyStatus(value: unknown): AppSettings["apiKeyStatus"] {
@@ -442,6 +547,19 @@ function toReadingHistoryRecord(row: ReadingHistoryRow): ReadingHistoryRecord {
   return {
     id: row.id,
     createdAt: row.created_at,
+    text: row.text,
+    preview: row.preview,
+    durationEstimateSeconds: row.duration_estimate_seconds,
+    languageSummary: row.language_summary,
+    source: normalizeReadingSource(row.source)
+  };
+}
+
+function toFavoriteRecord(row: FavoriteRecordRow): FavoriteRecord {
+  return {
+    id: row.id,
+    favoritedAt: row.favorited_at,
+    sourceCreatedAt: row.source_created_at,
     text: row.text,
     preview: row.preview,
     durationEstimateSeconds: row.duration_estimate_seconds,

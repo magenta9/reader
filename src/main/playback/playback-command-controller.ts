@@ -36,6 +36,10 @@ export class PlaybackCommandController {
     return this.lifecycle.startHistoryReplay(recordId);
   }
 
+  async startFavoriteReplay(recordId: string): Promise<PlaybackStartResult> {
+    return this.lifecycle.startFavoriteReplay(recordId);
+  }
+
   stopPlayback(): void {
     this.lifecycle.stopPlayback();
   }

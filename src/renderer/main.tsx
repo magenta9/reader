@@ -1,12 +1,19 @@
 import { StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { ReactElement } from "react";
-import type { AppRoute, AppSettings, ReadingHistoryRecord } from "./bridge.js";
+import type { ReactElement, ReactNode } from "react";
+import type { AppRoute, AppSettings, FavoriteRecord, ReadingHistoryRecord } from "./bridge.js";
 import { DEFAULT_ACTIVATION_SHORTCUT } from "../shared/app-contracts.js";
 import type { DetectedLanguage, MiniMaxVoice } from "../shared/types.js";
 import { MODEL_OPTIONS } from "../shared/models.js";
 import { getReaderWindowBridge, getRendererAudioBridge } from "../shared/voice-reader-bridge.js";
 import { PlaybackAudioQueue } from "./audio-player.js";
+import {
+  groupFavoriteRecords,
+  groupHistoryRecords,
+  type RecordGroup,
+  resolveAdjacentSelectionAfterDelete,
+  resolveSelectedRecordId
+} from "./record-view-model.js";
 import "./styles.css";
 
 const readerBridge = getReaderWindowBridge();
@@ -15,6 +22,7 @@ const audioBridge = getRendererAudioBridge();
 const NAV_ITEMS: Array<{ route: AppRoute; label: string; mark: string }> = [
   { route: "home", label: "主页", mark: "⌂" },
   { route: "history", label: "历史记录", mark: "◷" },
+  { route: "favorites", label: "收藏", mark: "★" },
   { route: "settings", label: "设置", mark: "⚙" }
 ];
 
@@ -116,6 +124,7 @@ function App(): ReactElement {
         )}
         {route === "home" && <Home onNavigate={navigate} />}
         {route === "history" && <History />}
+        {route === "favorites" && <Favorites />}
         {route === "settings" && <Settings />}
       </main>
     </div>
@@ -290,6 +299,145 @@ function StatusChip({ ready, label }: { ready: boolean; label: string }): ReactE
   );
 }
 
+function DetailWaveform({ label }: { label: string }): ReactElement {
+  return (
+    <div className="detail-waveform" aria-label={label}>
+      {Array.from({ length: 5 }, (_, index) => (
+        <span key={index} />
+      ))}
+    </div>
+  );
+}
+
+interface RecordListItem {
+  id: string;
+  preview: string;
+  durationEstimateSeconds: number;
+  languageSummary: string;
+}
+
+function GroupedRecordList<T extends RecordListItem>({
+  emptyLabel,
+  getTime,
+  groups,
+  onSelect,
+  selectedId
+}: {
+  emptyLabel: string;
+  getTime: (record: T) => number;
+  groups: RecordGroup<T>[];
+  onSelect: (record: T) => void;
+  selectedId: string | undefined;
+}): ReactElement {
+  return (
+    <div className="history-list">
+      {groups.length ? (
+        groups.map((group) => (
+          <div className="history-group" key={group.label}>
+            <p className="section-kicker">{group.label}</p>
+            <div className="history-items">
+              {group.records.map((record) => (
+                <button
+                  className={`history-item${record.id === selectedId ? " is-active" : ""}`}
+                  key={record.id}
+                  onClick={() => onSelect(record)}
+                  type="button"
+                >
+                  <span className="history-time">{formatHistoryTime(getTime(record))}</span>
+                  <span className="history-preview">{record.preview}</span>
+                  <span className="history-meta">
+                    {formatDuration(record.durationEstimateSeconds)} · {record.languageSummary}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="empty-list">{emptyLabel}</div>
+      )}
+    </div>
+  );
+}
+
+function ReplayDetailActions({
+  children,
+  onReplay,
+  replaySessionId
+}: {
+  children: ReactNode;
+  onReplay: () => void;
+  replaySessionId: number | undefined;
+}): ReactElement {
+  return (
+    <div className="detail-actions">
+      <button className="secondary-action" onClick={onReplay} type="button">
+        重新播放
+      </button>
+      {replaySessionId ? (
+        <button className="text-action" onClick={() => void readerBridge.stopPlayback()} type="button">
+          停止
+        </button>
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
+function CopyTextButton({ copied, onCopy }: { copied: boolean; onCopy: () => void }): ReactElement {
+  return (
+    <button className="text-action" onClick={onCopy} type="button">
+      {copied ? "已复制" : "复制全文"}
+    </button>
+  );
+}
+
+function RecordDetailPanel({
+  children,
+  emptyDescription,
+  emptyTitle,
+  hasSelection
+}: {
+  children: ReactNode;
+  emptyDescription: string;
+  emptyTitle: string;
+  hasSelection: boolean;
+}): ReactElement {
+  return (
+    <div className="history-detail">
+      {hasSelection ? (
+        <>{children}</>
+      ) : (
+        <>
+          <p className="section-kicker">详情</p>
+          <h2>{emptyTitle}</h2>
+          <p className="muted">{emptyDescription}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function useReplaySessionId(): readonly [number | undefined, (sessionId: number | undefined) => void] {
+  const [replaySessionId, setReplaySessionId] = useState<number | undefined>();
+
+  useEffect(() => {
+    const clearReplay = (payload: { sessionId: number }) => {
+      setReplaySessionId((current) => (current === payload.sessionId ? undefined : current));
+    };
+    const subscriptions = [
+      audioBridge.onPlaybackFinish(clearReplay),
+      audioBridge.onPlaybackFail(clearReplay),
+      audioBridge.onPlaybackStop(clearReplay)
+    ];
+    return () => {
+      for (const unsubscribe of subscriptions) unsubscribe();
+    };
+  }, []);
+
+  return [replaySessionId, setReplaySessionId];
+}
+
 function getSetupRecoveryAction(hasApiKey: boolean, settings: AppSettings | undefined): SetupRecoveryAction | undefined {
   if (!settings) return undefined;
   if (!hasApiKey) return { kind: "open-settings", label: "去设置 API Key" };
@@ -304,27 +452,11 @@ function History(): ReactElement {
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | undefined>();
   const [copied, setCopied] = useState(false);
-  const [replaySessionId, setReplaySessionId] = useState<number | undefined>();
+  const [favoriteFeedbackId, setFavoriteFeedbackId] = useState<string | undefined>();
+  const [replaySessionId, setReplaySessionId] = useReplaySessionId();
 
   useEffect(() => {
     void refreshHistory();
-  }, []);
-
-  useEffect(() => {
-    const clearReplay = (payload: { sessionId: number }) => {
-      setReplaySessionId((current) => (current === payload.sessionId ? undefined : current));
-    };
-    return [
-      audioBridge.onPlaybackFinish(clearReplay),
-      audioBridge.onPlaybackFail(clearReplay),
-      audioBridge.onPlaybackStop(clearReplay)
-    ].reduce(
-      (unsubscribeAll, unsubscribe) => () => {
-        unsubscribe();
-        unsubscribeAll();
-      },
-      () => undefined
-    );
   }, []);
 
   const selected = records.find((record) => record.id === selectedId);
@@ -333,13 +465,7 @@ function History(): ReactElement {
   const refreshHistory = async (preferredSelectedId?: string): Promise<void> => {
     const nextRecords = await readerBridge.listReadingHistory();
     setRecords(nextRecords);
-    setSelectedId((current) => {
-      if (preferredSelectedId && nextRecords.some((record) => record.id === preferredSelectedId)) {
-        return preferredSelectedId;
-      }
-      if (current && nextRecords.some((record) => record.id === current)) return current;
-      return nextRecords[0]?.id;
-    });
+    setSelectedId((current) => resolveSelectedRecordId(nextRecords, current, preferredSelectedId));
   };
 
   const copySelected = async (): Promise<void> => {
@@ -347,6 +473,16 @@ function History(): ReactElement {
     await readerBridge.copyText(selected.text);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1300);
+  };
+
+  const addSelectedToFavorites = async (): Promise<void> => {
+    if (!selected) return;
+    const favorite = await readerBridge.createFavoriteFromHistoryRecord(selected.id);
+    if (!favorite) return;
+    setFavoriteFeedbackId(selected.id);
+    window.setTimeout(() => {
+      setFavoriteFeedbackId((current) => (current === selected.id ? undefined : current));
+    }, 1300);
   };
 
   const deleteSelected = async (): Promise<void> => {
@@ -370,38 +506,22 @@ function History(): ReactElement {
 
   return (
     <section className="history-layout" aria-label="历史记录">
-      <div className="history-list">
-        {records.length ? (
-          groups.map((group) => (
-            <div className="history-group" key={group.label}>
-              <p className="section-kicker">{group.label}</p>
-              <div className="history-items">
-                {group.records.map((record) => (
-                  <button
-                    className={`history-item${record.id === selectedId ? " is-active" : ""}`}
-                    key={record.id}
-                    onClick={() => {
-                      setSelectedId(record.id);
-                      setConfirmDeleteId(undefined);
-                    }}
-                    type="button"
-                  >
-                    <span className="history-time">{formatHistoryTime(record.createdAt)}</span>
-                    <span className="history-preview">{record.preview}</span>
-                    <span className="history-meta">
-                      {formatDuration(record.durationEstimateSeconds)} · {record.languageSummary}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="empty-list">暂无历史记录</div>
-        )}
-      </div>
-      <div className="history-detail">
-        {selected ? (
+      <GroupedRecordList
+        emptyLabel="暂无历史记录"
+        getTime={(record) => record.createdAt}
+        groups={groups}
+        onSelect={(record) => {
+          setSelectedId(record.id);
+          setConfirmDeleteId(undefined);
+        }}
+        selectedId={selectedId}
+      />
+      <RecordDetailPanel
+        emptyDescription="朗读选中文本或剪切板后，历史记录会显示在这里。"
+        emptyTitle="选择一条历史记录"
+        hasSelection={Boolean(selected)}
+      >
+        {selected && (
           <>
             <p className="section-kicker">详情</p>
             <h2>{selected.preview}</h2>
@@ -410,26 +530,11 @@ function History(): ReactElement {
               <span>{formatDuration(selected.durationEstimateSeconds)}</span>
               <span>{selected.languageSummary}</span>
             </div>
-            {replaySessionId ? (
-              <div className="detail-waveform" aria-label="历史重播中">
-                <span />
-                <span />
-                <span />
-                <span />
-                <span />
-              </div>
-            ) : null}
-            <div className="detail-actions">
-              <button className="secondary-action" onClick={replaySelected} type="button">
-                重新播放
-              </button>
-              {replaySessionId ? (
-                <button className="text-action" onClick={() => void readerBridge.stopPlayback()} type="button">
-                  停止
-                </button>
-              ) : null}
-              <button className="text-action" onClick={copySelected} type="button">
-                {copied ? "已复制" : "复制全文"}
+            {replaySessionId ? <DetailWaveform label="历史重播中" /> : null}
+            <ReplayDetailActions onReplay={replaySelected} replaySessionId={replaySessionId}>
+              <CopyTextButton copied={copied} onCopy={copySelected} />
+              <button className="text-action" onClick={addSelectedToFavorites} type="button">
+                {favoriteFeedbackId === selected.id ? "已添加" : "添加收藏"}
               </button>
               <button
                 className={confirmDeleteId === selected.id ? "danger-action" : "text-action"}
@@ -438,17 +543,94 @@ function History(): ReactElement {
               >
                 {confirmDeleteId === selected.id ? "确认删除" : "删除"}
               </button>
-            </div>
+            </ReplayDetailActions>
             <article className="history-full-text">{selected.text}</article>
           </>
-        ) : (
+        )}
+      </RecordDetailPanel>
+    </section>
+  );
+}
+
+function Favorites(): ReactElement {
+  const [records, setRecords] = useState<FavoriteRecord[]>([]);
+  const [selectedId, setSelectedId] = useState<string | undefined>();
+  const [copied, setCopied] = useState(false);
+  const [replaySessionId, setReplaySessionId] = useReplaySessionId();
+
+  useEffect(() => {
+    void refreshFavorites();
+  }, []);
+
+  const selected = records.find((record) => record.id === selectedId);
+  const groups = groupFavoriteRecords(records);
+
+  const refreshFavorites = async (preferredSelectedId?: string): Promise<void> => {
+    const nextRecords = await readerBridge.listFavorites();
+    setRecords(nextRecords);
+    setSelectedId((current) => resolveSelectedRecordId(nextRecords, current, preferredSelectedId));
+  };
+
+  const copyFavoriteSelected = async (): Promise<void> => {
+    if (!selected) return;
+    await readerBridge.copyText(selected.text);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1300);
+  };
+
+  const deleteFavoriteSelected = async (): Promise<void> => {
+    if (!selected) return;
+    const nextSelection = resolveAdjacentSelectionAfterDelete(records, selected.id);
+    await readerBridge.deleteFavoriteRecord(selected.id);
+    setCopied(false);
+    await refreshFavorites(nextSelection);
+  };
+
+  const replayFavoriteSelected = async (): Promise<void> => {
+    if (!selected) return;
+    const result = await readerBridge.playFavoriteRecord(selected.id);
+    if (result.started) setReplaySessionId(result.sessionId);
+  };
+
+  return (
+    <section className="history-layout" aria-label="收藏">
+      <GroupedRecordList
+        emptyLabel="暂无收藏"
+        getTime={(record) => record.favoritedAt}
+        groups={groups}
+        onSelect={(record) => {
+          setSelectedId(record.id);
+          setCopied(false);
+        }}
+        selectedId={selectedId}
+      />
+      <RecordDetailPanel
+        emptyDescription="在历史记录详情中添加收藏后，会显示在这里。"
+        emptyTitle="暂无收藏"
+        hasSelection={Boolean(selected)}
+      >
+        {selected && (
           <>
             <p className="section-kicker">详情</p>
-            <h2>选择一条历史记录</h2>
-            <p className="muted">朗读选中文本或剪切板后，历史记录会显示在这里。</p>
+            <h2>{selected.preview}</h2>
+            <div className="detail-meta">
+              <span>收藏于 {formatHistoryDateTime(selected.favoritedAt)}</span>
+              <span>原朗读 {formatHistoryDateTime(selected.sourceCreatedAt)}</span>
+              <span>{formatDuration(selected.durationEstimateSeconds)}</span>
+              <span>{selected.languageSummary}</span>
+              <span>{readingSourceLabel(selected.source)}</span>
+            </div>
+            {replaySessionId ? <DetailWaveform label="收藏重播中" /> : null}
+            <ReplayDetailActions onReplay={replayFavoriteSelected} replaySessionId={replaySessionId}>
+              <CopyTextButton copied={copied} onCopy={copyFavoriteSelected} />
+              <button className="text-action" onClick={deleteFavoriteSelected} type="button">
+                删除
+              </button>
+            </ReplayDetailActions>
+            <article className="history-full-text">{selected.text}</article>
           </>
         )}
-      </div>
+      </RecordDetailPanel>
     </section>
   );
 }
@@ -744,7 +926,7 @@ function Settings(): ReactElement {
                 </select>
               </label>
               <p className="muted">当前历史记录：{readingHistoryCount} 条。缩短保留期限会立即删除超期记录。</p>
-              <p className="muted">历史全文只保存在本机，不保存音频；当前朗读文本会发送给 MiniMax 生成语音。</p>
+              <p className="muted">历史全文和收藏全文只保存在本机，不保存音频；当前朗读文本会发送给 MiniMax 生成语音。</p>
               <button
                 className={confirmClearHistory ? "danger-action" : "secondary-action"}
                 disabled={!readingHistoryCount}
@@ -861,44 +1043,6 @@ function voicesForLanguage(voices: MiniMaxVoice[], language: DetectedLanguage): 
   return [];
 }
 
-interface HistoryGroup {
-  label: "今天" | "昨天" | "本周" | "更早";
-  records: ReadingHistoryRecord[];
-}
-
-function groupHistoryRecords(records: ReadingHistoryRecord[], now = Date.now()): HistoryGroup[] {
-  const buckets: Record<HistoryGroup["label"], ReadingHistoryRecord[]> = {
-    今天: [],
-    昨天: [],
-    本周: [],
-    更早: []
-  };
-  for (const record of records) {
-    buckets[classifyHistoryRecord(record.createdAt, now)].push(record);
-  }
-  return (["今天", "昨天", "本周", "更早"] as const)
-    .map((label) => ({
-      label,
-      records: buckets[label].sort((a, b) => b.createdAt - a.createdAt)
-    }))
-    .filter((group) => group.records.length);
-}
-
-function classifyHistoryRecord(createdAt: number, now: number): HistoryGroup["label"] {
-  const created = new Date(createdAt);
-  const today = startOfDay(new Date(now));
-  const yesterday = today - 24 * 60 * 60 * 1000;
-  const weekStart = today - ((new Date(now).getDay() + 6) % 7) * 24 * 60 * 60 * 1000;
-  if (createdAt >= today) return "今天";
-  if (createdAt >= yesterday) return "昨天";
-  if (createdAt >= weekStart) return "本周";
-  return "更早";
-}
-
-function startOfDay(date: Date): number {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-}
-
 function formatHistoryTime(value: number): string {
   return new Intl.DateTimeFormat("zh-CN", {
     hour: "2-digit",
@@ -916,8 +1060,8 @@ function formatHistoryDateTime(value: number): string {
 }
 
 function formatDuration(seconds: number): string {
-  if (seconds < 60) return "~1 min";
-  return `~${Math.max(1, Math.round(seconds / 60))} min`;
+  if (seconds < 60) return "约 1 分钟";
+  return `约 ${Math.max(1, Math.round(seconds / 60))} 分钟`;
 }
 
 createRoot(document.getElementById("root") as HTMLElement).render(

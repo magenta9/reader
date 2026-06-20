@@ -4,8 +4,10 @@ import type {
   AppRoute,
   AppSettings,
   BootstrapState,
+  FavoriteRecord,
   MiniMaxSetupResult,
   PlaybackAudioSession,
+  OverlayDragDelta,
   PlaybackStartResult,
   PlaybackOverlayBridge,
   ReaderWindowBridge,
@@ -49,10 +51,17 @@ const readerWindowBridge: ReaderWindowBridge = {
   deleteReadingHistoryRecord: (id: string) =>
     ipcRenderer.invoke("app-data:delete-reading-history-record", id) as Promise<void>,
   clearReadingHistory: () => ipcRenderer.invoke("app-data:clear-reading-history") as Promise<void>,
+  createFavoriteFromHistoryRecord: (id: string) =>
+    ipcRenderer.invoke("app-data:create-favorite-from-history-record", id) as Promise<FavoriteRecord | undefined>,
+  listFavorites: () => ipcRenderer.invoke("app-data:list-favorites") as Promise<FavoriteRecord[]>,
+  deleteFavoriteRecord: (id: string) =>
+    ipcRenderer.invoke("app-data:delete-favorite-record", id) as Promise<void>,
   playReadingTarget: () =>
     ipcRenderer.invoke("playback:play-reading-target") as Promise<PlaybackStartResult>,
   playHistoryRecord: (id: string) =>
     ipcRenderer.invoke("playback:play-history-record", id) as Promise<PlaybackStartResult>,
+  playFavoriteRecord: (id: string) =>
+    ipcRenderer.invoke("playback:play-favorite-record", id) as Promise<PlaybackStartResult>,
   stopPlayback,
   copyText: (text: string) => ipcRenderer.invoke("clipboard:write-text", text) as Promise<void>,
   onNavigate: (listener: (route: AppRoute) => void) => {
@@ -88,7 +97,9 @@ const playbackOverlayBridge: PlaybackOverlayBridge = {
     subscribe("overlay:metric", listener),
   onOverlayFinish: (listener: () => void) => subscribeVoid("overlay:finish", listener),
   onOverlayFail: (listener: () => void) => subscribeVoid("overlay:fail", listener),
-  onOverlayStop: (listener: () => void) => subscribeVoid("overlay:stop", listener)
+  onOverlayStop: (listener: () => void) => subscribeVoid("overlay:stop", listener),
+  moveOverlayBy: (delta: OverlayDragDelta) =>
+    ipcRenderer.invoke("overlay:move-by", delta) as Promise<void>
 };
 
 contextBridge.exposeInMainWorld("voiceReader", createRuntimeBridge());

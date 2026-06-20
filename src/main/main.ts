@@ -20,6 +20,7 @@ import type {
   AppRoute,
   AppSettings,
   BootstrapState,
+  OverlayDragDelta,
   OverlayMetric,
   PlaybackStartResult
 } from "../shared/app-contracts.js";
@@ -188,10 +189,20 @@ function registerIpcHandlers(): void {
     appDataStore.deleteReadingHistoryRecord(id)
   );
   ipcMain.handle("app-data:clear-reading-history", () => appDataStore.clearReadingHistory());
+  ipcMain.handle("app-data:create-favorite-from-history-record", (_event, id: string) =>
+    appDataStore.createFavoriteFromHistoryRecord(id)
+  );
+  ipcMain.handle("app-data:list-favorites", () => appDataStore.listFavoriteRecords());
+  ipcMain.handle("app-data:delete-favorite-record", (_event, id: string) =>
+    appDataStore.deleteFavoriteRecord(id)
+  );
   ipcMain.handle("playback:play-reading-target", (event) =>
     startReadingTargetPlaybackFromReaderWindow(event.sender.id)
   );
   ipcMain.handle("playback:play-history-record", (_event, id: string) => playbackCommands.startHistoryReplay(id));
+  ipcMain.handle("playback:play-favorite-record", (_event, id: string) =>
+    playbackCommands.startFavoriteReplay(id)
+  );
   ipcMain.handle("playback:stop", () => {
     playbackCommands.stopPlayback();
   });
@@ -203,6 +214,9 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("overlay:metric", (_event, metric: OverlayMetric) => {
     overlayController.sendMetric(metric);
+  });
+  ipcMain.handle("overlay:move-by", (_event, delta: OverlayDragDelta) => {
+    overlayController.moveBy(delta);
   });
   ipcMain.handle("overlay:finish-playback", () => {
     overlayController.finish();
@@ -227,6 +241,10 @@ function createMenuBarMenu(): void {
       {
         label: "历史记录",
         click: () => openReaderWindow("history")
+      },
+      {
+        label: "收藏",
+        click: () => openReaderWindow("favorites")
       },
       {
         label: "设置",

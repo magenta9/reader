@@ -3,6 +3,7 @@ export type {
   AppSettings,
   AudioChunkPayload,
   BootstrapState,
+  FavoriteRecord,
   MiniMaxSetupResult,
   OverlayMetric,
   PlaybackAudioSession,

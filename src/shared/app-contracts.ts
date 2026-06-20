@@ -1,6 +1,6 @@
 import type { DetectedLanguage, MiniMaxVoice, ReadingSource } from "./types.js";
 
-export type AppRoute = "home" | "history" | "settings";
+export type AppRoute = "home" | "history" | "favorites" | "settings";
 
 export type HistoryRetention = "7d" | "1m" | "3m" | "forever";
 
@@ -39,6 +39,17 @@ export interface ReadingHistoryRecord {
   source: ReadingSource;
 }
 
+export interface FavoriteRecord {
+  id: string;
+  favoritedAt: number;
+  sourceCreatedAt: number;
+  text: string;
+  preview: string;
+  durationEstimateSeconds: number;
+  languageSummary: string;
+  source: ReadingSource;
+}
+
 export interface MiniMaxSetupResult {
   ok: boolean;
   settings: AppSettings;
@@ -48,13 +59,20 @@ export interface MiniMaxSetupResult {
 
 export interface PlaybackStartResult {
   started: boolean;
-  skipped?: "empty_clipboard" | "missing_api_key" | "unverified_api_key" | "missing_voice" | "missing_history_record";
+  skipped?:
+    | "empty_clipboard"
+    | "missing_api_key"
+    | "unverified_api_key"
+    | "missing_voice"
+    | "missing_history_record"
+    | "missing_favorite_record";
   sessionId?: number;
 }
 
 export const PLAYBACK_FEEDBACK_SURFACES = {
   playbackOverlay: "playback_overlay",
-  historyDetail: "history_detail"
+  historyDetail: "history_detail",
+  favoriteDetail: "favorite_detail"
 } as const;
 
 export type PlaybackFeedbackSurface =
@@ -91,6 +109,11 @@ export interface OverlayMetric {
   progress: number;
 }
 
+export interface OverlayDragDelta {
+  deltaX: number;
+  deltaY: number;
+}
+
 export interface ReaderWindowBridge {
   getBootstrapState: () => Promise<BootstrapState>;
   setOnboardingComplete: (complete: boolean) => Promise<void>;
@@ -112,8 +135,12 @@ export interface ReaderWindowBridge {
   listReadingHistory: () => Promise<ReadingHistoryRecord[]>;
   deleteReadingHistoryRecord: (id: string) => Promise<void>;
   clearReadingHistory: () => Promise<void>;
+  createFavoriteFromHistoryRecord: (id: string) => Promise<FavoriteRecord | undefined>;
+  listFavorites: () => Promise<FavoriteRecord[]>;
+  deleteFavoriteRecord: (id: string) => Promise<void>;
   playReadingTarget: () => Promise<PlaybackStartResult>;
   playHistoryRecord: (id: string) => Promise<PlaybackStartResult>;
+  playFavoriteRecord: (id: string) => Promise<PlaybackStartResult>;
   stopPlayback: () => Promise<void>;
   copyText: (text: string) => Promise<void>;
 }
@@ -136,6 +163,7 @@ export interface PlaybackOverlayBridge {
   onOverlayFinish: (listener: () => void) => () => void;
   onOverlayFail: (listener: () => void) => () => void;
   onOverlayStop: (listener: () => void) => () => void;
+  moveOverlayBy: (delta: OverlayDragDelta) => Promise<void>;
 }
 
 export type VoiceReaderBridge = ReaderWindowBridge & RendererAudioBridge & PlaybackOverlayBridge;

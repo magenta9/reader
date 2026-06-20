@@ -1,7 +1,7 @@
 import { BrowserWindow, screen } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { OverlayMetric } from "../../shared/app-contracts.js";
+import type { OverlayDragDelta, OverlayMetric } from "../../shared/app-contracts.js";
 
 export class PlaybackOverlayController {
   private overlayWindow: BrowserWindow | undefined;
@@ -9,10 +9,12 @@ export class PlaybackOverlayController {
   private overlayLoaded = false;
   private pendingShow = false;
   private followTimer: NodeJS.Timeout | undefined;
+  private manualPosition: OverlayWindowPosition | undefined;
 
   show(): void {
     this.visibilityGeneration += 1;
     this.pendingShow = true;
+    this.manualPosition = undefined;
     const window = this.getOrCreateWindow();
     keepOverlayAttached(window);
     if (!window.isVisible()) window.showInactive();
@@ -28,6 +30,19 @@ export class PlaybackOverlayController {
       amplitude: clamp01(metric.amplitude),
       progress: clamp01(metric.progress)
     });
+  }
+
+  moveBy(delta: OverlayDragDelta): void {
+    const window = this.overlayWindow;
+    if (!window || window.isDestroyed() || !window.isVisible()) return;
+
+    const [currentX, currentY] = window.getPosition();
+    this.manualPosition = constrainOverlayPosition(window, {
+      x: currentX + delta.deltaX,
+      y: currentY + delta.deltaY
+    });
+    window.setPosition(this.manualPosition.x, this.manualPosition.y, false);
+    window.moveTop();
   }
 
   finish(): void {
@@ -118,7 +133,7 @@ export class PlaybackOverlayController {
     this.followTimer = setInterval(() => {
       const window = this.overlayWindow;
       if (!window || window.isDestroyed() || !window.isVisible()) return;
-      keepOverlayAttached(window);
+      keepOverlayAttached(window, this.manualPosition);
       window.moveTop();
     }, 250);
   }
@@ -131,9 +146,19 @@ export class PlaybackOverlayController {
 
 const mainBundleDir = dirname(fileURLToPath(import.meta.url));
 
-function keepOverlayAttached(window: BrowserWindow): void {
+interface OverlayWindowPosition {
+  x: number;
+  y: number;
+}
+
+function keepOverlayAttached(window: BrowserWindow, manualPosition?: OverlayWindowPosition): void {
   refreshOverlayWorkspaceAttachment(window);
   window.setAlwaysOnTop(true, overlayWindowLevel);
+  if (manualPosition) {
+    const position = constrainOverlayPosition(window, manualPosition);
+    window.setPosition(position.x, position.y, false);
+    return;
+  }
   positionOverlayWindow(window);
 }
 
@@ -162,6 +187,19 @@ function positionOverlayWindow(window: BrowserWindow): void {
     Math.round(bounds.y + bounds.height - height - 28),
     false
   );
+}
+
+function constrainOverlayPosition(window: BrowserWindow, position: OverlayWindowPosition): OverlayWindowPosition {
+  const [width, height] = window.getSize();
+  const display = screen.getDisplayNearestPoint({
+    x: position.x + width / 2,
+    y: position.y + height / 2
+  });
+  const bounds = display.workArea;
+  return {
+    x: Math.round(Math.max(bounds.x, Math.min(position.x, bounds.x + bounds.width - width))),
+    y: Math.round(Math.max(bounds.y, Math.min(position.y, bounds.y + bounds.height - height)))
+  };
 }
 
 function clamp01(value: number): number {

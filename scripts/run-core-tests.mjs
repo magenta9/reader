@@ -31,6 +31,11 @@ const { PlaybackService } = await import("../dist/main/playback/playback-service
 const { ElectronAudioSink } = await import("../dist/main/playback/electron-audio-sink.js");
 const { PlaybackAudioQueue } = await import("../dist/renderer/audio-player.js");
 const {
+  groupFavoriteRecords,
+  resolveAdjacentSelectionAfterDelete,
+  resolveSelectedRecordId
+} = await import("../dist/renderer/record-view-model.js");
+const {
   DEFAULT_ACTIVATION_SHORTCUT,
   LEGACY_DEFAULT_ACTIVATION_SHORTCUT,
   PLAYBACK_FEEDBACK_SURFACES
@@ -42,6 +47,7 @@ for (const path of [
   "../dist/preload/preload.cjs",
   "../dist/renderer/index.html",
   "../dist/renderer/renderer.js",
+  "../dist/renderer/record-view-model.js",
   "../dist/renderer/renderer.css",
   "../dist/assets/voicereader-icon.svg",
   "../dist/assets/voicereader-template-icon.svg",
@@ -85,6 +91,7 @@ assertIncludes(mainBundle, [
   "\\u64AD\\u653E",
   "\\u6253\\u5F00 VoiceReader",
   "\\u5386\\u53F2\\u8BB0\\u5F55",
+  "\\u6536\\u85CF",
   "\\u8BBE\\u7F6E",
   "width: 1100",
   "height: 760",
@@ -100,6 +107,7 @@ assertIncludes(mainBundle, [
   "event.preventDefault()",
   "readerWindow?.hide()",
   'openReaderWindow("history")',
+  'openReaderWindow("favorites")',
   'openReaderWindow("settings")',
   "showInactive"
 ]);
@@ -112,12 +120,17 @@ assertIncludes(mainBundle, [
   "getCursorScreenPoint",
   "setPosition",
   "overlay:metric",
+  "overlay:move-by",
   "overlay:finish-playback",
   "playback:renderer-idle",
   "PlaybackCommandController",
   "PlaybackSessionLifecycle",
   "stopSession",
   "app-data:set-activation-shortcut",
+  "app-data:create-favorite-from-history-record",
+  "app-data:list-favorites",
+  "app-data:delete-favorite-record",
+  "playback:play-favorite-record",
   "readSelectedTextOrClipboardTarget",
   "selected_text",
   "selection-copy-macos.node",
@@ -148,6 +161,8 @@ assertMissing(mainSource, [
   'target = {\n      text: "",\n      source: "selected_text"\n    };\n  }'
 ]);
 assertIncludes(appContractsBundle, "PLAYBACK_FEEDBACK_SURFACES");
+assertIncludes(appContractsSource, "FavoriteRecord");
+assertIncludes(appContractsSource, "favoriteDetail");
 assertMissing(preloadBundle, "../renderer/bridge");
 for (const { name, source, expectedValues } of [
   {
@@ -157,6 +172,7 @@ for (const { name, source, expectedValues } of [
       "readerWindowBridge",
       "rendererAudioBridge",
       "playbackOverlayBridge",
+      "overlay:move-by",
       "createRuntimeBridge",
       "isPlaybackOverlayRuntime",
       'window.location.pathname.includes("/overlay/")'
@@ -187,6 +203,10 @@ for (const { name, source, expectedValues } of [
 const readerRuntimeBridge = evaluatePreloadBridge("/renderer/index.html");
 const overlayRuntimeBridge = evaluatePreloadBridge("/overlay/index.html");
 assert.equal(typeof readerRuntimeBridge.getSettings, "function");
+assert.equal(typeof readerRuntimeBridge.createFavoriteFromHistoryRecord, "function");
+assert.equal(typeof readerRuntimeBridge.listFavorites, "function");
+assert.equal(typeof readerRuntimeBridge.deleteFavoriteRecord, "function");
+assert.equal(typeof readerRuntimeBridge.playFavoriteRecord, "function");
 assert.equal(typeof readerRuntimeBridge.onPlaybackStart, "function");
 assert.equal(typeof readerRuntimeBridge.onOverlayShow, "undefined");
 assert.equal(typeof overlayRuntimeBridge.stopPlayback, "undefined");
@@ -225,6 +245,7 @@ assert.equal(rendererHtml.includes("media-src 'self' blob:"), true);
 assert.equal(rendererBundle.includes("./assets/voicereader-icon.svg"), true);
 assert.equal(rendererBundle.includes("\\u4E3B\\u9875"), true);
 assert.equal(rendererBundle.includes("\\u5386\\u53F2\\u8BB0\\u5F55"), true);
+assert.equal(rendererBundle.includes("\\u6536\\u85CF"), true);
 assert.equal(rendererBundle.includes("\\u8BBE\\u7F6E"), true);
 assert.equal(rendererBundle.includes("\\u4ECA\\u5929"), true);
 assert.equal(rendererBundle.includes("\\u6628\\u5929"), true);
@@ -249,11 +270,19 @@ for (const label of [
   "自定义 Model ID",
   "保存 Model",
   "保存 Model 时不做可用性验证",
-  "历史全文只保存在本机，不保存音频；当前朗读文本会发送给 MiniMax 生成语音。",
+  "历史全文和收藏全文只保存在本机，不保存音频；当前朗读文本会发送给 MiniMax 生成语音。",
+  "添加收藏",
+  "已添加",
+  "暂无收藏",
+  "在历史记录详情中添加收藏后，会显示在这里。",
+  "收藏于",
+  "原朗读",
+  "收藏重播中",
   "Error Log"
 ]) {
   assert.equal(rendererSource.includes(label), true);
 }
+assertMissing(rendererSource, ["清空收藏", "收藏数量"]);
 assert.equal(rendererSource.includes("function Home"), true);
 assert.equal(rendererSource.includes("getSetupRecoveryAction"), true);
 assert.equal(rendererSource.includes('role="group"'), true);
@@ -279,6 +308,7 @@ assertIncludes(playbackOverlayControllerSource, ["type: \"panel\"", "width: 132"
 assertIncludes(playbackOverlayControllerSource, "attachOverlayToFullscreenSpaces(window);\n    window.moveTop()");
 assertIncludes(playbackOverlayControllerSource, "refreshOverlayWorkspaceAttachment(window)");
 assertIncludes(playbackOverlayControllerSource, "metric.progress");
+assertOverlayDragCoverage();
 assertIncludes(rendererAudioSource, ["segmentWeights", "getSessionProgress", "progress:"]);
 assertMissing(rendererAudioSource, "const progress = audioProgress");
 assertIncludes(overlaySource, "const BAR_COUNT = 10");
@@ -488,6 +518,7 @@ const tables = schemaDb
   .map((row) => String(row.name));
 assert.ok(tables.includes("settings"));
 assert.ok(tables.includes("reading_history"));
+assert.ok(tables.includes("favorite_records"));
 assert.ok(tables.includes("error_log"));
 schemaDb.close();
 
@@ -603,15 +634,49 @@ assert.notEqual(historyB.id, historyA.id);
 assert.equal(historyB.source, "clipboard");
 assert.equal(store.getReadingHistoryCount(), 3);
 
+const missingFavorite = store.createFavoriteFromHistoryRecord("missing-history-record", 30_000_000);
+assert.equal(missingFavorite, undefined);
+const favoriteA = store.createFavoriteFromHistoryRecord(historyA.id, 30_000_000);
+const favoriteDuplicate = store.createFavoriteFromHistoryRecord(historyA.id, 30_001_000);
+assert.ok(favoriteA);
+assert.ok(favoriteDuplicate);
+assert.notEqual(favoriteDuplicate.id, favoriteA.id);
+assert.equal(favoriteA.text, historyA.text);
+assert.equal(favoriteA.preview, historyA.preview);
+assert.equal(favoriteA.durationEstimateSeconds, historyA.durationEstimateSeconds);
+assert.equal(favoriteA.languageSummary, historyA.languageSummary);
+assert.equal(favoriteA.source, historyA.source);
+assert.equal(favoriteA.sourceCreatedAt, historyA.createdAt);
+assert.equal(favoriteA.favoritedAt, 30_000_000);
+assert.deepEqual(store.getFavoriteRecord(favoriteA.id), favoriteA);
+assert.deepEqual(Object.keys(favoriteA).sort(), [
+  "durationEstimateSeconds",
+  "favoritedAt",
+  "id",
+  "languageSummary",
+  "preview",
+  "source",
+  "sourceCreatedAt",
+  "text"
+]);
+assert.deepEqual(favoriteIds(store), [favoriteDuplicate.id, favoriteA.id]);
+store.deleteReadingHistoryRecord(historyA.id);
+assert.equal(store.getReadingHistoryRecord(historyA.id), undefined);
+assert.deepEqual(favoriteIds(store), [favoriteDuplicate.id, favoriteA.id]);
+assert.equal(store.listFavoriteRecords().find((record) => record.id === favoriteA.id)?.text, historyA.text);
+
 store.updateSettings({ historyRetention: "7d" });
-store.saveOrReuseReadingHistoryRecord({
+const expiredHistory = store.saveOrReuseReadingHistoryRecord({
   text: "旧记录",
   source: "clipboard",
   segments: createReadingSegments("旧记录"),
   createdAt: 1
 });
+const expiredHistoryFavorite = store.createFavoriteFromHistoryRecord(expiredHistory.id, 30_002_000);
+assert.ok(expiredHistoryFavorite);
 store.cleanupExpiredReadingHistory(8 * 24 * 60 * 60 * 1000 + 2, "7d");
 assert.equal(store.listReadingHistoryRecords().some((record) => record.text === "旧记录"), false);
+assert.equal(hasFavorite(store, expiredHistoryFavorite.id, (record) => record.text === "旧记录"), true);
 
 store.updateSettings({ historyRetention: "forever" });
 store.saveOrReuseReadingHistoryRecord({
@@ -624,6 +689,48 @@ store.cleanupExpiredReadingHistory(365 * 24 * 60 * 60 * 1000, "forever");
 assert.equal(store.listReadingHistoryRecords().some((record) => record.text === "永久保留记录"), true);
 store.clearReadingHistory();
 assert.equal(store.getReadingHistoryCount(), 0);
+assert.deepEqual(
+  favoriteIds(store).filter((id) => [favoriteA.id, favoriteDuplicate.id, expiredHistoryFavorite.id].includes(id)),
+  [expiredHistoryFavorite.id, favoriteDuplicate.id, favoriteA.id]
+);
+store.deleteFavoriteRecord(favoriteDuplicate.id);
+assert.equal(hasFavorite(store, favoriteDuplicate.id), false);
+assert.equal(store.getFavoriteRecord(favoriteDuplicate.id), undefined);
+assert.equal(hasFavorite(store, favoriteA.id), true);
+assert.equal(hasFavorite(store, expiredHistoryFavorite.id), true);
+
+const favoriteGroupingNow = new Date(2026, 5, 17, 12).getTime();
+const favoriteViewRecords = [
+  createFavoriteRecordForTest("older", new Date(2026, 5, 1, 9).getTime(), "更早收藏全文"),
+  createFavoriteRecordForTest("today-early", new Date(2026, 5, 17, 8).getTime(), "今日较早收藏全文"),
+  createFavoriteRecordForTest("week", new Date(2026, 5, 15, 10).getTime(), "本周收藏全文"),
+  createFavoriteRecordForTest("yesterday", new Date(2026, 5, 16, 11).getTime(), "昨日收藏全文"),
+  createFavoriteRecordForTest("today-late", new Date(2026, 5, 17, 10).getTime(), "今日较晚收藏全文")
+];
+assert.deepEqual(
+  groupFavoriteRecords(favoriteViewRecords, favoriteGroupingNow).map((group) => [
+    group.label,
+    group.records.map((record) => record.id)
+  ]),
+  [
+    ["今天", ["today-late", "today-early"]],
+    ["昨天", ["yesterday"]],
+    ["本周", ["week"]],
+    ["更早", ["older"]]
+  ]
+);
+const favoriteSelectionRecords = ["today-late", "today-early", "yesterday"].map(
+  (id) => favoriteViewRecords.find((record) => record.id === id)
+);
+assert.equal(resolveSelectedRecordId(favoriteSelectionRecords, undefined), "today-late");
+assert.equal(resolveSelectedRecordId(favoriteSelectionRecords, "yesterday"), "yesterday");
+assert.equal(resolveSelectedRecordId(favoriteSelectionRecords, "missing", "today-late"), "today-late");
+assert.equal(resolveSelectedRecordId([], "today-late"), undefined);
+assert.equal(resolveAdjacentSelectionAfterDelete(favoriteSelectionRecords, "today-early"), "yesterday");
+assert.equal(resolveAdjacentSelectionAfterDelete(favoriteSelectionRecords, "yesterday"), "today-early");
+assert.equal(resolveAdjacentSelectionAfterDelete([favoriteSelectionRecords[0]], "today-late"), undefined);
+assert.equal(createFavoriteRecordForTest("copy", favoriteGroupingNow, "只复制收藏全文").text, "只复制收藏全文");
+
 const deleteA = store.saveOrReuseReadingHistoryRecord({
   text: "待删除记录 A",
   source: "clipboard",
@@ -890,6 +997,21 @@ assert.deepEqual(commandPlaybackEvents.at(-3), ["chunk", commandReplayResult.ses
 assert.equal(store.getReadingHistoryRecord(commandReplayRecord.id)?.text, "命令历史重播。");
 commands.handleRendererIdle(commandReplayResult.sessionId);
 assert.equal(commandShortcuts.handlers.has("Escape"), false);
+const commandFavoriteReplayRecord = store.createFavoriteFromHistoryRecord(commandReplayRecord.id, 889_000);
+assert.ok(commandFavoriteReplayRecord);
+const commandFavoriteReplayResult = await commands.startFavoriteReplay(commandFavoriteReplayRecord.id);
+assert.equal(commandFavoriteReplayResult.started, true);
+assert.ok(commandShortcuts.handlers.has("Escape"));
+assert.deepEqual(commandPlaybackEvents.at(-4), [
+  "start",
+  commandFavoriteReplayResult.sessionId,
+  false,
+  PLAYBACK_FEEDBACK_SURFACES.favoriteDetail
+]);
+assert.deepEqual(commandPlaybackEvents.at(-3), ["chunk", commandFavoriteReplayResult.sessionId, "171,205"]);
+assert.equal(store.getFavoriteRecord(commandFavoriteReplayRecord.id)?.sourceCreatedAt, commandReplayRecord.createdAt);
+commands.handleRendererIdle(commandFavoriteReplayResult.sessionId);
+assert.equal(commandShortcuts.handlers.has("Escape"), false);
 
 const failingPlayback = new PlaybackService(store, sink, async () => {
   throw new Error("MiniMax TTS failed with HTTP 500");
@@ -938,6 +1060,47 @@ const missingReplay = await replayPlayback.playHistoryRecord("missing-record");
 assert.equal(missingReplay.started, false);
 assert.equal(missingReplay.skipped, "missing_history_record");
 
+const favoriteReplaySource = store.saveOrReuseReadingHistoryRecord({
+  text: "这是一条收藏重播文本。",
+  source: "clipboard",
+  segments: createReadingSegments("这是一条收藏重播文本。"),
+  createdAt: 778_000
+});
+const favoriteReplayRecord = store.createFavoriteFromHistoryRecord(favoriteReplaySource.id, 779_000);
+assert.ok(favoriteReplayRecord);
+const favoriteReplayEvents = [];
+const favoriteReplayPlayback = new PlaybackService(
+  store,
+  createPlaybackSinkForTest(favoriteReplayEvents, (session) => [
+    "start",
+    session.sessionId,
+    "target" in session,
+    session.feedbackSurface
+  ]),
+  async (request) => {
+    assert.equal(request.text, "这是一条收藏重播文本。");
+    assert.equal(request.apiKey, "playback-key");
+    assert.equal(request.voiceId, "voice-zh");
+    await request.onAudioHex("abcd");
+  }
+);
+const historyCountBeforeFavoriteReplay = store.getReadingHistoryCount();
+const favoriteReplayResult = await favoriteReplayPlayback.playFavoriteRecord(favoriteReplayRecord.id);
+assert.equal(favoriteReplayResult.started, true);
+await favoriteReplayPlayback.waitForCurrentSession();
+assert.equal(store.getReadingHistoryCount(), historyCountBeforeFavoriteReplay);
+assert.equal(store.getFavoriteRecord(favoriteReplayRecord.id)?.favoritedAt, 779_000);
+assert.equal(store.getFavoriteRecord(favoriteReplayRecord.id)?.sourceCreatedAt, 778_000);
+assert.deepEqual(favoriteReplayEvents[0], [
+  "start",
+  favoriteReplayResult.sessionId,
+  false,
+  PLAYBACK_FEEDBACK_SURFACES.favoriteDetail
+]);
+const missingFavoriteReplay = await favoriteReplayPlayback.playFavoriteRecord("missing-favorite-record");
+assert.equal(missingFavoriteReplay.started, false);
+assert.equal(missingFavoriteReplay.skipped, "missing_favorite_record");
+
 const { overlaySink, overlayActions, sentPlaybackMessages } = createElectronAudioSinkScenario();
 overlaySink.startSession(createOverlayPlaybackSessionForTest(101));
 assert.deepEqual(overlayActions, ["show"]);
@@ -983,6 +1146,14 @@ assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), ["playback:fin
 historySinkScenario.overlaySink.stopSession(104);
 assert.deepEqual(historySinkScenario.overlayActions, []);
 assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), ["playback:stop-session", 104]);
+
+const favoriteSinkScenario = createElectronAudioSinkScenario();
+favoriteSinkScenario.overlaySink.startSession(createFavoriteReplaySessionForTest(109));
+assert.deepEqual(favoriteSinkScenario.overlayActions, []);
+assert.deepEqual(favoriteSinkScenario.sentPlaybackMessages.at(-1), ["playback:start-session", 109, false]);
+favoriteSinkScenario.overlaySink.finishSession(109);
+assert.deepEqual(favoriteSinkScenario.overlayActions, []);
+assert.deepEqual(favoriteSinkScenario.sentPlaybackMessages.at(-1), ["playback:finish-session", 109]);
 
 const noWindowScenario = createElectronAudioSinkScenario(() => undefined);
 noWindowScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest(103));
@@ -1040,6 +1211,17 @@ await withPlaybackAudioQueueScenario(async ({ overlayQueue, overlayQueueEvents, 
   overlayQueue.startSession(createHistoryReplaySessionForTest(204));
   overlayQueue.pushChunk(204, new Uint8Array([4, 5, 6]));
   overlayQueue.endSegment(204);
+  await flushPlaybackMicrotasks();
+  await flushPlaybackMicrotasks();
+  assert.equal(animationFrames.length, 0);
+  assert.deepEqual(overlayQueueEvents, []);
+  overlayQueue.stop();
+});
+
+await withPlaybackAudioQueueScenario(async ({ overlayQueue, overlayQueueEvents, animationFrames }) => {
+  overlayQueue.startSession(createFavoriteReplaySessionForTest(206));
+  overlayQueue.pushChunk(206, new Uint8Array([7, 8, 9]));
+  overlayQueue.endSegment(206);
   await flushPlaybackMicrotasks();
   await flushPlaybackMicrotasks();
   assert.equal(animationFrames.length, 0);
@@ -1128,6 +1310,27 @@ function selectedTextTargetInput(text) {
   return { text, source: "selected_text" };
 }
 
+function createFavoriteRecordForTest(id, favoritedAt, text) {
+  return {
+    id,
+    favoritedAt,
+    sourceCreatedAt: favoritedAt - 1000,
+    text,
+    preview: text,
+    durationEstimateSeconds: 60,
+    languageSummary: "中文",
+    source: "clipboard"
+  };
+}
+
+function favoriteIds(store) {
+  return store.listFavoriteRecords().map((record) => record.id);
+}
+
+function hasFavorite(store, id, matches = () => true) {
+  return store.listFavoriteRecords().some((record) => record.id === id && matches(record));
+}
+
 function assertReadingHistoryContains(store, expected) {
   assert.equal(store.getReadingHistoryCount(), expected.count);
   assert.equal(
@@ -1177,6 +1380,20 @@ function assertMissing(source, expected) {
   }
 }
 
+function assertOverlayDragCoverage() {
+  assertIncludes(overlayBundle, "moveOverlayBy");
+  assertIncludes(overlaySource, [
+    "DRAG_HOLD_MS",
+    "setPointerCapture",
+    "hasLongPressActivated",
+    "cancelDrag();\n      setState",
+    "moveOverlayBy"
+  ]);
+  assertIncludes(overlayCss, ["cursor: grab", ".overlay-root.is-dragging .overlay-pill"]);
+  assertIncludes(playbackOverlayControllerSource, ["moveBy(delta", "manualPosition", "constrainOverlayPosition"]);
+  assertIncludes(appContractsSource, ["OverlayDragDelta", "moveOverlayBy"]);
+}
+
 function evaluatePreloadBridge(pathname) {
   let exposed;
   const sandbox = {
@@ -1209,6 +1426,10 @@ function createOverlayPlaybackSessionForTest(sessionId) {
 
 function createHistoryReplaySessionForTest(sessionId) {
   return createPlaybackSessionForTest(sessionId, PLAYBACK_FEEDBACK_SURFACES.historyDetail);
+}
+
+function createFavoriteReplaySessionForTest(sessionId) {
+  return createPlaybackSessionForTest(sessionId, PLAYBACK_FEEDBACK_SURFACES.favoriteDetail);
 }
 
 function createPlaybackSessionForTest(sessionId, feedbackSurface, segmentWeights = [1]) {
