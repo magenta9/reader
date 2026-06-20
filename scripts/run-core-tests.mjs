@@ -90,6 +90,9 @@ const playbackOverlayControllerSource = await readFile(new URL("../src/main/play
 const readingTargetAcquirerSource = await readFile(new URL("../src/main/reading-target/reading-target-acquirer.ts", import.meta.url), "utf8");
 const rendererCssSource = await readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 const packageScript = await readFile(new URL("../scripts/package-mac.mjs", import.meta.url), "utf8");
+const appIconSource = await readFile(new URL("../assets/voicereader-icon.svg", import.meta.url), "utf8");
+const templateTrayIconSource = await readFile(new URL("../assets/voicereader-template-icon.svg", import.meta.url), "utf8");
+const builtTemplateTrayIcon = await readFile(new URL("../dist/assets/voicereader-template-icon.svg", import.meta.url), "utf8");
 assertIncludes(mainBundle, [
   "VoiceReader",
   "\\u64AD\\u653E",
@@ -281,6 +284,16 @@ assert.equal(rendererHtml.includes("manifest.json"), false);
 assert.equal(rendererHtml.includes("VoiceReader"), true);
 assert.equal(rendererHtml.includes("media-src 'self' blob:"), true);
 assert.equal(rendererBundle.includes("./assets/voicereader-icon.svg"), true);
+assertIncludes(appIconSource, 'rect width="1024" height="1024"');
+assertMissing(appIconSource, 'x="64" y="64"');
+assertIncludes(mainSource, [
+  "nativeImage.createFromBuffer(createTrayIconPngBuffer()",
+  "image.setTemplateImage(false)",
+  "function encodePng"
+]);
+assertIncludes(templateTrayIconSource, "stroke-opacity");
+assertMissing(templateTrayIconSource, ["linearGradient", "width=\"1024\""]);
+assert.equal(builtTemplateTrayIcon, templateTrayIconSource);
 assert.equal(rendererBundle.includes("\\u4E3B\\u9875"), true);
 assert.equal(rendererBundle.includes("\\u5386\\u53F2\\u8BB0\\u5F55"), true);
 assert.equal(rendererBundle.includes("\\u6536\\u85CF"), true);
