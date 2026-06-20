@@ -27,6 +27,7 @@ const {
 const { MiniMaxAccountService } = await import("../dist/main/data/minimax-account-service.js");
 const { normalizeShortcutInput, PlaybackCommandController } = await import("../dist/main/playback/playback-command-controller.js");
 const { PlaybackSessionLifecycle } = await import("../dist/main/playback/playback-session-lifecycle.js");
+const { PlaybackRequestResolver } = await import("../dist/main/playback/playback-request-resolver.js");
 const { PlaybackService } = await import("../dist/main/playback/playback-service.js");
 const { ReadingTargetAcquirer } = await import("../dist/main/reading-target/reading-target-acquirer.js");
 const { ElectronAudioSink } = await import("../dist/main/playback/electron-audio-sink.js");
@@ -44,6 +45,7 @@ const {
 
 for (const path of [
   "../dist/main/main.js",
+  "../dist/main/playback/playback-request-resolver.js",
   "../dist/main/reading-target/reading-target-acquirer.js",
   "../dist/shared/app-contracts.js",
   "../dist/preload/preload.cjs",
@@ -85,6 +87,7 @@ const minimaxAccountSource = await readFile(new URL("../src/main/data/minimax-ac
 const playbackServiceSource = await readFile(new URL("../src/main/playback/playback-service.ts", import.meta.url), "utf8");
 const playbackCommandSource = await readFile(new URL("../src/main/playback/playback-command-controller.ts", import.meta.url), "utf8");
 const playbackLifecycleSource = await readFile(new URL("../src/main/playback/playback-session-lifecycle.ts", import.meta.url), "utf8");
+const playbackRequestResolverSource = await readFile(new URL("../src/main/playback/playback-request-resolver.ts", import.meta.url), "utf8");
 const playbackOverlayControllerSource = await readFile(new URL("../src/main/playback/playback-overlay-controller.ts", import.meta.url), "utf8");
 const readingTargetAcquirerSource = await readFile(new URL("../src/main/reading-target/reading-target-acquirer.ts", import.meta.url), "utf8");
 const rendererCssSource = await readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
@@ -249,7 +252,8 @@ for (const { name, source } of [
 for (const { name, source, expected } of [
   { name: "AppDataStore", source: appDataStoreSource, expected: "type PlaybackDataStore" },
   { name: "MiniMaxAccountService", source: minimaxAccountSource, expected: "MiniMaxAccountDataStore" },
-  { name: "PlaybackService", source: playbackServiceSource, expected: "PlaybackDataStore" },
+  { name: "PlaybackService", source: playbackServiceSource, expected: "PlaybackRequestResolver" },
+  { name: "PlaybackRequestResolver", source: playbackRequestResolverSource, expected: "PlaybackDataStore" },
   { name: "PlaybackCommandController", source: playbackCommandSource, expected: "PlaybackCommandDataStore" },
   { name: "PlaybackSessionLifecycle", source: playbackLifecycleSource, expected: "handleRendererIdle" }
 ]) {
@@ -258,6 +262,7 @@ for (const { name, source, expected } of [
 for (const { name, source } of [
   { name: "MiniMaxAccountService", source: minimaxAccountSource },
   { name: "PlaybackService", source: playbackServiceSource },
+  { name: "PlaybackRequestResolver", source: playbackRequestResolverSource },
   { name: "PlaybackCommandController", source: playbackCommandSource }
 ]) {
   assert.equal(source.includes("AppDataStore"), false, `${name} should not depend on the full data adapter`);
@@ -883,6 +888,49 @@ store.updateSettings({
 });
 store.saveMiniMaxApiKey("playback-key");
 store.updateSettings({ apiKeyStatus: "verified" });
+
+const resolverDataDir = await mkdtemp(join(tmpdir(), "voicereader-resolver-data-"));
+const resolverStore = new AppDataStore(join(resolverDataDir, "voicereader.sqlite"));
+resolverStore.saveMiniMaxApiKey("resolver-key");
+resolverStore.updateSettings({
+  apiKeyStatus: "verified",
+  voices: [zhVoice],
+  preferredVoicesByLanguage: { zh: "voice-zh" },
+  speechRate: 1.25
+});
+const resolver = new PlaybackRequestResolver(resolverStore);
+const resolvedReadingTarget = resolver.resolveReadingTarget(clipboardTargetInput("  解析器剪切板文本。  "));
+assert.equal(resolvedReadingTarget.ok, true);
+assert.equal(resolvedReadingTarget.request.apiKey, "resolver-key");
+assert.equal(resolvedReadingTarget.request.settings.speechRate, 1.25);
+assert.equal(resolvedReadingTarget.request.target.text, "解析器剪切板文本。");
+assert.equal(resolvedReadingTarget.request.feedbackSurface, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay);
+assertReadingHistoryContains(resolverStore, {
+  count: 1,
+  text: "解析器剪切板文本。",
+  source: "clipboard"
+});
+const resolverHistoryRecord = resolverStore.listReadingHistoryRecords()[0];
+const resolvedHistoryReplay = resolver.resolveHistoryReplay(resolverHistoryRecord.id);
+assert.equal(resolvedHistoryReplay.ok, true);
+assert.equal(resolvedHistoryReplay.request.target.text, "解析器剪切板文本。");
+assert.equal(resolvedHistoryReplay.request.feedbackSurface, PLAYBACK_FEEDBACK_SURFACES.historyDetail);
+assert.equal(resolverStore.getReadingHistoryCount(), 1);
+const resolverFavoriteRecord = resolverStore.createFavoriteFromHistoryRecord(resolverHistoryRecord.id);
+const resolvedFavoriteReplay = resolver.resolveFavoriteReplay(resolverFavoriteRecord.id);
+assert.equal(resolvedFavoriteReplay.ok, true);
+assert.equal(resolvedFavoriteReplay.request.target.text, "解析器剪切板文本。");
+assert.equal(resolvedFavoriteReplay.request.feedbackSurface, PLAYBACK_FEEDBACK_SURFACES.favoriteDetail);
+assert.equal(resolverStore.getReadingHistoryCount(), 1);
+assert.deepEqual(resolver.resolveHistoryReplay("missing-history"), {
+  ok: false,
+  result: { started: false, skipped: "missing_history_record" }
+});
+assert.deepEqual(resolver.resolveReadingTarget(clipboardTargetInput("   ")), {
+  ok: false,
+  result: { started: false, skipped: "empty_clipboard" }
+});
+resolverStore.close();
 
 const playback = new PlaybackService(store, sink, async (request) => {
   assert.equal(request.apiKey, "playback-key");

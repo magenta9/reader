@@ -1,17 +1,18 @@
-import { createReadingSegments, normalizeReadableText } from "../../shared/segments.js";
 import { streamMiniMaxTts, type MiniMaxTtsRequest } from "../../shared/minimax.js";
 import { selectVoiceId } from "../../shared/voices.js";
 import {
-  PLAYBACK_FEEDBACK_SURFACES,
   type AppSettings,
-  type FavoriteRecord,
   type PlaybackFeedbackSurface,
   type PlaybackAudioSession,
-  type ReadingHistoryRecord,
   type PlaybackStartResult
 } from "../../shared/app-contracts.js";
 import type { ReadingTarget, ReadingTargetInput } from "../../shared/types.js";
 import type { PlaybackDataStore, RuntimeErrorCategory } from "../data/app-data-store.js";
+import {
+  PlaybackRequestResolver,
+  type ResolvePlaybackRequestResult,
+  type ResolvedPlaybackRequest
+} from "./playback-request-resolver.js";
 
 export interface PlaybackAudioSink {
   startSession: (session: PlaybackAudioSession) => void;
@@ -24,17 +25,6 @@ export interface PlaybackAudioSink {
 }
 
 type StreamTts = (request: MiniMaxTtsRequest) => Promise<void>;
-type PlaybackReadiness =
-  | { ok: true; settings: AppSettings; apiKey: string }
-  | { ok: false; result: PlaybackStartResult };
-type StoredReplaySkipped = Extract<PlaybackStartResult["skipped"], "missing_history_record" | "missing_favorite_record">;
-
-interface StoredRecordReplayConfig {
-  title: string;
-  urlPrefix: "history" | "favorite";
-  feedbackSurface: PlaybackFeedbackSurface;
-  missingSkipped: StoredReplaySkipped;
-}
 
 export class PlaybackService {
   private sessionCounter = 0;
@@ -49,65 +39,20 @@ export class PlaybackService {
   constructor(
     private readonly store: PlaybackDataStore,
     private readonly sink: PlaybackAudioSink,
-    private readonly streamTts: StreamTts = streamMiniMaxTts
+    private readonly streamTts: StreamTts = streamMiniMaxTts,
+    private readonly resolver: PlaybackRequestResolver = new PlaybackRequestResolver(store)
   ) {}
 
   async playReadingTarget(input: ReadingTargetInput): Promise<PlaybackStartResult> {
-    const text = normalizeReadableText(input.text);
-    if (!text) {
-      this.store.recordSkippedPlaybackInput("empty_clipboard");
-      return { started: false, skipped: "empty_clipboard" };
-    }
-
-    const readiness = this.readPlaybackReadiness();
-    if (!readiness.ok) return readiness.result;
-
-    const target = createReadingTarget({ text, source: input.source });
-    if (!target.segments.length) return { started: false, skipped: "empty_clipboard" };
-    this.store.saveOrReuseReadingHistoryRecord({
-      text: target.text,
-      source: target.source,
-      segments: target.segments
-    });
-
-    return this.startTargetPlayback(
-      target,
-      readiness.settings,
-      readiness.apiKey,
-      PLAYBACK_FEEDBACK_SURFACES.playbackOverlay
-    );
+    return this.startResolvedPlaybackRequest(this.resolver.resolveReadingTarget(input));
   }
 
   async playHistoryRecord(recordId: string): Promise<PlaybackStartResult> {
-    return this.playStoredRecord(this.store.getReadingHistoryRecord(recordId), {
-      title: "History Replay",
-      urlPrefix: "history",
-      feedbackSurface: PLAYBACK_FEEDBACK_SURFACES.historyDetail,
-      missingSkipped: "missing_history_record"
-    });
+    return this.startResolvedPlaybackRequest(this.resolver.resolveHistoryReplay(recordId));
   }
 
   async playFavoriteRecord(recordId: string): Promise<PlaybackStartResult> {
-    return this.playStoredRecord(this.store.getFavoriteRecord(recordId), {
-      title: "Favorite Replay",
-      urlPrefix: "favorite",
-      feedbackSurface: PLAYBACK_FEEDBACK_SURFACES.favoriteDetail,
-      missingSkipped: "missing_favorite_record"
-    });
-  }
-
-  private playStoredRecord(
-    record: Pick<ReadingHistoryRecord | FavoriteRecord, "id" | "text" | "source"> | undefined,
-    config: StoredRecordReplayConfig
-  ): PlaybackStartResult {
-    if (!record) return { started: false, skipped: config.missingSkipped };
-
-    const readiness = this.readPlaybackReadiness();
-    if (!readiness.ok) return readiness.result;
-
-    const target = createStoredRecordReadingTarget(record, config);
-    if (!target.segments.length) return { started: false, skipped: "empty_clipboard" };
-    return this.startTargetPlayback(target, readiness.settings, readiness.apiKey, config.feedbackSurface);
+    return this.startResolvedPlaybackRequest(this.resolver.resolveFavoriteReplay(recordId));
   }
 
   stop(): void {
@@ -138,23 +83,17 @@ export class PlaybackService {
     return this.active?.done ?? Promise.resolve();
   }
 
-  private readPlaybackReadiness(): PlaybackReadiness {
-    const settings = this.store.getSettings();
-    if (!this.store.hasMiniMaxApiKey()) {
-      return { ok: false, result: { started: false, skipped: "missing_api_key" } };
-    }
-    if (settings.apiKeyStatus !== "verified") {
-      return { ok: false, result: { started: false, skipped: "unverified_api_key" } };
-    }
-    if (!settings.voices.length) {
-      return { ok: false, result: { started: false, skipped: "missing_voice" } };
-    }
+  private startResolvedPlaybackRequest(resolved: ResolvePlaybackRequestResult): PlaybackStartResult {
+    return resolved.ok ? this.startResolvedPlayback(resolved.request) : resolved.result;
+  }
 
-    const apiKey = this.store.readMiniMaxApiKey();
-    if (!apiKey) {
-      return { ok: false, result: { started: false, skipped: "missing_api_key" } };
-    }
-    return { ok: true, settings, apiKey };
+  private startResolvedPlayback(request: ResolvedPlaybackRequest): PlaybackStartResult {
+    return this.startTargetPlayback(
+      request.target,
+      request.settings,
+      request.apiKey,
+      request.feedbackSurface
+    );
   }
 
   private startTargetPlayback(
@@ -228,29 +167,6 @@ export class PlaybackService {
       if (this.active?.sessionId === sessionId) this.active = undefined;
     }
   }
-}
-
-function createReadingTarget(input: ReadingTargetInput): ReadingTarget {
-  return {
-    title: input.source === "selected_text" ? "Selected Text" : "Clipboard",
-    url: "",
-    source: input.source,
-    text: input.text,
-    segments: createReadingSegments(input.text)
-  };
-}
-
-function createStoredRecordReadingTarget(
-  record: Pick<ReadingHistoryRecord | FavoriteRecord, "id" | "text" | "source">,
-  config: Pick<StoredRecordReplayConfig, "title" | "urlPrefix">
-): ReadingTarget {
-  return {
-    title: config.title,
-    url: `${config.urlPrefix}:${record.id}`,
-    source: record.source,
-    text: record.text,
-    segments: createReadingSegments(record.text)
-  };
 }
 
 function hexToBytes(hex: string): Uint8Array {
