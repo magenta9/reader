@@ -26,7 +26,6 @@ const {
 } = await import("../dist/main/data/reading-history-record.js");
 const { MiniMaxAccountService } = await import("../dist/main/data/minimax-account-service.js");
 const { normalizeShortcutInput, PlaybackCommandController } = await import("../dist/main/playback/playback-command-controller.js");
-const { PlaybackSessionLifecycle } = await import("../dist/main/playback/playback-session-lifecycle.js");
 const { PlaybackRequestResolver } = await import("../dist/main/playback/playback-request-resolver.js");
 const { PlaybackService } = await import("../dist/main/playback/playback-service.js");
 const { ReadingTargetAcquirer } = await import("../dist/main/reading-target/reading-target-acquirer.js");
@@ -86,7 +85,6 @@ const appDataStoreSource = await readFile(new URL("../src/main/data/app-data-sto
 const minimaxAccountSource = await readFile(new URL("../src/main/data/minimax-account-service.ts", import.meta.url), "utf8");
 const playbackServiceSource = await readFile(new URL("../src/main/playback/playback-service.ts", import.meta.url), "utf8");
 const playbackCommandSource = await readFile(new URL("../src/main/playback/playback-command-controller.ts", import.meta.url), "utf8");
-const playbackLifecycleSource = await readFile(new URL("../src/main/playback/playback-session-lifecycle.ts", import.meta.url), "utf8");
 const playbackRequestResolverSource = await readFile(new URL("../src/main/playback/playback-request-resolver.ts", import.meta.url), "utf8");
 const playbackOverlayControllerSource = await readFile(new URL("../src/main/playback/playback-overlay-controller.ts", import.meta.url), "utf8");
 const readingTargetAcquirerSource = await readFile(new URL("../src/main/reading-target/reading-target-acquirer.ts", import.meta.url), "utf8");
@@ -130,7 +128,6 @@ assertIncludes(mainBundle, [
   "overlay:finish-playback",
   "playback:renderer-idle",
   "PlaybackCommandController",
-  "PlaybackSessionLifecycle",
   "stopSession",
   "app-data:set-activation-shortcut",
   "app-data:create-favorite-from-history-record",
@@ -254,10 +251,16 @@ for (const { name, source, expected } of [
   { name: "MiniMaxAccountService", source: minimaxAccountSource, expected: "MiniMaxAccountDataStore" },
   { name: "PlaybackService", source: playbackServiceSource, expected: "PlaybackRequestResolver" },
   { name: "PlaybackRequestResolver", source: playbackRequestResolverSource, expected: "PlaybackDataStore" },
-  { name: "PlaybackCommandController", source: playbackCommandSource, expected: "PlaybackCommandDataStore" },
-  { name: "PlaybackSessionLifecycle", source: playbackLifecycleSource, expected: "handleRendererIdle" }
+  { name: "PlaybackCommandController", source: playbackCommandSource, expected: "PlaybackCommandDataStore" }
 ]) {
   assert.equal(source.includes(expected), true, `${name} should use a role-specific data interface`);
+}
+for (const expected of ["PlaybackSessionPort", "handleRendererIdle"]) {
+  assert.equal(
+    playbackCommandSource.includes(expected),
+    true,
+    `PlaybackCommandController should own playback session command lifecycle: ${expected}`
+  );
 }
 for (const { name, source } of [
   { name: "MiniMaxAccountService", source: minimaxAccountSource },
@@ -1077,10 +1080,9 @@ const commandPlaybackSink = createPlaybackSinkForTest(commandPlaybackEvents);
 const commandPlayback = new PlaybackService(store, commandPlaybackSink, async (request) => {
   await request.onAudioHex("abcd");
 });
-const commandLifecycle = new PlaybackSessionLifecycle(commandPlayback, commandShortcuts);
 const commands = new PlaybackCommandController(
   store,
-  commandLifecycle,
+  commandPlayback,
   commandShortcuts,
   async () => {
     return commandTargetInput;
@@ -1100,7 +1102,7 @@ let pendingTargetResolve;
 let pendingTargetReadCount = 0;
 const pendingCommands = new PlaybackCommandController(
   store,
-  commandLifecycle,
+  commandPlayback,
   commandShortcuts,
   () => {
     pendingTargetReadCount += 1;

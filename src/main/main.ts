@@ -25,7 +25,6 @@ import { PlaybackService } from "./playback/playback-service.js";
 import { ElectronAudioSink } from "./playback/electron-audio-sink.js";
 import { PlaybackOverlayController } from "./playback/playback-overlay-controller.js";
 import { PlaybackCommandController } from "./playback/playback-command-controller.js";
-import { PlaybackSessionLifecycle } from "./playback/playback-session-lifecycle.js";
 import { ReadingTargetAcquirer } from "./reading-target/reading-target-acquirer.js";
 
 let readerWindow: BrowserWindow | undefined;
@@ -60,10 +59,9 @@ async function bootstrap(): Promise<void> {
     hidePreviousAppForSelectionCapture: hideReaderAppForSelectionCapture
   });
   const playbackService = new PlaybackService(appDataStore, new ElectronAudioSink(() => readerWindow, overlayController));
-  const playbackLifecycle = new PlaybackSessionLifecycle(playbackService, globalShortcut);
   playbackCommands = new PlaybackCommandController(
     appDataStore,
-    playbackLifecycle,
+    playbackService,
     globalShortcut,
     () => readingTargetAcquirer.acquire()
   );

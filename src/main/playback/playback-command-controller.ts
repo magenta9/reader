@@ -1,5 +1,4 @@
 import type { PlaybackCommandDataStore } from "../data/app-data-store.js";
-import type { PlaybackSessionLifecycle } from "./playback-session-lifecycle.js";
 import type { PlaybackStartResult, ShortcutUpdateResult } from "../../shared/app-contracts.js";
 import type { ReadingTargetInput } from "../../shared/types.js";
 
@@ -8,16 +7,26 @@ export interface PlaybackShortcutRegistry {
   unregister(shortcut: string): void;
 }
 
+export interface PlaybackSessionPort {
+  playReadingTarget(input: ReadingTargetInput): Promise<PlaybackStartResult>;
+  playHistoryRecord(recordId: string): Promise<PlaybackStartResult>;
+  playFavoriteRecord(recordId: string): Promise<PlaybackStartResult>;
+  stopSession(sessionId: number | undefined): void;
+  handleRendererIdle(sessionId: number): void;
+}
+
 const SHORTCUT_REGISTRATION_ERROR = "快捷键注册失败，可能已被其他应用占用。";
 const GLOBAL_SHORTCUT_SELECTION_CAPTURE_DELAY_MS = 350;
+const STOP_SHORTCUT = "Escape";
 
 export class PlaybackCommandController {
   private pendingReadingTargetPlayback: Promise<PlaybackStartResult> | undefined;
   private pendingShortcutPlaybackTimer: ReturnType<typeof setTimeout> | undefined;
+  private stopShortcutSessionId: number | undefined;
 
   constructor(
     private readonly store: PlaybackCommandDataStore,
-    private readonly lifecycle: PlaybackSessionLifecycle,
+    private readonly playback: PlaybackSessionPort,
     private readonly shortcuts: PlaybackShortcutRegistry,
     private readonly readReadingTargetInput: () => Promise<ReadingTargetInput>
   ) {}
@@ -33,19 +42,21 @@ export class PlaybackCommandController {
   }
 
   async startHistoryReplay(recordId: string): Promise<PlaybackStartResult> {
-    return this.lifecycle.startHistoryReplay(recordId);
+    return this.startPlaybackSession(() => this.playback.playHistoryRecord(recordId));
   }
 
   async startFavoriteReplay(recordId: string): Promise<PlaybackStartResult> {
-    return this.lifecycle.startFavoriteReplay(recordId);
+    return this.startPlaybackSession(() => this.playback.playFavoriteRecord(recordId));
   }
 
   stopPlayback(): void {
-    this.lifecycle.stopPlayback();
+    this.playback.stopSession(this.stopShortcutSessionId);
+    this.unregisterStopShortcut();
   }
 
   handleRendererIdle(sessionId: number): void {
-    this.lifecycle.handleRendererIdle(sessionId);
+    this.playback.handleRendererIdle(sessionId);
+    if (this.stopShortcutSessionId === sessionId) this.unregisterStopShortcut();
   }
 
   registerActivationShortcut(): void {
@@ -94,8 +105,32 @@ export class PlaybackCommandController {
   };
 
   private async startReadingTargetPlaybackOnce(): Promise<PlaybackStartResult> {
-    return this.lifecycle.startReadingTargetPlayback(await this.readReadingTargetInput());
+    const input = await this.readReadingTargetInput();
+    return this.startPlaybackSession(() => this.playback.playReadingTarget(input));
   }
+
+  private async startPlaybackSession(
+    play: () => Promise<PlaybackStartResult>
+  ): Promise<PlaybackStartResult> {
+    const result = await play();
+    if (result.started) this.registerStopShortcut(result.sessionId);
+    return result;
+  }
+
+  private registerStopShortcut(sessionId: number | undefined): void {
+    this.stopShortcutSessionId = sessionId;
+    this.shortcuts.unregister(STOP_SHORTCUT);
+    this.shortcuts.register(STOP_SHORTCUT, this.stopPlaybackFromShortcut);
+  }
+
+  private unregisterStopShortcut(): void {
+    this.stopShortcutSessionId = undefined;
+    this.shortcuts.unregister(STOP_SHORTCUT);
+  }
+
+  private readonly stopPlaybackFromShortcut = (): void => {
+    this.stopPlayback();
+  };
 }
 
 export function normalizeShortcutInput(shortcut: string): string | undefined {
