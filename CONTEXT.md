@@ -24,12 +24,24 @@ _Avoid_: Playback log, audio history, recent items
 A saved Reading History entry for one Reading Target. It is created after Play finds valid Selected Text or Clipboard Text and before VoiceReader calls MiniMax for speech generation. It includes the full text, creation time, preview text, estimated duration, detected language summary, and Reading Target source, but not generated audio or raw MiniMax responses. Replaying a Reading History Record plays the full saved text. Replaying the same Reading Target source and text within five minutes reuses the recent record instead of creating a duplicate.
 _Avoid_: History item, transcript, saved playback
 
+**Favorite Record**:
+A user-saved entry created from a Reading History Record and then maintained independently from Reading History. Each favorite action creates a new Favorite Record, even when another Favorite Record already has the same Reading Target source and text. A Favorite Record keeps both when it was favorited and when its source Reading History Record was created. Favorite Records remain available when ordinary Reading History is automatically cleaned up or deleted, until the user removes that individual Favorite Record from Favorites.
+_Avoid_: Bookmarked item, pinned history, permanent record
+
+**Favorites**:
+The local collection of Favorite Records that the user keeps separately from ordinary Reading History. Favorites are ordered by the time each Favorite Record was created.
+_Avoid_: Bookmarks, pinned list, permanent history
+
+**Favorite Replay**:
+A Playback Session started from a Favorite Record. Favorite Replay plays the full saved text, does not create a new Reading History Record, remains available even when the source Reading History Record no longer exists, and shows playback feedback inside the favorite detail surface rather than the system-level Playback Overlay.
+_Avoid_: Favorite playback, bookmarked replay, saved replay
+
 **History Replay**:
 A Playback Session started from a Reading History Record. History Replay plays the full saved text with current playback preferences, does not create a new Reading History Record, and shows playback feedback inside the history detail surface rather than the system-level Playback Overlay.
 _Avoid_: History playback, replay item, restored session
 
 **Feedback Surface**:
-The named UI surface that receives playback activity, approximate progress, and completion feedback for a Playback Session. Current Reading Target playback uses the Playback Overlay feedback surface; History Replay uses the history detail feedback surface.
+The named UI surface that receives playback activity, approximate progress, and completion feedback for a Playback Session. Current Reading Target playback uses the Playback Overlay feedback surface; History Replay uses the history detail feedback surface; Favorite Replay uses the favorite detail feedback surface.
 _Avoid_: Output target, display mode, status destination
 
 **Activation Shortcut**:
@@ -41,7 +53,7 @@ The Escape key while a Playback Session is active; it is globally active only du
 _Avoid_: Toggle key, cancel key, pause key
 
 **Reader Window**:
-The main macOS window for VoiceReader. It contains Home, History, and Settings surfaces for Reading Target playback status, Reading History, and user configuration.
+The main macOS window for VoiceReader. It contains Home, History, Favorites, and Settings surfaces for Reading Target playback status, Reading History, saved Favorite Records, and user configuration.
 _Avoid_: Main screen, dashboard, control panel
 
 **Menu Bar Menu**:
@@ -49,7 +61,7 @@ The menu opened from VoiceReader's macOS menu bar icon. It contains high-frequen
 _Avoid_: Tray menu, popup, dropdown
 
 **Playback Overlay**:
-A small system-level floating window that appears while the current Reading Target is preparing or playing. It stays outside the Reader Window, shows only a waveform-style playback animation, reveals approximate progress on hover, provides no in-overlay controls, and disappears when playback ends or fails. History Replay does not use the Playback Overlay.
+A small system-level floating window that appears while the current Reading Target is preparing or playing. It stays outside the Reader Window, shows only a waveform-style playback animation, reveals approximate progress on hover, provides no in-overlay controls, and disappears when playback ends or fails. History Replay and Favorite Replay do not use the Playback Overlay.
 _Avoid_: Notification, toast, in-window capsule
 
 **Error Log**:
