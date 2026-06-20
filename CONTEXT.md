@@ -56,6 +56,10 @@ _Avoid_: Toggle key, cancel key, pause key
 The main macOS window for VoiceReader. It contains Home, History, Favorites, and Settings surfaces for Reading Target playback status, Reading History, saved Favorite Records, and user configuration.
 _Avoid_: Main screen, dashboard, control panel
 
+**Menu Bar Icon**:
+The persistent VoiceReader icon in the macOS menu bar. It confirms that VoiceReader is running and opens the Menu Bar Menu for high-frequency actions.
+_Avoid_: Top button, tray button, status button
+
 **Menu Bar Menu**:
 The menu opened from VoiceReader's macOS menu bar icon. It contains high-frequency actions such as Play, opening the Reader Window, opening Settings, and quitting VoiceReader.
 _Avoid_: Tray menu, popup, dropdown

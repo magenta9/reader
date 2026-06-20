@@ -13,6 +13,7 @@ const iconPath = join(releaseDir, "VoiceReader.icns");
 const appIconSvgPath = resolve(root, "assets/voicereader-icon.svg");
 const appBundleIdentifier = "com.local.voicereader";
 const appDesignatedRequirement = `=designated => identifier "${appBundleIdentifier}"`;
+const plistScalarValuePattern = String.raw`<(?:string|true|false|integer|real)(?:\s*/>|>[^<]*</(?:string|integer|real)>)`;
 
 await run(process.execPath, [resolve(root, "scripts/build.mjs")], root);
 await rm(appPath, { recursive: true, force: true });
@@ -92,6 +93,7 @@ async function updateInfoPlist() {
   plist = replacePlistValue(plist, "CFBundleName", appName);
   plist = replacePlistValue(plist, "CFBundleShortVersionString", "0.1.0");
   plist = replacePlistValue(plist, "CFBundleVersion", "0.1.0");
+  plist = removePlistEntry(plist, "LSUIElement");
   await writeFile(plistPath, plist);
 }
 
@@ -126,6 +128,14 @@ function replacePlistValue(plist, key, value) {
   return plist.replace(
     new RegExp(`(<key>${key}</key>\\s*<string>)([^<]*)(</string>)`),
     `$1${value}$3`
+  );
+}
+
+function removePlistEntry(plist, key) {
+  const entryPattern = String.raw`\s*<key>${key}</key>\s*${plistScalarValuePattern}`;
+  return plist.replace(
+    new RegExp(entryPattern, "g"),
+    ""
   );
 }
 

@@ -67,6 +67,7 @@ async function bootstrap(): Promise<void> {
   );
   registerIpcHandlers(readingTargetAcquirer);
   syncLaunchAtLoginFromSettings();
+  syncDockPresence();
   syncDockIcon();
   createMenuBarMenu();
   playbackCommands.registerActivationShortcut();
@@ -104,6 +105,7 @@ function openReaderWindow(route: AppRoute): void {
       minHeight: 620,
       show: false,
       backgroundColor: "#f5f5f3",
+      titleBarStyle: "hiddenInset",
       trafficLightPosition: { x: 18, y: 18 },
       webPreferences: {
         preload: join(mainBundleDir, "../preload/preload.cjs"),
@@ -271,6 +273,11 @@ function syncDockIcon(): void {
   if (!app.dock) return;
   const image = nativeImage.createFromDataURL(svgDataUrl(readAssetText(appIconAssetPath)));
   if (!image.isEmpty()) app.dock.setIcon(image);
+}
+
+function syncDockPresence(): void {
+  if (!app.dock) return;
+  void app.dock.show();
 }
 
 function readAssetText(path: string, fallback = ""): string {

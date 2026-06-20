@@ -25,6 +25,8 @@
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-pill: 999px;
+  --window-drag-height: 54px;
+  --window-drag-content-offset: 20px;
   font-family:
     ui-sans-serif,
     -apple-system,
@@ -90,6 +92,7 @@ button {
 }
 
 .app-shell {
+  position: relative;
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
   width: 100%;
@@ -97,12 +100,23 @@ button {
   background: var(--canvas);
 }
 
+.app-shell::before {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: var(--window-drag-height);
+  content: "";
+  -webkit-app-region: drag;
+}
+
 .sidebar {
   display: flex;
   min-height: 100%;
   flex-direction: column;
   gap: 28px;
-  padding: 34px 18px 18px;
+  padding: calc(var(--window-drag-height) + var(--window-drag-content-offset)) 18px 18px;
   background: var(--sidebar);
 }
 
@@ -219,12 +233,12 @@ input:focus-visible {
 
 .workspace {
   min-width: 0;
-  padding: 28px 40px;
+  padding: var(--window-drag-height) 40px 28px;
   overflow: auto;
 }
 
 .workspace.is-home {
-  padding-top: 30px;
+  padding-top: calc(var(--window-drag-height) + 2px);
 }
 
 .workspace-header {
@@ -265,19 +279,21 @@ input:focus-visible {
 
 .home-dashboard {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .command-panel {
-  border: 0;
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
-  background: var(--surface);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 9%, transparent), transparent 45%),
+    var(--surface);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  gap: 12px;
-  min-height: 170px;
-  padding: 18px;
-  box-shadow: var(--shadow);
+  grid-template-columns: minmax(0, 1fr) 238px;
+  gap: 16px;
+  min-height: 154px;
+  padding: 20px;
+  box-shadow: none;
 }
 
 .voice-panel,
@@ -296,10 +312,10 @@ input:focus-visible {
 
 .command-copy h2 {
   max-width: 680px;
-  margin: 9px 0 0;
+  margin: 7px 0 0;
   color: var(--text);
-  font-size: 30px;
-  line-height: 1.08;
+  font-size: 28px;
+  line-height: 1.12;
   letter-spacing: 0;
 }
 
@@ -317,7 +333,7 @@ input:focus-visible {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  margin-top: 22px;
+  margin-top: 18px;
 }
 
 .primary-action {
@@ -389,7 +405,7 @@ input:focus-visible {
   flex-direction: column;
   justify-content: center;
   border-radius: var(--radius-md);
-  background: var(--surface-muted);
+  background: color-mix(in srgb, var(--surface-muted) 78%, transparent);
   padding: 16px;
 }
 

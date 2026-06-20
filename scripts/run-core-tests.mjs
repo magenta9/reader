@@ -101,9 +101,12 @@ assertIncludes(mainBundle, [
   "height: 760",
   "minWidth: 900",
   "minHeight: 620",
+  "titleBarStyle",
+  "hiddenInset",
   "../preload/preload.cjs",
   "setPath",
   "userData",
+  "syncDockPresence",
   "shouldOpenWindowAtStartup",
   "wasOpenedAtLogin",
   'app.on("activate"',
@@ -149,6 +152,7 @@ assertIncludes(mainSource, [
   "readingTargetAcquirer.revealPreviousAppBeforeCapture()",
   "playbackCommands.startReadingTargetPlayback()",
   "() => readingTargetAcquirer.acquire()",
+  "app.dock.show()",
   "app.hide()"
 ]);
 assertIncludes(readingTargetAcquirerSource, [
@@ -324,6 +328,7 @@ assert.equal(rendererSource.includes("aria-pressed"), true);
 for (const homeClass of [".home-dashboard", ".health-strip", ".command-panel", ".setup-action", ".voice-panel"]) {
   assert.equal(rendererCssSource.includes(homeClass), true);
 }
+assertIncludes(rendererCssSource, ["--window-drag-height", "-webkit-app-region: drag"]);
 assert.equal(rendererCssSource.includes("prefers-color-scheme: dark"), true);
 assert.equal(rendererCssSource.includes(".brand-mark"), true);
 assert.equal(rendererCssSource.includes("background: transparent"), true);
@@ -354,6 +359,7 @@ assert.equal(packageScript.includes("assets/voicereader-icon.svg"), true);
 assert.equal(packageScript.includes("createAppIconPng"), false);
 assert.equal(packageScript.includes("/usr/bin/qlmanage"), true);
 assert.equal(packageScript.includes("NSAppleEventsUsageDescription"), false);
+assert.equal(packageScript.includes('removePlistEntry(plist, "LSUIElement")'), true);
 assert.equal(packageScript.includes("/usr/bin/codesign"), true);
 assert.equal(packageScript.includes("--deep"), true);
 assert.equal(packageScript.includes("--requirements"), true);
