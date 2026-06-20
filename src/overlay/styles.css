@@ -1,16 +1,10 @@
 :root {
   color-scheme: light dark;
-  --pill: rgba(248, 248, 246, 0.82);
-  --pill-top: rgba(255, 255, 255, 0.62);
-  --pill-border: rgba(22, 23, 24, 0.12);
-  --bar: rgba(20, 22, 24, 0.86);
-  --bar-soft: rgba(20, 22, 24, 0.22);
-  --progress: rgba(32, 97, 255, 0.18);
-  --button: rgba(20, 22, 24, 0.07);
-  --button-border: rgba(20, 22, 24, 0.08);
-  --button-hover: rgba(20, 22, 24, 0.12);
-  --button-active: rgba(20, 22, 24, 0.16);
-  --shadow: 0 9px 22px rgba(0, 0, 0, 0.17), 0 1px 6px rgba(0, 0, 0, 0.1);
+  --pill: #000;
+  --pill-border: rgba(255, 255, 255, 0.12);
+  --bar: rgba(255, 255, 255, 0.98);
+  --bar-soft: rgba(255, 255, 255, 0.28);
+  --shadow: 0 10px 26px rgba(0, 0, 0, 0.32), 0 2px 8px rgba(0, 0, 0, 0.2);
   font-family:
     ui-sans-serif,
     -apple-system,
@@ -23,16 +17,6 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --pill: rgba(27, 28, 30, 0.78);
-    --pill-top: rgba(255, 255, 255, 0.08);
-    --pill-border: rgba(255, 255, 255, 0.13);
-    --bar: rgba(255, 255, 255, 0.9);
-    --bar-soft: rgba(255, 255, 255, 0.22);
-    --progress: rgba(126, 161, 255, 0.22);
-    --button: rgba(255, 255, 255, 0.09);
-    --button-border: rgba(255, 255, 255, 0.1);
-    --button-hover: rgba(255, 255, 255, 0.16);
-    --button-active: rgba(255, 255, 255, 0.22);
     --shadow: 0 10px 28px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.24);
   }
 }
@@ -53,10 +37,6 @@ body,
 
 body {
   -webkit-app-region: no-drag;
-}
-
-button {
-  font: inherit;
 }
 
 .overlay-root {
@@ -83,20 +63,16 @@ button {
 
 .overlay-pill {
   position: relative;
-  display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
+  display: flex;
   align-items: center;
-  width: 128px;
-  height: 24px;
+  justify-content: center;
+  width: 120px;
+  height: 32px;
   overflow: hidden;
   border: 1px solid var(--pill-border);
   border-radius: 999px;
-  background:
-    linear-gradient(180deg, var(--pill-top), transparent 42%),
-    var(--pill);
+  background: var(--pill);
   box-shadow: var(--shadow);
-  -webkit-backdrop-filter: blur(28px) saturate(1.55);
-  backdrop-filter: blur(28px) saturate(1.55);
 }
 
 .overlay-pill::after {
@@ -104,49 +80,24 @@ button {
   inset: 1px;
   pointer-events: none;
   border-radius: inherit;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
   content: "";
-}
-
-.hover-progress {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.overlay-pill:hover .hover-progress {
-  opacity: 1;
-}
-
-.hover-progress span {
-  display: block;
-  width: 100%;
-  height: 100%;
-  background:
-    linear-gradient(90deg, var(--progress), rgba(255, 255, 255, 0)),
-    var(--progress);
-  transform-origin: left center;
-  transition: transform 90ms linear;
 }
 
 .waveform {
   position: relative;
   z-index: 1;
-  grid-column: 2;
-  grid-row: 1;
   display: flex;
   height: 100%;
   align-items: center;
   justify-content: center;
-  gap: 1.5px;
-  padding-right: 9px;
+  gap: 3px;
+  padding: 0 16px;
 }
 
 .waveform-bar {
-  width: 1.6px;
-  height: 15px;
+  width: 2.2px;
+  height: 21px;
   border-radius: 999px;
   background:
     linear-gradient(180deg, var(--bar-soft), var(--bar) 42%, var(--bar-soft));
@@ -156,57 +107,9 @@ button {
     opacity 70ms linear;
 }
 
-.close-button {
-  position: relative;
-  z-index: 2;
-  grid-column: 1;
-  grid-row: 1;
-  display: grid;
-  width: 18px;
-  height: 18px;
-  margin-left: 4px;
-  place-items: center;
-  border: 1px solid var(--button-border);
-  border-radius: 999px;
-  background: var(--button);
-  color: var(--bar);
-  cursor: pointer;
-  transition:
-    background-color 120ms ease,
-    border-color 120ms ease,
-    transform 120ms ease;
-}
-
-.close-button::before {
-  position: absolute;
-  inset: -9px;
-  content: "";
-}
-
-.close-button svg {
-  width: 9px;
-  height: 9px;
-  fill: none;
-  stroke: currentcolor;
-  stroke-linecap: round;
-  stroke-width: 2.2;
-}
-
-.close-button:hover {
-  background: var(--button-hover);
-}
-
-.close-button:active {
-  background: var(--button-active);
-  transform: scale(0.92);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .overlay-root,
-  .waveform-bar,
-  .close-button,
-  .hover-progress,
-  .hover-progress span {
+  .waveform-bar {
     transition-duration: 1ms;
   }
 }

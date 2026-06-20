@@ -23,8 +23,7 @@ export class PlaybackOverlayController {
 
   sendMetric(metric: OverlayMetric): void {
     this.overlayWindow?.webContents.send("overlay:metric", {
-      amplitude: clamp01(metric.amplitude),
-      progress: clamp01(metric.progress)
+      amplitude: clamp01(metric.amplitude)
     });
   }
 
@@ -56,8 +55,8 @@ export class PlaybackOverlayController {
 
     this.overlayWindow = new BrowserWindow({
       title: "VoiceReader Playback Overlay",
-      width: 140,
-      height: 36,
+      width: 132,
+      height: 44,
       frame: false,
       show: false,
       transparent: true,
@@ -80,10 +79,9 @@ export class PlaybackOverlayController {
     });
     this.overlayLoaded = false;
     this.overlayWindow.setVisibleOnAllWorkspaces(true, {
-      visibleOnFullScreen: true,
-      skipTransformProcessType: true
+      visibleOnFullScreen: true
     });
-    this.overlayWindow.setAlwaysOnTop(true, "floating");
+    this.overlayWindow.setAlwaysOnTop(true, overlayWindowLevel);
     this.overlayWindow.webContents.once("did-finish-load", () => {
       this.overlayLoaded = true;
       this.sendPendingShow();
@@ -133,12 +131,13 @@ const mainBundleDir = dirname(fileURLToPath(import.meta.url));
 
 function keepOverlayAttached(window: BrowserWindow): void {
   window.setVisibleOnAllWorkspaces(true, {
-    visibleOnFullScreen: true,
-    skipTransformProcessType: true
+    visibleOnFullScreen: true
   });
-  window.setAlwaysOnTop(true, "floating");
+  window.setAlwaysOnTop(true, overlayWindowLevel);
   positionOverlayWindow(window);
 }
+
+const overlayWindowLevel = "screen-saver";
 
 function positionOverlayWindow(window: BrowserWindow): void {
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());

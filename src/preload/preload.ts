@@ -83,7 +83,6 @@ const rendererAudioBridge: RendererAudioBridge = {
 };
 
 const playbackOverlayBridge: PlaybackOverlayBridge = {
-  stopPlayback,
   onOverlayShow: (listener: () => void) => subscribeVoid("overlay:show", listener),
   onOverlayMetric: (listener: (metric: OverlayMetric) => void) =>
     subscribe("overlay:metric", listener),

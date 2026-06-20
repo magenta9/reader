@@ -106,7 +106,7 @@ assert.equal(mainBundle.includes("focusable: false") || mainBundle.includes("foc
 assertIncludes(mainBundle, [
   "setAlwaysOnTop",
   "moveTop",
-  "skipTransformProcessType",
+  "screen-saver",
   "getDisplayNearestPoint",
   "getCursorScreenPoint",
   "setPosition",
@@ -188,7 +188,7 @@ const overlayRuntimeBridge = evaluatePreloadBridge("/overlay/index.html");
 assert.equal(typeof readerRuntimeBridge.getSettings, "function");
 assert.equal(typeof readerRuntimeBridge.onPlaybackStart, "function");
 assert.equal(typeof readerRuntimeBridge.onOverlayShow, "undefined");
-assert.equal(typeof overlayRuntimeBridge.stopPlayback, "function");
+assert.equal(typeof overlayRuntimeBridge.stopPlayback, "undefined");
 assert.equal(typeof overlayRuntimeBridge.onOverlayShow, "function");
 assert.equal(typeof overlayRuntimeBridge.getSettings, "undefined");
 assert.equal(typeof overlayRuntimeBridge.onPlaybackStart, "undefined");
@@ -266,29 +266,18 @@ assert.equal(rendererCssSource.includes("background: transparent"), true);
 assert.equal(rendererCssSource.includes("grid-template-columns: repeat(2"), true);
 assert.equal(rendererCssSource.includes(".shortcut-recorder"), true);
 assert.equal(rendererCssSource.includes(".range-control"), true);
-assert.equal(overlayHtml.includes("manifest.json"), false);
-assert.equal(overlayHtml.includes("VoiceReader Overlay"), true);
-assert.equal(overlayHtml.includes('<link rel="stylesheet" href="./overlay.css"'), true);
-assert.equal(overlayBundle.includes("onOverlayShow"), true);
-assert.equal(overlayBundle.includes("onOverlayMetric"), true);
-assert.equal(overlayBundle.includes("stopPlayback"), true);
-assert.equal(overlayBundle.includes("viewBox"), true);
-assert.equal(overlayBundle.includes("×") || overlayBundle.includes("\\xD7"), false);
-assert.equal(overlayBundle.includes("播放"), false);
-assert.equal(overlayCss.includes(".overlay-pill:hover .hover-progress"), true);
-assert.equal(overlayBundle.includes("scaleY"), true);
-assert.equal(overlayCss.includes("transparent"), true);
-assert.equal(overlayCss.includes("prefers-reduced-motion"), true);
-assert.equal(playbackOverlayControllerSource.includes("width: 140"), true);
-assert.equal(playbackOverlayControllerSource.includes("height: 36"), true);
-assert.equal(playbackOverlayControllerSource.includes("getDisplayNearestPoint(screen.getCursorScreenPoint())"), true);
-assert.equal(playbackOverlayControllerSource.includes("getPrimaryDisplay()"), false);
-assert.equal(overlaySource.includes("const BAR_COUNT = 16"), true);
-assert.equal(overlayCss.includes("grid-template-columns: 26px minmax(0, 1fr)"), true);
-assert.equal(overlayCss.includes("width: 128px"), true);
-assert.equal(overlayCss.includes("height: 24px"), true);
-assert.equal(overlayCss.includes("width: 18px"), true);
-assert.equal(overlayCss.includes("height: 18px"), true);
+assertMissing(overlayHtml, "manifest.json");
+assertIncludes(overlayHtml, ["VoiceReader Overlay", '<link rel="stylesheet" href="./overlay.css"']);
+assertIncludes(overlayBundle, ["onOverlayShow", "onOverlayMetric", "scaleY"]);
+assertMissing(overlayBundle, ["stopPlayback", "progress:", "×", "\\xD7", "播放"]);
+assertMissing(overlaySource, ["viewBox", "progress"]);
+assertIncludes(overlayCss, ["transparent", "--pill: #000", "prefers-reduced-motion", "width: 120px", "height: 32px", "gap: 3px", "padding: 0 16px"]);
+assertMissing(overlayCss, [".close-button", ".overlay-pill:hover .hover-progress", "grid-template-columns:", "--pill: #000;\n    --shadow", "button {"]);
+assertIncludes(playbackOverlayControllerSource, ["width: 132", "height: 44", 'const overlayWindowLevel = "screen-saver"', "getDisplayNearestPoint(screen.getCursorScreenPoint())"]);
+assertMissing(playbackOverlayControllerSource, ["skipTransformProcessType", "metric.progress"]);
+assertMissing(rendererAudioSource, ["audio.currentTime / audio.duration", "progress:"]);
+assertIncludes(overlaySource, "const BAR_COUNT = 12");
+assertMissing(appContractsBundle, "progress");
 assert.equal(packageScript.includes("dereference: true"), false);
 assert.equal(packageScript.includes("verbatimSymlinks: true"), true);
 assert.equal(packageScript.includes("default_app.asar"), true);
@@ -998,7 +987,7 @@ await withPlaybackAudioQueueScenario(async ({ overlayQueue, overlayQueueEvents }
   overlayQueue.finishSession(201);
   await flushPlaybackMicrotasks();
   assert.deepEqual(overlayQueueEvents, [
-    ["metric", 0, 1],
+    ["metric", 0],
     ["finish-overlay"],
     ["idle", 201]
   ]);
@@ -1256,7 +1245,7 @@ function installPlaybackAudioQueueBrowserFakes() {
   replaceProperty(restoreCallbacks, globalThis, "window", {
     voiceReader: {
       sendOverlayMetric(metric) {
-        overlayQueueEvents.push(["metric", metric.amplitude, metric.progress]);
+        overlayQueueEvents.push(["metric", metric.amplitude]);
         return Promise.resolve();
       },
       finishOverlayPlayback() {

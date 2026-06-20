@@ -87,7 +87,6 @@ export interface SessionPayload {
 
 export interface OverlayMetric {
   amplitude: number;
-  progress: number;
 }
 
 export interface ReaderWindowBridge {
@@ -130,7 +129,6 @@ export interface RendererAudioBridge {
 }
 
 export interface PlaybackOverlayBridge {
-  stopPlayback: () => Promise<void>;
   onOverlayShow: (listener: () => void) => () => void;
   onOverlayMetric: (listener: (metric: OverlayMetric) => void) => () => void;
   onOverlayFinish: (listener: () => void) => () => void;

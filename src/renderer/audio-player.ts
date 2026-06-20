@@ -40,7 +40,7 @@ export class PlaybackAudioQueue {
     void this.playbackTail.finally(() => {
       if (sessionId !== this.sessionId) return;
       if (shouldFinishOverlay) {
-        void this.bridge.sendOverlayMetric({ amplitude: 0, progress: 1 });
+        void this.bridge.sendOverlayMetric({ amplitude: 0 });
         void this.bridge.finishOverlayPlayback();
       }
       void this.bridge.notifyPlaybackIdle(sessionId);
@@ -129,12 +129,10 @@ export class PlaybackAudioQueue {
         sum += centered * centered;
       }
       const amplitude = Math.min(1, Math.sqrt(sum / data.length) * 2.4);
-      const progress =
-        Number.isFinite(audio.duration) && audio.duration > 0 ? audio.currentTime / audio.duration : 0;
       const now = performance.now();
       if (now - this.lastMetricAt >= 80) {
         this.lastMetricAt = now;
-        void this.bridge.sendOverlayMetric({ amplitude, progress });
+        void this.bridge.sendOverlayMetric({ amplitude });
       }
       this.animationFrame = window.requestAnimationFrame(tick);
     };

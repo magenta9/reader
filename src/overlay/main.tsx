@@ -4,22 +4,20 @@ import type { ReactElement } from "react";
 import { getPlaybackOverlayBridge } from "../shared/voice-reader-bridge.js";
 import "./styles.css";
 
-const BAR_COUNT = 16;
+const BAR_COUNT = 12;
 const overlayBridge = getPlaybackOverlayBridge();
 
 interface OverlayState {
   visible: boolean;
   leaving: boolean;
   amplitude: number;
-  progress: number;
 }
 
 function PlaybackOverlay(): ReactElement {
   const [state, setState] = useState<OverlayState>({
     visible: false,
     leaving: false,
-    amplitude: 0,
-    progress: 0
+    amplitude: 0
   });
   const [phase, setPhase] = useState(0);
 
@@ -29,14 +27,13 @@ function PlaybackOverlay(): ReactElement {
       if (hideTimer) window.clearTimeout(hideTimer);
       hideTimer = undefined;
     };
-    const leave = (progress?: number): void => {
+    const leave = (): void => {
       clearHideTimer();
       setState((current) => ({
         ...current,
         visible: true,
         leaving: true,
-        amplitude: 0,
-        progress: progress ?? current.progress
+        amplitude: 0
       }));
       hideTimer = window.setTimeout(() => {
         setState((current) => ({ ...current, visible: false, leaving: false }));
@@ -46,18 +43,17 @@ function PlaybackOverlay(): ReactElement {
     const subscriptions = [
       overlayBridge.onOverlayShow(() => {
         clearHideTimer();
-        setState({ visible: true, leaving: false, amplitude: 0.1, progress: 0 });
+        setState({ visible: true, leaving: false, amplitude: 0.1 });
       }),
       overlayBridge.onOverlayMetric((metric) => {
         setState((current) => ({
           ...current,
-          amplitude: clamp01(metric.amplitude),
-          progress: Math.max(current.progress, clamp01(metric.progress))
+          amplitude: clamp01(metric.amplitude)
         }));
       }),
-      overlayBridge.onOverlayFinish(() => leave(1)),
-      overlayBridge.onOverlayFail(() => leave()),
-      overlayBridge.onOverlayStop(() => leave())
+      overlayBridge.onOverlayFinish(leave),
+      overlayBridge.onOverlayFail(leave),
+      overlayBridge.onOverlayStop(leave)
     ];
 
     return () => {
@@ -86,26 +82,19 @@ function PlaybackOverlay(): ReactElement {
         const center = 1 - Math.abs((index - (BAR_COUNT - 1) / 2) / ((BAR_COUNT - 1) / 2));
         const carrier = 0.5 + Math.sin(phase + index * 0.62) * 0.5;
         const detail = 0.5 + Math.cos(phase * 0.74 + index * 1.17) * 0.5;
-        const energy = Math.max(0.08, state.amplitude);
-        const scale = 0.18 + center * 0.26 + energy * center * (0.72 * carrier + 0.34 * detail);
+        const energy = Math.max(0.12, state.amplitude);
+        const scale = 0.2 + center * 0.28 + energy * (0.16 + center * (0.9 * carrier + 0.42 * detail));
         return {
           scale: Math.min(1, scale),
-          opacity: 0.36 + center * 0.2 + energy * 0.38
+          opacity: Math.min(1, 0.5 + center * 0.24 + energy * 0.42)
         };
       }),
     [phase, state.amplitude]
   );
 
-  const stop = (): void => {
-    void overlayBridge.stopPlayback();
-  };
-
   return (
     <div className={`overlay-root${state.visible ? " is-visible" : ""}${state.leaving ? " is-leaving" : ""}`}>
       <div className="overlay-pill">
-        <div className="hover-progress" aria-hidden="true">
-          <span style={{ transform: `scaleX(${state.progress})` }} />
-        </div>
         <div className="waveform" aria-hidden="true">
           {bars.map((bar, index) => (
             <span
@@ -118,11 +107,6 @@ function PlaybackOverlay(): ReactElement {
             />
           ))}
         </div>
-        <button aria-label="停止播放" className="close-button" onClick={stop} type="button">
-          <svg aria-hidden="true" viewBox="0 0 16 16">
-            <path d="M4.7 4.7 11.3 11.3M11.3 4.7 4.7 11.3" />
-          </svg>
-        </button>
       </div>
     </div>
   );
