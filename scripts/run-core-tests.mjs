@@ -17,6 +17,7 @@ const { buildMiniMaxTtsBody, describeMiniMaxApiKeyProblem, getMiniMaxBaseUrlOrde
 );
 const { COMMON_MINIMAX_VOICES, mergeVoiceLists, normalizeMiniMaxVoices, selectVoiceId, voicesForLanguage } = await import("../dist/shared/voices.js");
 const { AppDataStore } = await import("../dist/main/data/app-data-store.js");
+const { AppPresenceController } = await import("../dist/main/app-presence-controller.js");
 const {
   createReadingHistoryPreview,
   createReadingHistoryRecord,
@@ -44,6 +45,7 @@ const {
 
 for (const path of [
   "../dist/main/main.js",
+  "../dist/main/app-presence-controller.js",
   "../dist/main/playback/playback-request-resolver.js",
   "../dist/main/reading-target/reading-target-acquirer.js",
   "../dist/shared/app-contracts.js",
@@ -77,6 +79,7 @@ const overlayHtml = await readFile(new URL("../dist/overlay/index.html", import.
 const overlayBundle = await readFile(new URL("../dist/overlay/overlay.js", import.meta.url), "utf8");
 const overlayCss = await readFile(new URL("../dist/overlay/overlay.css", import.meta.url), "utf8");
 const mainSource = await readFile(new URL("../src/main/main.ts", import.meta.url), "utf8");
+const appPresenceControllerSource = await readFile(new URL("../src/main/app-presence-controller.ts", import.meta.url), "utf8");
 const rendererSource = await readFile(new URL("../src/renderer/main.tsx", import.meta.url), "utf8");
 const rendererAudioSource = await readFile(new URL("../src/renderer/audio-player.ts", import.meta.url), "utf8");
 const overlaySource = await readFile(new URL("../src/overlay/main.tsx", import.meta.url), "utf8");
@@ -109,7 +112,7 @@ assertIncludes(mainBundle, [
   "../preload/preload.cjs",
   "setPath",
   "userData",
-  "syncDockPresence",
+  "AppPresenceController",
   "shouldOpenWindowAtStartup",
   "wasOpenedAtLogin",
   'app.on("activate"',
@@ -149,17 +152,70 @@ assertIncludes(mainBundle, [
 assertMissing(mainBundle, ["../preload/preload.js", "safeStorage", "isTrustedAccessibilityClient", "/usr/bin/osascript", "__dirname"]);
 assertIncludes(mainSource, [
   "shouldRevealPreviousAppBeforeSelectionCapture",
-  "hideReaderAppForSelectionCapture",
+  "AppPresenceController",
+  "appPresence.ensureDockVisible()",
+  "appPresence.setDockIconFromSvg(appIconAssetPath)",
+  "appPresence.hideForSelectionCapture()",
   "ReadingTargetAcquirer",
   "registerIpcHandlers(readingTargetAcquirer)",
   "readingTargetAcquirer.revealPreviousAppBeforeCapture()",
   "playbackCommands.startReadingTargetPlayback()",
-  "() => readingTargetAcquirer.acquire()",
-  "pendingRoute = route;\n  syncDockPresence();",
-  "app.hide();\n    syncDockPresence();",
-  "app.dock.show()",
-  "app.hide()"
+  "() => readingTargetAcquirer.acquire()"
 ]);
+assertMissing(mainSource, [
+  "function syncDockPresence",
+  "function syncDockIcon",
+  "function hideReaderAppForSelectionCapture"
+]);
+assertIncludes(appPresenceControllerSource, [
+  "class AppPresenceController",
+  "ensureDockVisible",
+  "setDockIconFromSvg",
+  "hideForSelectionCapture"
+]);
+const openReaderWindowIndex = mainSource.indexOf("function openReaderWindow(route: AppRoute): void");
+const openReaderWindowPendingRouteIndex = mainSource.indexOf("pendingRoute = route;", openReaderWindowIndex);
+const openReaderWindowDockIndex = mainSource.indexOf("appPresence.ensureDockVisible();", openReaderWindowIndex);
+assert.equal(openReaderWindowIndex >= 0, true);
+assert.equal(openReaderWindowPendingRouteIndex > openReaderWindowIndex, true);
+assert.equal(openReaderWindowDockIndex > openReaderWindowIndex, true);
+assert.equal(openReaderWindowDockIndex < openReaderWindowPendingRouteIndex, true);
+
+const darwinPresenceActions = [];
+const darwinPresence = createAppPresenceControllerForTest({
+  actions: darwinPresenceActions,
+  platform: "darwin"
+});
+darwinPresence.hideForSelectionCapture();
+assert.deepEqual(darwinPresenceActions, ["app.hide", "dock.show"]);
+
+const nonDarwinPresenceActions = [];
+const nonDarwinPresence = createAppPresenceControllerForTest({
+  actions: nonDarwinPresenceActions,
+  platform: "linux"
+});
+nonDarwinPresence.hideForSelectionCapture();
+assert.deepEqual(nonDarwinPresenceActions, ["readerWindow.hide"]);
+
+const noDockPresenceActions = [];
+const noDockPresence = createAppPresenceControllerForTest({
+  actions: noDockPresenceActions,
+  hasDock: false,
+  platform: "darwin"
+});
+noDockPresence.ensureDockVisible();
+noDockPresence.setDockIconFromSvg("/missing.svg");
+assert.deepEqual(noDockPresenceActions, []);
+
+const dockIconPresenceActions = [];
+const dockIconPresence = createAppPresenceControllerForTest({
+  actions: dockIconPresenceActions,
+  platform: "darwin",
+  readTextFile: () => "<svg></svg>"
+});
+dockIconPresence.setDockIconFromSvg("/icon.svg");
+assert.equal(dockIconPresenceActions[0]?.startsWith("nativeImage.createFromDataURL:data:image/svg+xml"), true);
+assert.equal(dockIconPresenceActions.at(-1), "dock.setIcon");
 assertIncludes(readingTargetAcquirerSource, [
   "class ReadingTargetAcquirer",
   "revealPreviousAppBeforeCapture",
@@ -1817,6 +1873,33 @@ function createPlaybackSinkForTest(events, startEvent = (session) => [
 
 function hasReadingTargetPayload(payload) {
   return Boolean(payload && typeof payload === "object" && "target" in payload);
+}
+
+function createAppPresenceControllerForTest(options) {
+  const app = {
+    hide: () => options.actions.push("app.hide")
+  };
+  if (options.hasDock !== false) {
+    app.dock = {
+      show: () => options.actions.push("dock.show"),
+      setIcon: () => options.actions.push("dock.setIcon")
+    };
+  }
+
+  return new AppPresenceController({
+    app,
+    nativeImage: {
+      createFromDataURL: (dataUrl) => {
+        options.actions.push(`nativeImage.createFromDataURL:${dataUrl}`);
+        return { isEmpty: () => options.emptyImage === true };
+      }
+    },
+    getReaderWindow: () => ({
+      hide: () => options.actions.push("readerWindow.hide")
+    }),
+    platform: options.platform,
+    readTextFile: options.readTextFile ?? (() => "")
+  });
 }
 
 function createReadingTargetAcquirerForTest(options = {}) {

@@ -8,10 +8,10 @@ import {
   clipboard,
   globalShortcut
 } from "electron";
-import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
+import { AppPresenceController } from "./app-presence-controller.js";
 import { AppDataStore } from "./data/app-data-store.js";
 import { MiniMaxAccountService } from "./data/minimax-account-service.js";
 import type { DetectedLanguage } from "../shared/types.js";
@@ -36,6 +36,7 @@ let appDataStore: AppDataStore;
 let minimaxAccountService: MiniMaxAccountService;
 let playbackCommands: PlaybackCommandController;
 let overlayController: PlaybackOverlayController;
+let appPresence: AppPresenceController;
 
 const mainBundleDir = dirname(fileURLToPath(import.meta.url));
 const rendererEntry = join(mainBundleDir, "../renderer/index.html");
@@ -70,10 +71,15 @@ async function bootstrap(): Promise<void> {
   appDataStore = new AppDataStore(join(app.getPath("userData"), "voicereader.sqlite"));
   minimaxAccountService = new MiniMaxAccountService(appDataStore);
   overlayController = new PlaybackOverlayController();
+  appPresence = new AppPresenceController({
+    app,
+    nativeImage,
+    getReaderWindow: () => readerWindow
+  });
   const readingTargetAcquirer = new ReadingTargetAcquirer({
     clipboard,
     errorLog: appDataStore,
-    hidePreviousAppForSelectionCapture: hideReaderAppForSelectionCapture
+    hidePreviousAppForSelectionCapture: () => appPresence.hideForSelectionCapture()
   });
   const playbackService = new PlaybackService(appDataStore, new ElectronAudioSink(() => readerWindow, overlayController));
   playbackCommands = new PlaybackCommandController(
@@ -84,8 +90,8 @@ async function bootstrap(): Promise<void> {
   );
   registerIpcHandlers(readingTargetAcquirer);
   syncLaunchAtLoginFromSettings();
-  syncDockPresence();
-  syncDockIcon();
+  appPresence.ensureDockVisible();
+  appPresence.setDockIconFromSvg(appIconAssetPath);
   createMenuBarMenu();
   playbackCommands.registerActivationShortcut();
 
@@ -111,8 +117,8 @@ async function bootstrap(): Promise<void> {
 }
 
 function openReaderWindow(route: AppRoute): void {
+  appPresence.ensureDockVisible();
   pendingRoute = route;
-  syncDockPresence();
 
   if (!readerWindow || readerWindow.isDestroyed()) {
     readerWindow = new BrowserWindow({
@@ -405,29 +411,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function syncDockIcon(): void {
-  if (!app.dock) return;
-  const image = nativeImage.createFromDataURL(svgDataUrl(readAssetText(appIconAssetPath)));
-  if (!image.isEmpty()) app.dock.setIcon(image);
-}
-
-function syncDockPresence(): void {
-  if (!app.dock) return;
-  void app.dock.show();
-}
-
-function readAssetText(path: string, fallback = ""): string {
-  try {
-    return readFileSync(path, "utf8");
-  } catch {
-    return fallback;
-  }
-}
-
-function svgDataUrl(svg: string): string {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-}
-
 function readBootstrapState(): BootstrapState {
   const settings = appDataStore.getSettings();
   return {
@@ -452,13 +435,4 @@ function shouldRevealPreviousAppBeforeSelectionCapture(senderWebContentsId: numb
       readerWindow.webContents.id === senderWebContentsId &&
       readerWindow.isFocused()
   );
-}
-
-function hideReaderAppForSelectionCapture(): void {
-  if (process.platform === "darwin") {
-    app.hide();
-    syncDockPresence();
-    return;
-  }
-  readerWindow?.hide();
 }
