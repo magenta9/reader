@@ -112,6 +112,7 @@ async function bootstrap(): Promise<void> {
 
 function openReaderWindow(route: AppRoute): void {
   pendingRoute = route;
+  syncDockPresence();
 
   if (!readerWindow || readerWindow.isDestroyed()) {
     readerWindow = new BrowserWindow({
@@ -456,6 +457,7 @@ function shouldRevealPreviousAppBeforeSelectionCapture(senderWebContentsId: numb
 function hideReaderAppForSelectionCapture(): void {
   if (process.platform === "darwin") {
     app.hide();
+    syncDockPresence();
     return;
   }
   readerWindow?.hide();

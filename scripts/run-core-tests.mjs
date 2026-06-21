@@ -155,6 +155,8 @@ assertIncludes(mainSource, [
   "readingTargetAcquirer.revealPreviousAppBeforeCapture()",
   "playbackCommands.startReadingTargetPlayback()",
   "() => readingTargetAcquirer.acquire()",
+  "pendingRoute = route;\n  syncDockPresence();",
+  "app.hide();\n    syncDockPresence();",
   "app.dock.show()",
   "app.hide()"
 ]);
