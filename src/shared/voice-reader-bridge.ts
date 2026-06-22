@@ -1,4 +1,4 @@
-import type { PlaybackOverlayBridge, ReaderWindowBridge, RendererAudioBridge } from "./app-contracts.js";
+import type { PlaybackOverlayBridge, ReaderWindowBridge, RendererAudioBridge } from "./bridge-contracts.js";
 
 declare global {
   interface Window {

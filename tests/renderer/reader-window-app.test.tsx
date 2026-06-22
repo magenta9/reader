@@ -9,10 +9,9 @@ import {
   DEFAULT_ACTIVATION_SHORTCUT,
   type AppSettings,
   type FavoriteRecord,
-  type ReaderWindowBridge,
-  type ReadingHistoryRecord,
-  type RendererAudioBridge
+  type ReadingHistoryRecord
 } from "../../src/shared/app-contracts.js";
+import type { ReaderWindowBridge, RendererAudioBridge } from "../../src/shared/bridge-contracts.js";
 
 afterEach(() => {
   cleanup();

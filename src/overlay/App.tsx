@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactElement } from "react";
-import type { PlaybackOverlayBridge } from "../shared/app-contracts.js";
+import type { PlaybackOverlayBridge } from "../shared/bridge-contracts.js";
 
 const BAR_COUNT = 10;
 const DRAG_HOLD_MS = 320;

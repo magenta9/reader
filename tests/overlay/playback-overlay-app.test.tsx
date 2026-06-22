@@ -4,7 +4,8 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PlaybackOverlayApp } from "../../src/overlay/App.js";
-import type { OverlayMetric, PlaybackOverlayBridge } from "../../src/shared/app-contracts.js";
+import type { OverlayMetric } from "../../src/shared/app-contracts.js";
+import type { PlaybackOverlayBridge } from "../../src/shared/bridge-contracts.js";
 
 let restoreAnimationFrame: (() => void) | undefined;
 

@@ -3,9 +3,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { PlaybackAudioQueue } from "../../src/renderer/audio-player.js";
 import {
   PLAYBACK_FEEDBACK_SURFACES,
-  type PlaybackAudioSession,
-  type RendererAudioBridge
+  type PlaybackAudioSession
 } from "../../src/shared/app-contracts.js";
+import type { RendererAudioBridge } from "../../src/shared/bridge-contracts.js";
 
 let activeBrowserFakes: BrowserFakes | undefined;
 

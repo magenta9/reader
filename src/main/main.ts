@@ -11,16 +11,14 @@ import {
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
+import { registerAppBridgeHandlers } from "./app-bridge-handlers.js";
 import { AppPresenceController } from "./app-presence-controller.js";
 import { AppDataStore } from "./data/app-data-store.js";
 import { MiniMaxAccountService } from "./data/minimax-account-service.js";
-import type { DetectedLanguage } from "../shared/types.js";
+import { APP_SHELL_CHANNELS } from "../shared/bridge-contracts.js";
 import type {
   AppRoute,
-  AppSettings,
-  BootstrapState,
-  OverlayDragDelta,
-  OverlayMetric
+  BootstrapState
 } from "../shared/app-contracts.js";
 import { PlaybackService } from "./playback/playback-service.js";
 import { ElectronAudioSink } from "./playback/electron-audio-sink.js";
@@ -88,7 +86,21 @@ async function bootstrap(): Promise<void> {
     globalShortcut,
     () => readingTargetAcquirer.acquire()
   );
-  registerIpcHandlers(readingTargetAcquirer);
+  registerAppBridgeHandlers({
+    app,
+    appDataStore,
+    clipboard,
+    ipcMain,
+    minimaxAccountService,
+    overlayController,
+    playbackCommands,
+    readingTargetAcquirer,
+    readBootstrapState,
+    setPendingRoute: (route) => {
+      pendingRoute = route;
+    },
+    shouldRevealPreviousAppBeforeSelectionCapture
+  });
   syncLaunchAtLoginFromSettings();
   appPresence.ensureDockVisible();
   appPresence.setDockIconFromSvg(appIconAssetPath);
@@ -168,84 +180,7 @@ function openReaderWindow(route: AppRoute): void {
 function sendRoute(route: AppRoute): void {
   if (!readerWindow || readerWindow.isDestroyed()) return;
   appDataStore.updateSettings({ lastRoute: route });
-  readerWindow.webContents.send("app-shell:navigate", route);
-}
-
-function registerIpcHandlers(readingTargetAcquirer: ReadingTargetAcquirer): void {
-  ipcMain.handle("app-shell:get-bootstrap-state", () => readBootstrapState());
-  ipcMain.handle("app-shell:set-route", (_event, route: AppRoute) => {
-    pendingRoute = route;
-    appDataStore.updateSettings({ lastRoute: route });
-  });
-  ipcMain.handle("app-shell:set-onboarding-complete", (_event, complete: boolean) => {
-    appDataStore.updateSettings({ hasCompletedOnboarding: complete });
-  });
-  ipcMain.handle("app-data:get-settings", () => appDataStore.getSettings());
-  ipcMain.handle("app-data:update-settings", (_event, patch: Partial<AppSettings>) =>
-    appDataStore.updateSettings(patch)
-  );
-  ipcMain.handle("app-data:set-launch-at-login", (_event, launchAtLogin: boolean) => {
-    app.setLoginItemSettings({ openAtLogin: launchAtLogin });
-    return appDataStore.updateSettings({ launchAtLogin });
-  });
-  ipcMain.handle("app-data:set-activation-shortcut", (_event, shortcut: string) =>
-    playbackCommands.setActivationShortcut(shortcut)
-  );
-  ipcMain.handle("app-data:set-minimax-api-key", (_event, apiKey: string) => {
-    appDataStore.saveMiniMaxApiKey(apiKey);
-  });
-  ipcMain.handle("app-data:clear-minimax-api-key", () => {
-    appDataStore.clearMiniMaxApiKey();
-  });
-  ipcMain.handle("app-data:has-minimax-api-key", () => appDataStore.hasMiniMaxApiKey());
-  ipcMain.handle("app-data:verify-minimax-key", () => minimaxAccountService.verifyApiKey());
-  ipcMain.handle("app-data:refresh-voices", () => minimaxAccountService.refreshVoices());
-  ipcMain.handle("app-data:set-preferred-voice", (_event, language: DetectedLanguage, voiceId: string) =>
-    minimaxAccountService.setPreferredVoice(language, voiceId)
-  );
-  ipcMain.handle("app-data:get-error-log-count", () => appDataStore.getErrorLogCount());
-  ipcMain.handle("app-data:clear-error-log", () => appDataStore.clearErrorLogs());
-  ipcMain.handle("app-data:get-reading-history-count", () => appDataStore.getReadingHistoryCount());
-  ipcMain.handle("app-data:list-reading-history", () => appDataStore.listReadingHistoryRecords());
-  ipcMain.handle("app-data:delete-reading-history-record", (_event, id: string) =>
-    appDataStore.deleteReadingHistoryRecord(id)
-  );
-  ipcMain.handle("app-data:clear-reading-history", () => appDataStore.clearReadingHistory());
-  ipcMain.handle("app-data:create-favorite-from-history-record", (_event, id: string) =>
-    appDataStore.createFavoriteFromHistoryRecord(id)
-  );
-  ipcMain.handle("app-data:list-favorites", () => appDataStore.listFavoriteRecords());
-  ipcMain.handle("app-data:delete-favorite-record", (_event, id: string) =>
-    appDataStore.deleteFavoriteRecord(id)
-  );
-  ipcMain.handle("playback:play-reading-target", async (event) => {
-    if (shouldRevealPreviousAppBeforeSelectionCapture(event.sender.id)) {
-      await readingTargetAcquirer.revealPreviousAppBeforeCapture();
-    }
-    return playbackCommands.startReadingTargetPlayback();
-  });
-  ipcMain.handle("playback:play-history-record", (_event, id: string) => playbackCommands.startHistoryReplay(id));
-  ipcMain.handle("playback:play-favorite-record", (_event, id: string) =>
-    playbackCommands.startFavoriteReplay(id)
-  );
-  ipcMain.handle("playback:stop", () => {
-    playbackCommands.stopPlayback();
-  });
-  ipcMain.handle("playback:renderer-idle", (_event, sessionId: number) => {
-    playbackCommands.handleRendererIdle(sessionId);
-  });
-  ipcMain.handle("clipboard:write-text", (_event, text: string) => {
-    clipboard.writeText(text);
-  });
-  ipcMain.handle("overlay:metric", (_event, metric: OverlayMetric) => {
-    overlayController.sendMetric(metric);
-  });
-  ipcMain.handle("overlay:move-by", (_event, delta: OverlayDragDelta) => {
-    overlayController.moveBy(delta);
-  });
-  ipcMain.handle("overlay:finish-playback", () => {
-    overlayController.finish();
-  });
+  readerWindow.webContents.send(APP_SHELL_CHANNELS.navigate, route);
 }
 
 function createMenuBarMenu(): void {

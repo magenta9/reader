@@ -1,5 +1,6 @@
 import type { BrowserWindow } from "electron";
 import { usesPlaybackOverlayFeedback, type PlaybackAudioSession } from "../../shared/app-contracts.js";
+import { RENDERER_AUDIO_CHANNELS } from "../../shared/bridge-contracts.js";
 import type { PlaybackAudioSink } from "./playback-service.js";
 import type { PlaybackOverlayController } from "./playback-overlay-controller.js";
 
@@ -15,18 +16,18 @@ export class ElectronAudioSink implements PlaybackAudioSink {
   startSession(session: PlaybackAudioSession): void {
     this.stopActiveOverlayBeforeNextSession(session.sessionId);
     const usesPlaybackOverlay = usesPlaybackOverlayFeedback(session.feedbackSurface);
-    const deliveredToPlaybackWindow = this.sendToPlaybackWindow("playback:start-session", session);
+    const deliveredToPlaybackWindow = this.sendToPlaybackWindow(RENDERER_AUDIO_CHANNELS.startSession, session);
     this.rendererSessionId = deliveredToPlaybackWindow ? session.sessionId : undefined;
     this.activeOverlaySession = usesPlaybackOverlay ? { sessionId: session.sessionId } : undefined;
     if (usesPlaybackOverlay) this.overlay.show();
   }
 
   audioChunk(sessionId: number, bytes: Uint8Array): void {
-    this.sendToPlaybackWindow("playback:audio-chunk", { sessionId, bytes });
+    this.sendToPlaybackWindow(RENDERER_AUDIO_CHANNELS.audioChunk, { sessionId, bytes });
   }
 
   endSegment(sessionId: number): void {
-    this.sendToPlaybackWindow("playback:end-segment", { sessionId });
+    this.sendToPlaybackWindow(RENDERER_AUDIO_CHANNELS.endSegment, { sessionId });
   }
 
   finishSession(sessionId: number): void {
@@ -39,14 +40,14 @@ export class ElectronAudioSink implements PlaybackAudioSink {
     if (this.consumeActiveOverlaySession(sessionId)) {
       this.overlay.fail();
     }
-    this.sendToPlaybackWindow("playback:fail-session", { sessionId });
+    this.sendToPlaybackWindow(RENDERER_AUDIO_CHANNELS.failSession, { sessionId });
   }
 
   stopSession(sessionId: number): void {
     if (this.consumeActiveOverlaySession(sessionId)) {
       this.overlay.stop();
     }
-    this.sendToPlaybackWindow("playback:stop-session", { sessionId });
+    this.sendToPlaybackWindow(RENDERER_AUDIO_CHANNELS.stopSession, { sessionId });
   }
 
   handleRendererIdle(sessionId: number): void {
@@ -69,7 +70,7 @@ export class ElectronAudioSink implements PlaybackAudioSink {
 
   private sendFinishToPlaybackWindow(sessionId: number): boolean {
     if (this.rendererSessionId !== sessionId) return false;
-    const deliveredToPlaybackWindow = this.sendToPlaybackWindow("playback:finish-session", { sessionId });
+    const deliveredToPlaybackWindow = this.sendToPlaybackWindow(RENDERER_AUDIO_CHANNELS.finishSession, { sessionId });
     if (!deliveredToPlaybackWindow) this.rendererSessionId = undefined;
     return deliveredToPlaybackWindow;
   }

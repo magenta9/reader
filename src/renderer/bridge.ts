@@ -8,9 +8,8 @@ export type {
   OverlayMetric,
   PlaybackAudioSession,
   PlaybackStartResult,
-  ReaderWindowBridge,
   ReadingHistoryRecord,
-  RendererAudioBridge,
   SessionPayload,
   ShortcutUpdateResult
 } from "../shared/app-contracts.js";
+export type { ReaderWindowBridge, RendererAudioBridge } from "../shared/bridge-contracts.js";

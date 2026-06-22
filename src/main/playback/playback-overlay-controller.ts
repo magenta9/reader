@@ -2,6 +2,7 @@ import { BrowserWindow, screen } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OverlayDragDelta, OverlayMetric } from "../../shared/app-contracts.js";
+import { PLAYBACK_OVERLAY_EVENT_CHANNELS } from "../../shared/bridge-contracts.js";
 
 export class PlaybackOverlayController {
   private overlayWindow: BrowserWindow | undefined;
@@ -26,7 +27,7 @@ export class PlaybackOverlayController {
   }
 
   sendMetric(metric: OverlayMetric): void {
-    this.overlayWindow?.webContents.send("overlay:metric", {
+    this.overlayWindow?.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.metric, {
       amplitude: clamp01(metric.amplitude),
       progress: clamp01(metric.progress)
     });
@@ -46,17 +47,17 @@ export class PlaybackOverlayController {
   }
 
   finish(): void {
-    this.overlayWindow?.webContents.send("overlay:finish");
+    this.overlayWindow?.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.finish);
     this.hideSoon();
   }
 
   fail(): void {
-    this.overlayWindow?.webContents.send("overlay:fail");
+    this.overlayWindow?.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.fail);
     this.hideSoon();
   }
 
   stop(): void {
-    this.overlayWindow?.webContents.send("overlay:stop");
+    this.overlayWindow?.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.stop);
     this.hideSoon();
   }
 
@@ -112,7 +113,7 @@ export class PlaybackOverlayController {
       return;
     }
     this.pendingShow = false;
-    this.overlayWindow.webContents.send("overlay:show");
+    this.overlayWindow.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.show);
   }
 
   private hideSoon(): void {

@@ -40,7 +40,8 @@ src/
 - `src/renderer/App.tsx`：可注入 fake bridge 的 Reader Window React UI。
 - `src/overlay/main.tsx`：Playback Overlay 运行时入口，负责真实 bridge lookup 和 root rendering。
 - `src/overlay/App.tsx`：可注入 fake bridge 的 Playback Overlay React UI。
-- `src/shared/app-contracts.ts`：跨进程类型和 bridge contract。
+- `src/shared/app-contracts.ts`：跨进程应用数据 payload 类型。
+- `src/shared/bridge-contracts/`：跨 renderer/main 的 bridge 与 channel contract。
 - `src/main/data/app-data-store.ts`：SQLite 本地数据。
 - `scripts/build.mjs`：TypeScript emit、native addon、esbuild bundle、静态资源复制。
 - `vitest.config.ts`：Vitest source-level 测试和 jsdom React UI 测试配置。

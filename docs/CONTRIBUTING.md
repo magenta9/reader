@@ -48,7 +48,7 @@ Issue 文件使用 `Status:` 记录状态；标签含义见 `docs/agents/triage-
 ## 编码约定
 
 - 使用 TypeScript strict mode，避免引入 `any` 和未建模的跨进程对象。
-- 共享类型优先放在 `src/shared/`，跨 renderer/main 的 contract 优先更新 `src/shared/app-contracts.ts`。
+- 共享类型优先放在 `src/shared/`；应用数据 payload 优先更新 `src/shared/app-contracts.ts`，跨 renderer/main 的 bridge/channel contract 优先更新 `src/shared/bridge-contracts/`。
 - Renderer 只能通过 preload bridge 调用受控能力，不直接使用 Node 或 Electron main API。
 - 用户可见文案默认使用中文；领域概念使用 `CONTEXT.md` 中定义的术语。
 - 涉及产品行为、隐私边界、本地持久化或架构选择时，先检查 `docs/adr/` 是否已有决策。

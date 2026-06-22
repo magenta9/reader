@@ -9,14 +9,144 @@ if (shouldBuild) await run("scripts/build.mjs", []);
 
 const { ElectronAudioSink } = await import("../dist/main/playback/electron-audio-sink.js");
 const { PLAYBACK_FEEDBACK_SURFACES } = await import("../dist/shared/app-contracts.js");
+const {
+  APP_DATA_CHANNELS,
+  APP_SHELL_CHANNELS,
+  PLAYBACK_CONTROL_CHANNELS,
+  PLAYBACK_OVERLAY_COMMAND_CHANNELS,
+  PLAYBACK_OVERLAY_EVENT_CHANNELS,
+  RENDERER_AUDIO_CHANNELS
+} = await import("../dist/shared/bridge-contracts.js");
+
+const bridgeContractModuleChecks = [
+  {
+    distPath: "../dist/shared/bridge-contracts/app-shell.js",
+    sourcePath: "../src/shared/bridge-contracts/app-shell.ts",
+    expectedValues: ["APP_SHELL_CHANNELS", "interface AppShellBridge"]
+  },
+  {
+    distPath: "../dist/shared/bridge-contracts/app-data.js",
+    sourcePath: "../src/shared/bridge-contracts/app-data.ts",
+    expectedValues: ["APP_DATA_CHANNELS", "interface AppDataBridge"]
+  },
+  {
+    distPath: "../dist/shared/bridge-contracts/playback-control.js",
+    sourcePath: "../src/shared/bridge-contracts/playback-control.ts",
+    expectedValues: ["PLAYBACK_CONTROL_CHANNELS", "interface PlaybackControlBridge"]
+  },
+  {
+    distPath: "../dist/shared/bridge-contracts/clipboard.js",
+    sourcePath: "../src/shared/bridge-contracts/clipboard.ts",
+    expectedValues: ["CLIPBOARD_CHANNELS", "interface ClipboardBridge"]
+  },
+  {
+    distPath: "../dist/shared/bridge-contracts/renderer-audio.js",
+    sourcePath: "../src/shared/bridge-contracts/renderer-audio.ts",
+    expectedValues: ["RENDERER_AUDIO_CHANNELS", "interface RendererAudioBridge"]
+  },
+  {
+    name: "playback-overlay",
+    distPath: "../dist/shared/bridge-contracts/playback-overlay.js",
+    sourcePath: "../src/shared/bridge-contracts/playback-overlay.ts",
+    expectedValues: [
+      "PLAYBACK_OVERLAY_EVENT_CHANNELS",
+      "PLAYBACK_OVERLAY_COMMAND_CHANNELS",
+      "interface PlaybackOverlayBridge"
+    ]
+  }
+];
+
+const mainBridgeHandlerModuleChecks = [
+  {
+    distPath: "../dist/main/app-bridge-handlers/app-shell.js",
+    sourcePath: "../src/main/app-bridge-handlers/app-shell.ts",
+    expectedValues: ["registerAppShellHandlers", "APP_SHELL_CHANNELS"]
+  },
+  {
+    distPath: "../dist/main/app-bridge-handlers/app-data.js",
+    sourcePath: "../src/main/app-bridge-handlers/app-data.ts",
+    expectedValues: ["registerAppDataHandlers", "APP_DATA_CHANNELS", "setPreferredVoice"]
+  },
+  {
+    distPath: "../dist/main/app-bridge-handlers/playback-control.js",
+    sourcePath: "../src/main/app-bridge-handlers/playback-control.ts",
+    expectedValues: [
+      "registerPlaybackControlHandlers",
+      "PLAYBACK_CONTROL_CHANNELS",
+      "readingTargetAcquirer.revealPreviousAppBeforeCapture()",
+      "playbackCommands.startReadingTargetPlayback()"
+    ]
+  },
+  {
+    distPath: "../dist/main/app-bridge-handlers/clipboard.js",
+    sourcePath: "../src/main/app-bridge-handlers/clipboard.ts",
+    expectedValues: ["registerClipboardHandlers", "CLIPBOARD_CHANNELS"]
+  },
+  {
+    distPath: "../dist/main/app-bridge-handlers/playback-overlay.js",
+    sourcePath: "../src/main/app-bridge-handlers/playback-overlay.ts",
+    expectedValues: ["registerPlaybackOverlayHandlers", "PLAYBACK_OVERLAY_COMMAND_CHANNELS"]
+  }
+];
+
+const preloadBridgeAdapterModuleChecks = [
+  {
+    distPath: "../dist/preload/bridge-adapters/app-shell.js",
+    sourcePath: "../src/preload/bridge-adapters/app-shell.ts",
+    expectedValues: ["createAppShellBridge", "APP_SHELL_CHANNELS", "onNavigate"]
+  },
+  {
+    distPath: "../dist/preload/bridge-adapters/app-data.js",
+    sourcePath: "../src/preload/bridge-adapters/app-data.ts",
+    expectedValues: ["createAppDataBridge", "APP_DATA_CHANNELS", "setPreferredVoice"]
+  },
+  {
+    distPath: "../dist/preload/bridge-adapters/playback-control.js",
+    sourcePath: "../src/preload/bridge-adapters/playback-control.ts",
+    expectedValues: ["createPlaybackControlBridge", "PLAYBACK_CONTROL_CHANNELS"]
+  },
+  {
+    distPath: "../dist/preload/bridge-adapters/clipboard.js",
+    sourcePath: "../src/preload/bridge-adapters/clipboard.ts",
+    expectedValues: ["createClipboardBridge", "CLIPBOARD_CHANNELS"]
+  },
+  {
+    distPath: "../dist/preload/bridge-adapters/renderer-audio.js",
+    sourcePath: "../src/preload/bridge-adapters/renderer-audio.ts",
+    expectedValues: [
+      "createRendererAudioBridge",
+      "RENDERER_AUDIO_CHANNELS",
+      "PLAYBACK_OVERLAY_COMMAND_CHANNELS"
+    ]
+  },
+  {
+    distPath: "../dist/preload/bridge-adapters/playback-overlay.js",
+    sourcePath: "../src/preload/bridge-adapters/playback-overlay.ts",
+    expectedValues: [
+      "createPlaybackOverlayBridge",
+      "PLAYBACK_OVERLAY_EVENT_CHANNELS",
+      "PLAYBACK_OVERLAY_COMMAND_CHANNELS"
+    ]
+  },
+  {
+    distPath: "../dist/preload/bridge-adapters/ipc.js",
+    sourcePath: "../src/preload/bridge-adapters/ipc.ts",
+    expectedValues: ["interface PreloadIpc", "invoke<T>", "subscribe<T>", "subscribeVoid"]
+  }
+];
 
 for (const path of [
   "../dist/main/main.js",
+  "../dist/main/app-bridge-handlers.js",
+  ...mainBridgeHandlerModuleChecks.map(({ distPath }) => distPath),
   "../dist/main/app-presence-controller.js",
   "../dist/main/playback/playback-request-resolver.js",
   "../dist/main/reading-target/reading-target-acquirer.js",
   "../dist/shared/app-contracts.js",
+  "../dist/shared/bridge-contracts.js",
+  ...bridgeContractModuleChecks.map(({ distPath }) => distPath),
   "../dist/preload/preload.cjs",
+  ...preloadBridgeAdapterModuleChecks.map(({ distPath }) => distPath),
   "../dist/renderer/index.html",
   "../dist/renderer/renderer.js",
   "../dist/renderer/record-view-model.js",
@@ -38,6 +168,7 @@ if (process.platform === "darwin") {
 const mainBundle = await readFile(new URL("../dist/main/main.js", import.meta.url), "utf8");
 const appContractsBundle = await readFile(new URL("../dist/shared/app-contracts.js", import.meta.url), "utf8");
 const appContractsSource = await readFile(new URL("../src/shared/app-contracts.ts", import.meta.url), "utf8");
+const bridgeContractsSource = await readFile(new URL("../src/shared/bridge-contracts.ts", import.meta.url), "utf8");
 const preloadBundle = await readFile(new URL("../dist/preload/preload.cjs", import.meta.url), "utf8");
 const preloadSource = await readFile(new URL("../src/preload/preload.ts", import.meta.url), "utf8");
 const rendererHtml = await readFile(new URL("../dist/renderer/index.html", import.meta.url), "utf8");
@@ -46,6 +177,7 @@ const overlayHtml = await readFile(new URL("../dist/overlay/index.html", import.
 const overlayBundle = await readFile(new URL("../dist/overlay/overlay.js", import.meta.url), "utf8");
 const overlayCss = await readFile(new URL("../dist/overlay/overlay.css", import.meta.url), "utf8");
 const mainSource = await readFile(new URL("../src/main/main.ts", import.meta.url), "utf8");
+const appBridgeHandlersSource = await readFile(new URL("../src/main/app-bridge-handlers.ts", import.meta.url), "utf8");
 const appPresenceControllerSource = await readFile(new URL("../src/main/app-presence-controller.ts", import.meta.url), "utf8");
 const rendererSource = await readFile(new URL("../src/renderer/main.tsx", import.meta.url), "utf8");
 const readerWindowAppSource = await readFile(new URL("../src/renderer/App.tsx", import.meta.url), "utf8");
@@ -65,6 +197,18 @@ const packageScript = await readFile(new URL("../scripts/package-mac.mjs", impor
 const appIconSource = await readFile(new URL("../assets/voicereader-icon.svg", import.meta.url), "utf8");
 const templateTrayIconSource = await readFile(new URL("../assets/voicereader-template-icon.svg", import.meta.url), "utf8");
 const builtTemplateTrayIcon = await readFile(new URL("../dist/assets/voicereader-template-icon.svg", import.meta.url), "utf8");
+const checkedSources = new Map();
+for (const { sourcePath, expectedValues } of [
+  ...bridgeContractModuleChecks,
+  ...mainBridgeHandlerModuleChecks,
+  ...preloadBridgeAdapterModuleChecks
+]) {
+  const source = await readFile(new URL(sourcePath, import.meta.url), "utf8");
+  checkedSources.set(sourcePath, source);
+  assertIncludes(source, expectedValues);
+}
+const playbackOverlayBridgeSource =
+  checkedSources.get("../src/shared/bridge-contracts/playback-overlay.ts") ?? "";
 assertIncludes(mainBundle, [
   "VoiceReader",
   "\\u64AD\\u653E",
@@ -101,17 +245,18 @@ assertIncludes(mainBundle, [
   "getDisplayNearestPoint",
   "getCursorScreenPoint",
   "setPosition",
-  "overlay:metric",
-  "overlay:move-by",
-  "overlay:finish-playback",
-  "playback:renderer-idle",
+  APP_SHELL_CHANNELS.navigate,
+  PLAYBACK_OVERLAY_EVENT_CHANNELS.metric,
+  PLAYBACK_OVERLAY_COMMAND_CHANNELS.moveBy,
+  PLAYBACK_OVERLAY_COMMAND_CHANNELS.finishPlayback,
+  PLAYBACK_CONTROL_CHANNELS.rendererIdle,
   "PlaybackCommandController",
   "stopSession",
-  "app-data:set-activation-shortcut",
-  "app-data:create-favorite-from-history-record",
-  "app-data:list-favorites",
-  "app-data:delete-favorite-record",
-  "playback:play-favorite-record",
+  APP_DATA_CHANNELS.setActivationShortcut,
+  APP_DATA_CHANNELS.createFavoriteFromHistoryRecord,
+  APP_DATA_CHANNELS.listFavorites,
+  APP_DATA_CHANNELS.deleteFavoriteRecord,
+  PLAYBACK_CONTROL_CHANNELS.playFavoriteRecord,
   "ReadingTargetAcquirer",
   "selected_text",
   "selection-copy-macos.node",
@@ -126,10 +271,24 @@ assertIncludes(mainSource, [
   "appPresence.setDockIconFromSvg(appIconAssetPath)",
   "appPresence.hideForSelectionCapture()",
   "ReadingTargetAcquirer",
-  "registerIpcHandlers(readingTargetAcquirer)",
-  "readingTargetAcquirer.revealPreviousAppBeforeCapture()",
-  "playbackCommands.startReadingTargetPlayback()",
+  "registerAppBridgeHandlers",
   "() => readingTargetAcquirer.acquire()"
+]);
+assertIncludes(appBridgeHandlersSource, [
+  "registerAppBridgeHandlers",
+  "registerAppShellHandlers",
+  "registerAppDataHandlers",
+  "registerPlaybackControlHandlers",
+  "registerClipboardHandlers",
+  "registerPlaybackOverlayHandlers"
+]);
+assertMissing(appBridgeHandlersSource, [
+  "ipcMain.handle",
+  "APP_SHELL_CHANNELS",
+  "APP_DATA_CHANNELS",
+  "PLAYBACK_CONTROL_CHANNELS",
+  "PLAYBACK_OVERLAY_COMMAND_CHANNELS",
+  "CLIPBOARD_CHANNELS"
 ]);
 assertMissing(mainSource, [
   "function syncDockPresence",
@@ -188,6 +347,30 @@ assertMissing(mainSource, [
 assertIncludes(appContractsBundle, "PLAYBACK_FEEDBACK_SURFACES");
 assertIncludes(appContractsSource, "FavoriteRecord");
 assertIncludes(appContractsSource, "favoriteDetail");
+assertMissing(appContractsSource, ["interface ReaderWindowBridge", "interface RendererAudioBridge", "interface PlaybackOverlayBridge"]);
+assertIncludes(bridgeContractsSource, [
+  "./bridge-contracts/app-data.js",
+  "./bridge-contracts/app-shell.js",
+  "./bridge-contracts/clipboard.js",
+  "./bridge-contracts/playback-control.js",
+  "./bridge-contracts/playback-overlay.js",
+  "./bridge-contracts/renderer-audio.js",
+  "ReaderWindowBridge",
+  "VoiceReaderBridge"
+]);
+assertMissing(playbackOverlayBridgeSource, "PLAYBACK_OVERLAY_CHANNELS");
+assertMissing(bridgeContractsSource, [
+  "APP_SHELL_CHANNELS",
+  "APP_DATA_CHANNELS",
+  "PLAYBACK_CONTROL_CHANNELS",
+  "CLIPBOARD_CHANNELS",
+  "RENDERER_AUDIO_CHANNELS",
+  "PLAYBACK_OVERLAY_CHANNELS",
+  "interface AppShellBridge",
+  "interface AppDataBridge",
+  "interface PlaybackControlBridge",
+  "interface ClipboardBridge"
+]);
 assertMissing(preloadBundle, "../renderer/bridge");
 for (const { name, source, expectedValues } of [
   {
@@ -197,7 +380,12 @@ for (const { name, source, expectedValues } of [
       "readerWindowBridge",
       "rendererAudioBridge",
       "playbackOverlayBridge",
-      "overlay:move-by",
+      "createAppShellBridge",
+      "createAppDataBridge",
+      "createPlaybackControlBridge",
+      "createClipboardBridge",
+      "createRendererAudioBridge",
+      "createPlaybackOverlayBridge",
       "createRuntimeBridge",
       "isPlaybackOverlayRuntime",
       'window.location.pathname.includes("/overlay/")'
@@ -377,13 +565,13 @@ assert.equal(packageScript.includes("--verify"), true);
 const { overlaySink, overlayActions, sentPlaybackMessages } = createElectronAudioSinkScenario();
 overlaySink.startSession(createOverlayPlaybackSessionForTest(101));
 assert.deepEqual(overlayActions, ["show"]);
-assert.deepEqual(sentPlaybackMessages.at(-1), ["playback:start-session", 101, false]);
+assert.deepEqual(sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.startSession, 101, false]);
 overlaySink.finishSession(101);
 assert.deepEqual(overlayActions, ["show"]);
-assert.deepEqual(sentPlaybackMessages.at(-1), ["playback:finish-session", 101]);
+assert.deepEqual(sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.finishSession, 101]);
 overlaySink.stopSession(101);
 assert.deepEqual(overlayActions, ["show", "stop"]);
-assert.deepEqual(sentPlaybackMessages.at(-1), ["playback:stop-session", 101]);
+assert.deepEqual(sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.stopSession, 101]);
 
 const rendererIdleScenario = createElectronAudioSinkScenario();
 rendererIdleScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest(102));
@@ -392,41 +580,41 @@ rendererIdleScenario.overlaySink.finishSession(102);
 rendererIdleScenario.overlaySink.handleRendererIdle(102);
 rendererIdleScenario.overlaySink.stopSession(102);
 assert.deepEqual(rendererIdleScenario.overlayActions, ["show"]);
-assert.deepEqual(rendererIdleScenario.sentPlaybackMessages.at(-1), ["playback:stop-session", 102]);
+assert.deepEqual(rendererIdleScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.stopSession, 102]);
 
 const failureScenario = createElectronAudioSinkScenario();
 failureScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest(106));
 failureScenario.overlaySink.failSession(106);
 assert.deepEqual(failureScenario.overlayActions, ["show", "fail"]);
-assert.deepEqual(failureScenario.sentPlaybackMessages.at(-1), ["playback:fail-session", 106]);
+assert.deepEqual(failureScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.failSession, 106]);
 
 const replacementScenario = createElectronAudioSinkScenario();
 replacementScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest(107));
 replacementScenario.overlaySink.finishSession(107);
 replacementScenario.overlaySink.startSession(createHistoryReplaySessionForTest(108));
 assert.deepEqual(replacementScenario.overlayActions, ["show", "stop"]);
-assert.deepEqual(replacementScenario.sentPlaybackMessages.at(-1), ["playback:start-session", 108, false]);
+assert.deepEqual(replacementScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.startSession, 108, false]);
 replacementScenario.overlaySink.stopSession(107);
 assert.deepEqual(replacementScenario.overlayActions, ["show", "stop"]);
 
 const historySinkScenario = createElectronAudioSinkScenario();
 historySinkScenario.overlaySink.startSession(createHistoryReplaySessionForTest(104));
 assert.deepEqual(historySinkScenario.overlayActions, []);
-assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), ["playback:start-session", 104, false]);
+assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.startSession, 104, false]);
 historySinkScenario.overlaySink.finishSession(104);
 assert.deepEqual(historySinkScenario.overlayActions, []);
-assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), ["playback:finish-session", 104]);
+assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.finishSession, 104]);
 historySinkScenario.overlaySink.stopSession(104);
 assert.deepEqual(historySinkScenario.overlayActions, []);
-assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), ["playback:stop-session", 104]);
+assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.stopSession, 104]);
 
 const favoriteSinkScenario = createElectronAudioSinkScenario();
 favoriteSinkScenario.overlaySink.startSession(createFavoriteReplaySessionForTest(109));
 assert.deepEqual(favoriteSinkScenario.overlayActions, []);
-assert.deepEqual(favoriteSinkScenario.sentPlaybackMessages.at(-1), ["playback:start-session", 109, false]);
+assert.deepEqual(favoriteSinkScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.startSession, 109, false]);
 favoriteSinkScenario.overlaySink.finishSession(109);
 assert.deepEqual(favoriteSinkScenario.overlayActions, []);
-assert.deepEqual(favoriteSinkScenario.sentPlaybackMessages.at(-1), ["playback:finish-session", 109]);
+assert.deepEqual(favoriteSinkScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.finishSession, 109]);
 
 const noWindowScenario = createElectronAudioSinkScenario(() => undefined);
 noWindowScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest(103));
@@ -488,7 +676,7 @@ function assertOverlayDragCoverage() {
   ]);
   assertIncludes(overlayCss, ["cursor: grab", ".overlay-root.is-dragging .overlay-pill"]);
   assertIncludes(playbackOverlayControllerSource, ["moveBy(delta", "manualPosition", "constrainOverlayPosition"]);
-  assertIncludes(appContractsSource, ["OverlayDragDelta", "moveOverlayBy"]);
+  assertIncludes(playbackOverlayBridgeSource, ["OverlayDragDelta", "moveOverlayBy"]);
 }
 
 function evaluatePreloadBridge(pathname) {
@@ -572,7 +760,7 @@ function createPlaybackWindowForTest(sentPlaybackMessages) {
     isDestroyed: () => false,
     webContents: {
       send(channel, payload) {
-        if (channel === "playback:start-session") {
+        if (channel === RENDERER_AUDIO_CHANNELS.startSession) {
           sentPlaybackMessages.push([channel, payload?.sessionId, hasReadingTargetPayload(payload)]);
           return;
         }
