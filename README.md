@@ -39,6 +39,7 @@ open release/mac/VoiceReader.app
 pnpm install
 pnpm typecheck
 pnpm test
+pnpm test:dist
 pnpm build
 pnpm start
 ```
@@ -46,11 +47,13 @@ pnpm start
 常用脚本：
 
 - `pnpm typecheck`：运行 TypeScript 类型检查。
-- `pnpm test`：先构建，再运行核心 Node 测试。
+- `pnpm test`：运行快速 Vitest source-level 测试和 jsdom React UI 测试。
+- `pnpm test:watch`：以 watch 模式运行 Vitest，适合本地迭代。
+- `pnpm test:dist`：构建后检查 `dist/` 产物、preload bridge、HTML/CSS、资源复制、native addon 和跨进程边界合同；已手动 `pnpm build` 后可用 `pnpm test:dist -- --no-build` 复用构建产物。
 - `pnpm build`：把 Electron main、preload、renderer、overlay 和共享模块构建到 `dist/`。
 - `pnpm start`：从当前 `dist/` 启动 Electron app；首次运行前需要先 `pnpm build`。
 - `pnpm package:mac`：构建并打包本地 macOS app 到 `release/mac/VoiceReader.app`。
-- `pnpm verify`：依次运行 typecheck、test、build。
+- `pnpm verify`：依次运行 typecheck、Vitest、build，然后用 `--no-build` 跑 dist contract checks，避免重复构建。
 
 macOS 上构建 Selected Text 原生采集模块和打包 app 需要 Xcode Command Line Tools。
 

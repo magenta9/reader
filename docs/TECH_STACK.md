@@ -36,12 +36,15 @@ src/
 重要入口：
 
 - `src/main/main.ts`：应用启动、窗口、menu bar、IPC、全局快捷键。
-- `src/renderer/main.tsx`：Reader Window UI。
-- `src/overlay/main.tsx`：Playback Overlay UI。
+- `src/renderer/main.tsx`：Reader Window 运行时入口，负责真实 bridge lookup 和 root rendering。
+- `src/renderer/App.tsx`：可注入 fake bridge 的 Reader Window React UI。
+- `src/overlay/main.tsx`：Playback Overlay 运行时入口，负责真实 bridge lookup 和 root rendering。
+- `src/overlay/App.tsx`：可注入 fake bridge 的 Playback Overlay React UI。
 - `src/shared/app-contracts.ts`：跨进程类型和 bridge contract。
 - `src/main/data/app-data-store.ts`：SQLite 本地数据。
 - `scripts/build.mjs`：TypeScript emit、native addon、esbuild bundle、静态资源复制。
-- `scripts/run-core-tests.mjs`：构建后执行核心行为测试。
+- `vitest.config.ts`：Vitest source-level 测试和 jsdom React UI 测试配置。
+- `scripts/run-dist-contract-tests.mjs`：构建后检查 `dist/` 产物和跨进程边界合同。
 - `scripts/package-mac.mjs`：生成 `release/mac/VoiceReader.app` 并做 ad-hoc codesign。
 
 ## 本地数据
@@ -73,10 +76,11 @@ Electron 启动时把 `userData` 设置到：
 ```bash
 pnpm typecheck
 pnpm test
+pnpm test:watch
 pnpm build
+pnpm test:dist
 pnpm verify
 pnpm package:mac
 ```
 
-`pnpm test` 会先运行构建，再加载 `dist/` 中的模块执行核心测试。macOS 上 `pnpm build` 和 `pnpm package:mac` 依赖 Xcode Command Line Tools 中的 `xcrun`、`clang++`、`sips`、`qlmanage` 和 `codesign`。
-
+`pnpm test` 是快速 Vitest 命令，直接覆盖 source-level 行为测试和 jsdom React UI 测试；`pnpm test:watch` 用于本地迭代。`pnpm test:dist` 默认先构建再检查 build-output 合同，范围包括生成文件、bundle/preload bridge shape、HTML/CSS、native addon、资源复制、package-script assumptions 和跨进程边界；已运行 `pnpm build` 后可用 `pnpm test:dist -- --no-build` 复用当前 `dist/`。`pnpm verify` 依次运行 typecheck、Vitest、build，再用 `--no-build` 跑 dist contract checks。macOS 上 `pnpm build` 和 `pnpm package:mac` 依赖 Xcode Command Line Tools 中的 `xcrun`、`clang++`、`sips`、`qlmanage` 和 `codesign`。
