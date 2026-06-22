@@ -1,17 +1,15 @@
-import { streamMiniMaxTts, type MiniMaxTtsRequest } from "../../shared/minimax.js";
-import { selectVoiceId } from "../../shared/voices.js";
+import { streamMiniMaxTts } from "../../shared/minimax.js";
 import {
-  type AppSettings,
-  type PlaybackFeedbackSurface,
   type PlaybackAudioSession,
   type PlaybackStartResult
 } from "../../shared/app-contracts.js";
-import type { ReadingTarget, ReadingTargetInput } from "../../shared/types.js";
+import type { ReadingTargetInput } from "../../shared/types.js";
 import type { PlaybackDataStore, RuntimeErrorCategory } from "../data/app-data-store.js";
 import {
+  type PlaybackTtsStreamer,
+  type PlaybackSessionPlan,
   PlaybackRequestResolver,
-  type ResolvePlaybackRequestResult,
-  type ResolvedPlaybackRequest
+  type ResolvePlaybackRequestResult
 } from "./playback-request-resolver.js";
 
 export interface PlaybackAudioSink {
@@ -23,8 +21,6 @@ export interface PlaybackAudioSink {
   stopSession: (sessionId: number) => void;
   handleRendererIdle?: (sessionId: number) => void;
 }
-
-type StreamTts = (request: MiniMaxTtsRequest) => Promise<void>;
 
 export class PlaybackService {
   private sessionCounter = 0;
@@ -39,7 +35,7 @@ export class PlaybackService {
   constructor(
     private readonly store: PlaybackDataStore,
     private readonly sink: PlaybackAudioSink,
-    private readonly streamTts: StreamTts = streamMiniMaxTts,
+    private readonly streamTts: PlaybackTtsStreamer = streamMiniMaxTts,
     private readonly resolver: PlaybackRequestResolver = new PlaybackRequestResolver(store)
   ) {}
 
@@ -84,66 +80,43 @@ export class PlaybackService {
   }
 
   private startResolvedPlaybackRequest(resolved: ResolvePlaybackRequestResult): PlaybackStartResult {
-    return resolved.ok ? this.startResolvedPlayback(resolved.request) : resolved.result;
+    return resolved.ok ? this.startPlannedPlayback(resolved.plan) : resolved.result;
   }
 
-  private startResolvedPlayback(request: ResolvedPlaybackRequest): PlaybackStartResult {
-    return this.startTargetPlayback(
-      request.target,
-      request.settings,
-      request.apiKey,
-      request.feedbackSurface
-    );
-  }
-
-  private startTargetPlayback(
-    target: ReadingTarget,
-    settings: AppSettings,
-    apiKey: string,
-    feedbackSurface: PlaybackFeedbackSurface
-  ): PlaybackStartResult {
+  private startPlannedPlayback(plan: PlaybackSessionPlan): PlaybackStartResult {
     this.stop();
     const sessionId = ++this.sessionCounter;
     const abortController = new AbortController();
     const audioSession: PlaybackAudioSession = {
       sessionId,
-      speechRate: settings.speechRate,
-      feedbackSurface,
-      segmentWeights: target.segments.map((segment) => Math.max(1, segment.text.length))
+      ...plan.audioSession
     };
-    const done = this.runSession(audioSession, target, settings, apiKey, abortController);
+    const done = this.runSession(audioSession, plan, abortController);
     this.active = { sessionId, abortController, done };
     return { started: true, sessionId };
   }
 
   private async runSession(
     audioSession: PlaybackAudioSession,
-    target: ReadingTarget,
-    settings: AppSettings,
-    apiKey: string,
+    plan: PlaybackSessionPlan,
     abortController: AbortController
   ): Promise<void> {
     this.sink.startSession(audioSession);
     const { sessionId } = audioSession;
 
     try {
-      for (const segment of target.segments) {
+      for (const segment of plan.segments) {
         if (abortController.signal.aborted) return;
-        const voiceId = selectVoiceId(settings.voices, settings.preferredVoicesByLanguage, segment.language);
-        if (!voiceId) {
+        if (!segment.stream) {
           this.store.addErrorLog({
             category: "playback_runtime",
-            message: `No Voice is available for ${segment.language}.`
+            message: `No Voice is available for ${segment.missingVoiceLanguage}.`
           });
           this.sink.failSession(sessionId);
           return;
         }
 
-        await this.streamTts({
-          apiKey,
-          model: settings.model,
-          voiceId,
-          text: segment.text,
+        await segment.stream(this.streamTts, {
           signal: abortController.signal,
           onAudioHex: (audioHex) => {
             if (!abortController.signal.aborted) {

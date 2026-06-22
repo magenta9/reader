@@ -1,13 +1,14 @@
 import { createReadingSegments, normalizeReadableText } from "../../shared/segments.js";
+import { selectVoiceId } from "../../shared/voices.js";
+import type { MiniMaxTtsRequest } from "../../shared/minimax.js";
 import {
   PLAYBACK_FEEDBACK_SURFACES,
   type AppSettings,
-  type FavoriteRecord,
+  type PlaybackAudioSession,
   type PlaybackFeedbackSurface,
-  type PlaybackStartResult,
-  type ReadingHistoryRecord
+  type PlaybackStartResult
 } from "../../shared/app-contracts.js";
-import type { ReadingTarget, ReadingTargetInput } from "../../shared/types.js";
+import type { DetectedLanguage, ReadingSegment, ReadingTargetInput } from "../../shared/types.js";
 import type { PlaybackDataStore } from "../data/app-data-store.js";
 
 type PlaybackReadiness =
@@ -19,34 +20,35 @@ type PlaybackReadinessSkipped = Extract<
   "missing_api_key" | "unverified_api_key" | "missing_voice"
 >;
 
-export interface ResolvedPlaybackRequest {
-  target: ReadingTarget;
-  settings: AppSettings;
-  apiKey: string;
-  feedbackSurface: PlaybackFeedbackSurface;
+export interface PlaybackSessionPlan {
+  audioSession: Omit<PlaybackAudioSession, "sessionId">;
+  segments: PlannedPlaybackSegment[];
 }
 
+export type PlannedPlaybackSegment =
+  | { stream: PlannedTtsStream; missingVoiceLanguage?: undefined }
+  | { stream?: undefined; missingVoiceLanguage: DetectedLanguage };
+
+type PlannedMiniMaxTtsRequest = Pick<MiniMaxTtsRequest, "apiKey" | "model" | "voiceId" | "text">;
+type PlannedTtsRuntime = Pick<MiniMaxTtsRequest, "signal" | "onAudioHex">;
+export type PlaybackTtsStreamer = (request: MiniMaxTtsRequest) => Promise<void>;
+type PlannedTtsStream = (streamTts: PlaybackTtsStreamer, runtime: PlannedTtsRuntime) => Promise<void>;
+
 export type ResolvePlaybackRequestResult =
-  | { ok: true; request: ResolvedPlaybackRequest }
+  | { ok: true; plan: PlaybackSessionPlan }
   | { ok: false; result: PlaybackStartResult };
 
 interface StoredRecordReplayConfig {
-  title: string;
-  urlPrefix: "history" | "favorite";
   feedbackSurface: PlaybackFeedbackSurface;
   missingSkipped: StoredReplaySkipped;
 }
 
 const HISTORY_REPLAY_CONFIG: StoredRecordReplayConfig = {
-  title: "History Replay",
-  urlPrefix: "history",
   feedbackSurface: PLAYBACK_FEEDBACK_SURFACES.historyDetail,
   missingSkipped: "missing_history_record"
 };
 
 const FAVORITE_REPLAY_CONFIG: StoredRecordReplayConfig = {
-  title: "Favorite Replay",
-  urlPrefix: "favorite",
   feedbackSurface: PLAYBACK_FEEDBACK_SURFACES.favoriteDetail,
   missingSkipped: "missing_favorite_record"
 };
@@ -64,16 +66,16 @@ export class PlaybackRequestResolver {
     const readiness = this.readPlaybackReadiness();
     if (!readiness.ok) return readiness;
 
-    const target = createReadingTarget({ text, source: input.source });
-    if (!target.segments.length) return skipped("empty_clipboard");
+    const segments = createReadingSegments(text);
+    if (!segments.length) return skipped("empty_clipboard");
 
     this.store.saveOrReuseReadingHistoryRecord({
-      text: target.text,
-      source: target.source,
-      segments: target.segments
+      text,
+      source: input.source,
+      segments
     });
 
-    return resolved(target, readiness, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay);
+    return resolved(segments, readiness, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay);
   }
 
   resolveHistoryReplay(recordId: string): ResolvePlaybackRequestResult {
@@ -85,7 +87,7 @@ export class PlaybackRequestResolver {
   }
 
   private resolveStoredRecord(
-    record: Pick<ReadingHistoryRecord | FavoriteRecord, "id" | "text" | "source"> | undefined,
+    record: { text: string } | undefined,
     config: StoredRecordReplayConfig
   ): ResolvePlaybackRequestResult {
     if (!record) return skipped(config.missingSkipped);
@@ -93,10 +95,10 @@ export class PlaybackRequestResolver {
     const readiness = this.readPlaybackReadiness();
     if (!readiness.ok) return readiness;
 
-    const target = createStoredRecordReadingTarget(record, config);
-    if (!target.segments.length) return skipped("empty_clipboard");
+    const segments = createReadingSegments(record.text);
+    if (!segments.length) return skipped("empty_clipboard");
 
-    return resolved(target, readiness, config.feedbackSurface);
+    return resolved(segments, readiness, config.feedbackSurface);
   }
 
   private readPlaybackReadiness(): PlaybackReadiness {
@@ -120,19 +122,47 @@ export class PlaybackRequestResolver {
 }
 
 function resolved(
-  target: ReadingTarget,
+  segments: ReadingSegment[],
   readiness: Extract<PlaybackReadiness, { ok: true }>,
   feedbackSurface: PlaybackFeedbackSurface
 ): ResolvePlaybackRequestResult {
   return {
     ok: true,
-    request: {
-      target,
-      settings: readiness.settings,
-      apiKey: readiness.apiKey,
-      feedbackSurface
-    }
+    plan: createPlaybackSessionPlan(segments, readiness.settings, readiness.apiKey, feedbackSurface)
   };
+}
+
+function createPlaybackSessionPlan(
+  segments: ReadingSegment[],
+  settings: AppSettings,
+  apiKey: string,
+  feedbackSurface: PlaybackFeedbackSurface
+): PlaybackSessionPlan {
+  const segmentWeights: number[] = [];
+  const plannedSegments: PlannedPlaybackSegment[] = [];
+
+  for (const segment of segments) {
+    segmentWeights.push(Math.max(1, segment.text.length));
+    const voiceId = selectVoiceId(settings.voices, settings.preferredVoicesByLanguage, segment.language);
+    if (!voiceId) {
+      plannedSegments.push({ missingVoiceLanguage: segment.language });
+      continue;
+    }
+    plannedSegments.push({ stream: createPlannedTtsStream({ apiKey, model: settings.model, voiceId, text: segment.text }) });
+  }
+
+  return {
+    audioSession: {
+      speechRate: settings.speechRate,
+      feedbackSurface,
+      segmentWeights
+    },
+    segments: plannedSegments
+  };
+}
+
+function createPlannedTtsStream(request: PlannedMiniMaxTtsRequest): PlannedTtsStream {
+  return (streamTts, runtime) => streamTts({ ...request, ...runtime });
 }
 
 function skipped(skippedReason: NonNullable<PlaybackStartResult["skipped"]>): ResolvePlaybackRequestResult {
@@ -141,27 +171,4 @@ function skipped(skippedReason: NonNullable<PlaybackStartResult["skipped"]>): Re
 
 function unready(skippedReason: PlaybackReadinessSkipped): PlaybackReadiness {
   return { ok: false, result: { started: false, skipped: skippedReason } };
-}
-
-function createReadingTarget(input: ReadingTargetInput): ReadingTarget {
-  return {
-    title: input.source === "selected_text" ? "Selected Text" : "Clipboard",
-    url: "",
-    source: input.source,
-    text: input.text,
-    segments: createReadingSegments(input.text)
-  };
-}
-
-function createStoredRecordReadingTarget(
-  record: Pick<ReadingHistoryRecord | FavoriteRecord, "id" | "text" | "source">,
-  config: Pick<StoredRecordReplayConfig, "title" | "urlPrefix">
-): ReadingTarget {
-  return {
-    title: config.title,
-    url: `${config.urlPrefix}:${record.id}`,
-    source: record.source,
-    text: record.text,
-    segments: createReadingSegments(record.text)
-  };
 }

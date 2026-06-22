@@ -5,8 +5,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { AppDataStore } from "../../../src/main/data/app-data-store.js";
-import { PlaybackRequestResolver } from "../../../src/main/playback/playback-request-resolver.js";
+import {
+  PlaybackRequestResolver,
+  type PlannedPlaybackSegment
+} from "../../../src/main/playback/playback-request-resolver.js";
 import { PLAYBACK_FEEDBACK_SURFACES } from "../../../src/shared/app-contracts.js";
+import type { MiniMaxTtsRequest } from "../../../src/shared/minimax.js";
 import { createReadingSegments } from "../../../src/shared/segments.js";
 import type { MiniMaxVoice, ReadingTargetInput } from "../../../src/shared/types.js";
 
@@ -31,12 +35,17 @@ describe("PlaybackRequestResolver", () => {
 
     expect(resolved.ok).toBe(true);
     if (!resolved.ok) return;
-    expect(resolved.request.apiKey).toBe("playback-key");
-    expect(resolved.request.target).toMatchObject({
-      text: "解析器剪切板文本。",
-      source: "clipboard"
+    expect(resolved.plan.audioSession).toEqual({
+      speechRate: 1,
+      feedbackSurface: PLAYBACK_FEEDBACK_SURFACES.playbackOverlay,
+      segmentWeights: [9]
     });
-    expect(resolved.request.feedbackSurface).toBe(PLAYBACK_FEEDBACK_SURFACES.playbackOverlay);
+    await expectPlannedTtsRequest(resolved.plan.segments[0], {
+      apiKey: "playback-key",
+      model: "speech-2.8-turbo",
+      voiceId: "voice-zh",
+      text: "解析器剪切板文本。"
+    });
     expect(store.listReadingHistoryRecords()).toMatchObject([
       { text: "解析器剪切板文本。", source: "clipboard" }
     ]);
@@ -57,21 +66,8 @@ describe("PlaybackRequestResolver", () => {
     const historyResult = resolver.resolveHistoryReplay(history.id);
     const favoriteResult = resolver.resolveFavoriteReplay(favorite?.id ?? "");
 
-    expect(historyResult.ok).toBe(true);
-    expect(favoriteResult.ok).toBe(true);
-    if (!historyResult.ok || !favoriteResult.ok) return;
-    expect(historyResult.request.target).toMatchObject({
-      title: "History Replay",
-      text: "命令历史重播。",
-      url: `history:${history.id}`
-    });
-    expect(historyResult.request.feedbackSurface).toBe(PLAYBACK_FEEDBACK_SURFACES.historyDetail);
-    expect(favoriteResult.request.target).toMatchObject({
-      title: "Favorite Replay",
-      text: "命令历史重播。",
-      url: `favorite:${favorite?.id}`
-    });
-    expect(favoriteResult.request.feedbackSurface).toBe(PLAYBACK_FEEDBACK_SURFACES.favoriteDetail);
+    await expectPlannedReplay(historyResult, PLAYBACK_FEEDBACK_SURFACES.historyDetail, "命令历史重播。");
+    await expectPlannedReplay(favoriteResult, PLAYBACK_FEEDBACK_SURFACES.favoriteDetail, "命令历史重播。");
     expect(store.getReadingHistoryCount()).toBe(1);
     expect(store.getReadingHistoryRecord(history.id)?.createdAt).toBe(888_000);
     expect(store.getFavoriteRecord(favorite?.id ?? "")?.favoritedAt).toBe(889_000);
@@ -111,4 +107,34 @@ async function createVerifiedStore(): Promise<AppDataStore> {
 
 function clipboardTargetInput(text: string): ReadingTargetInput {
   return { text, source: "clipboard" };
+}
+
+async function expectPlannedReplay(
+  result: ReturnType<PlaybackRequestResolver["resolveHistoryReplay"]>,
+  feedbackSurface: string,
+  text: string
+): Promise<void> {
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+  expect(result.plan.audioSession.feedbackSurface).toBe(feedbackSurface);
+  await expectPlannedTtsRequest(result.plan.segments[0], { text, voiceId: "voice-zh" });
+}
+
+async function expectPlannedTtsRequest(
+  segment: PlannedPlaybackSegment | undefined,
+  expected: Partial<Pick<MiniMaxTtsRequest, "apiKey" | "model" | "voiceId" | "text">>
+): Promise<void> {
+  expect(segment?.stream).toBeDefined();
+  if (!segment?.stream) return;
+  const streamedRequests: MiniMaxTtsRequest[] = [];
+  await segment.stream(
+    async (request) => {
+      streamedRequests.push(request);
+    },
+    {
+      signal: new AbortController().signal,
+      onAudioHex: () => undefined
+    }
+  );
+  expect(streamedRequests).toMatchObject([expected]);
 }
