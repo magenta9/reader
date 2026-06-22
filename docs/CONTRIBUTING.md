@@ -14,8 +14,12 @@ pnpm verify
 ```bash
 pnpm typecheck
 pnpm test
+pnpm test:watch
 pnpm build
+pnpm test:dist
 ```
+
+`pnpm test` 运行快速 Vitest source-level 和 jsdom React UI 测试；`pnpm test:watch` 用于本地迭代；`pnpm test:dist` 检查构建产物和跨进程边界合同。完整提交前默认运行 `pnpm verify`，它会依次执行 typecheck、Vitest、build 和 dist contract checks。
 
 本地运行 app：
 
@@ -75,4 +79,3 @@ feat: add language-scoped voice preference
 - 本地数据结构变更有兼容旧数据的处理。
 - 已运行并记录相关验证命令。
 - 没有提交构建产物、密钥、SQLite 数据库或临时文件。
-

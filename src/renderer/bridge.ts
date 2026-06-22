@@ -8,6 +8,7 @@ export type {
   OverlayMetric,
   PlaybackAudioSession,
   PlaybackStartResult,
+  ReaderWindowBridge,
   ReadingHistoryRecord,
   RendererAudioBridge,
   SessionPayload,
