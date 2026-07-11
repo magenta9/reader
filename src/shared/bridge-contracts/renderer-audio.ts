@@ -14,13 +14,16 @@ export const RENDERER_AUDIO_CHANNELS = {
   stopSession: "playback:stop-session"
 } as const;
 
-export interface RendererAudioBridge {
-  onPlaybackStart: (listener: (session: PlaybackAudioSession) => void) => () => void;
-  onAudioChunk: (listener: (payload: AudioChunkPayload) => void) => () => void;
-  onSegmentEnd: (listener: (payload: SessionPayload) => void) => () => void;
+export interface PlaybackFeedbackBridge {
   onPlaybackFinish: (listener: (payload: SessionPayload) => void) => () => void;
   onPlaybackFail: (listener: (payload: SessionPayload) => void) => () => void;
   onPlaybackStop: (listener: (payload: SessionPayload) => void) => () => void;
+}
+
+export interface PlaybackRendererBridge extends PlaybackFeedbackBridge {
+  onPlaybackStart: (listener: (session: PlaybackAudioSession) => void) => () => void;
+  onAudioChunk: (listener: (payload: AudioChunkPayload) => void) => () => void;
+  onSegmentEnd: (listener: (payload: SessionPayload) => void) => () => void;
   notifyPlaybackIdle: (sessionId: number) => Promise<void>;
   sendOverlayMetric: (metric: OverlayMetric) => Promise<void>;
   finishOverlayPlayback: () => Promise<void>;

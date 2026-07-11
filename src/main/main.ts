@@ -21,7 +21,7 @@ import type {
   BootstrapState
 } from "../shared/app-contracts.js";
 import { PlaybackService } from "./playback/playback-service.js";
-import { ElectronAudioSink } from "./playback/electron-audio-sink.js";
+import { ElectronPlaybackOutput } from "./playback/electron-playback-output.js";
 import { PlaybackOverlayController } from "./playback/playback-overlay-controller.js";
 import { PlaybackCommandController } from "./playback/playback-command-controller.js";
 import { ReadingTargetAcquirer } from "./reading-target/reading-target-acquirer.js";
@@ -33,11 +33,13 @@ let isQuitting = false;
 let appDataStore: AppDataStore;
 let minimaxAccountService: MiniMaxAccountService;
 let playbackCommands: PlaybackCommandController;
+let playbackOutput: ElectronPlaybackOutput;
 let overlayController: PlaybackOverlayController;
 let appPresence: AppPresenceController;
 
 const mainBundleDir = dirname(fileURLToPath(import.meta.url));
 const rendererEntry = join(mainBundleDir, "../renderer/index.html");
+const playbackRendererEntry = join(mainBundleDir, "../playback-renderer/index.html");
 const appIconAssetPath = join(mainBundleDir, "../assets/voicereader-icon.svg");
 const TRAY_ICON_SIZE = 18;
 const TRAY_ICON_SCALE = 2;
@@ -79,7 +81,13 @@ async function bootstrap(): Promise<void> {
     errorLog: appDataStore,
     hidePreviousAppForSelectionCapture: () => appPresence.hideForSelectionCapture()
   });
-  const playbackService = new PlaybackService(appDataStore, new ElectronAudioSink(() => readerWindow, overlayController));
+  playbackOutput = await ElectronPlaybackOutput.create({
+    createPlaybackRenderer: createPlaybackRendererWindow,
+    getReaderWindow: () => readerWindow,
+    overlay: overlayController,
+    playbackRendererEntry
+  });
+  const playbackService = new PlaybackService(appDataStore, playbackOutput);
   playbackCommands = new PlaybackCommandController(
     appDataStore,
     playbackService,
@@ -119,12 +127,31 @@ async function bootstrap(): Promise<void> {
   app.on("before-quit", () => {
     isQuitting = true;
     globalShortcut.unregisterAll();
+    playbackOutput.destroy();
     overlayController.destroy();
     appDataStore.close();
   });
 
   app.on("window-all-closed", () => {
     // VoiceReader is a menu bar app; closing the window should not quit the app.
+  });
+}
+
+function createPlaybackRendererWindow(): BrowserWindow {
+  return new BrowserWindow({
+    title: "VoiceReader Playback Renderer",
+    width: 1,
+    height: 1,
+    show: false,
+    skipTaskbar: true,
+    focusable: false,
+    webPreferences: {
+      preload: join(mainBundleDir, "../preload/preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      backgroundThrottling: false
+    }
   });
 }
 

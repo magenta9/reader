@@ -55,7 +55,7 @@ export class PlaybackService {
     if (!this.active) return;
     const { sessionId, abortController } = this.active;
     abortController.abort();
-    this.sink.stopSession(sessionId);
+    this.stopAudioSession(sessionId);
     this.active = undefined;
   }
 
@@ -68,7 +68,7 @@ export class PlaybackService {
       this.stop();
       return;
     }
-    this.sink.stopSession(sessionId);
+    this.stopAudioSession(sessionId);
   }
 
   handleRendererIdle(sessionId: number): void {
@@ -91,19 +91,22 @@ export class PlaybackService {
       sessionId,
       ...plan.audioSession
     };
-    const done = this.runSession(audioSession, plan, abortController);
+    try {
+      this.sink.startSession(audioSession);
+    } catch (error) {
+      this.recordPlaybackError(error);
+      return { started: false };
+    }
+    const done = this.runSession(sessionId, plan, abortController);
     this.active = { sessionId, abortController, done };
     return { started: true, sessionId };
   }
 
   private async runSession(
-    audioSession: PlaybackAudioSession,
+    sessionId: number,
     plan: PlaybackSessionPlan,
     abortController: AbortController
   ): Promise<void> {
-    this.sink.startSession(audioSession);
-    const { sessionId } = audioSession;
-
     try {
       for (const segment of plan.segments) {
         if (abortController.signal.aborted) return;
@@ -131,14 +134,30 @@ export class PlaybackService {
       this.sink.finishSession(sessionId);
     } catch (error) {
       if (abortController.signal.aborted) return;
-      this.store.addErrorLog({
-        category: runtimeErrorCategory(error),
-        message: safePlaybackErrorMessage(error)
-      });
-      this.sink.failSession(sessionId);
+      this.recordPlaybackError(error);
+      try {
+        this.sink.failSession(sessionId);
+      } catch {
+        // The original output failure is already recorded; do not reject the session while reporting it.
+      }
     } finally {
       if (this.active?.sessionId === sessionId) this.active = undefined;
     }
+  }
+
+  private stopAudioSession(sessionId: number): void {
+    try {
+      this.sink.stopSession(sessionId);
+    } catch (error) {
+      this.recordPlaybackError(error);
+    }
+  }
+
+  private recordPlaybackError(error: unknown): void {
+    this.store.addErrorLog({
+      category: runtimeErrorCategory(error),
+      message: safePlaybackErrorMessage(error)
+    });
   }
 }
 

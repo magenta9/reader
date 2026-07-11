@@ -4,14 +4,12 @@ import type {
   AppRoute,
   AppSettings,
   FavoriteRecord,
-  ReaderWindowBridge,
-  ReadingHistoryRecord,
-  RendererAudioBridge
+  ReaderWindowRuntimeBridge,
+  ReadingHistoryRecord
 } from "./bridge.js";
 import { DEFAULT_ACTIVATION_SHORTCUT } from "../shared/app-contracts.js";
 import type { DetectedLanguage, MiniMaxVoice } from "../shared/types.js";
 import { MODEL_OPTIONS } from "../shared/models.js";
-import { PlaybackAudioQueue } from "./audio-player.js";
 import {
   groupFavoriteRecords,
   groupHistoryRecords,
@@ -21,8 +19,7 @@ import {
 } from "./record-view-model.js";
 
 export interface ReaderWindowAppProps {
-  audioBridge: RendererAudioBridge;
-  readerBridge: ReaderWindowBridge;
+  readerBridge: ReaderWindowRuntimeBridge;
 }
 
 const AppDependenciesContext = createContext<ReaderWindowAppProps | undefined>(undefined);
@@ -58,20 +55,19 @@ type SetupRecoveryAction =
   | { kind: "verify-key"; label: string }
   | { kind: "refresh-voices"; label: string };
 
-export function ReaderWindowApp({ audioBridge, readerBridge }: ReaderWindowAppProps): ReactElement {
+export function ReaderWindowApp({ readerBridge }: ReaderWindowAppProps): ReactElement {
   return (
-    <AppDependenciesContext.Provider value={{ audioBridge, readerBridge }}>
+    <AppDependenciesContext.Provider value={{ readerBridge }}>
       <AppContent />
     </AppDependenciesContext.Provider>
   );
 }
 
 function AppContent(): ReactElement {
-  const { audioBridge, readerBridge } = useAppDependencies();
+  const { readerBridge } = useAppDependencies();
   const [route, setRoute] = useState<AppRoute>("home");
 
   useEffect(() => {
-    const audioQueue = new PlaybackAudioQueue(audioBridge);
     let mounted = true;
     void readerBridge.getBootstrapState().then((state) => {
       if (mounted) setRoute(state.lastRoute);
@@ -79,19 +75,9 @@ function AppContent(): ReactElement {
     const unsubscribe = readerBridge.onNavigate((nextRoute) => {
       setRoute(nextRoute);
     });
-    const subscriptions = [
-      unsubscribe,
-      audioBridge.onPlaybackStart((session) => audioQueue.startSession(session)),
-      audioBridge.onAudioChunk((payload) => audioQueue.pushChunk(payload.sessionId, payload.bytes)),
-      audioBridge.onSegmentEnd((payload) => audioQueue.endSegment(payload.sessionId)),
-      audioBridge.onPlaybackFinish((payload) => audioQueue.finishSession(payload.sessionId)),
-      audioBridge.onPlaybackFail((payload) => audioQueue.failSession(payload.sessionId)),
-      audioBridge.onPlaybackStop((payload) => audioQueue.stopSession(payload.sessionId))
-    ];
     return () => {
       mounted = false;
-      audioQueue.stop();
-      for (const unsubscribeListener of subscriptions) unsubscribeListener();
+      unsubscribe();
     };
   }, []);
 
@@ -445,7 +431,7 @@ function RecordDetailPanel({
 }
 
 function useReplaySessionId(): readonly [number | undefined, (sessionId: number | undefined) => void] {
-  const { audioBridge } = useAppDependencies();
+  const { readerBridge } = useAppDependencies();
   const [replaySessionId, setReplaySessionId] = useState<number | undefined>();
 
   useEffect(() => {
@@ -453,9 +439,9 @@ function useReplaySessionId(): readonly [number | undefined, (sessionId: number 
       setReplaySessionId((current) => (current === payload.sessionId ? undefined : current));
     };
     const subscriptions = [
-      audioBridge.onPlaybackFinish(clearReplay),
-      audioBridge.onPlaybackFail(clearReplay),
-      audioBridge.onPlaybackStop(clearReplay)
+      readerBridge.onPlaybackFinish(clearReplay),
+      readerBridge.onPlaybackFail(clearReplay),
+      readerBridge.onPlaybackStop(clearReplay)
     ];
     return () => {
       for (const unsubscribe of subscriptions) unsubscribe();

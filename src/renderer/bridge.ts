@@ -12,4 +12,4 @@ export type {
   SessionPayload,
   ShortcutUpdateResult
 } from "../shared/app-contracts.js";
-export type { ReaderWindowBridge, RendererAudioBridge } from "../shared/bridge-contracts.js";
+export type { ReaderWindowRuntimeBridge } from "../shared/bridge-contracts.js";

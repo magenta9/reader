@@ -91,6 +91,29 @@ describe("PlaybackService", () => {
     expect(store.listReadingHistoryRecords().some((record) => record.text === "这是一段会失败的文本。")).toBe(true);
   });
 
+  it("does not report a Playback Session as started when its output is unavailable", async () => {
+    const store = await createVerifiedStore();
+    const events: PlaybackEvent[] = [];
+    let streamed = false;
+    const sink = createSink(events);
+    sink.startSession = () => {
+      throw new Error("Playback Renderer is unavailable.");
+    };
+    const playback = new PlaybackService(store, sink, async () => {
+      streamed = true;
+    });
+
+    const result = await playback.playReadingTarget(clipboardTargetInput("输出不可用时不要静默成功。"));
+
+    expect(result).toEqual({ started: false });
+    expect(streamed).toBe(false);
+    expect(events).toEqual([]);
+    expect(store.listErrorLogs()[0]).toMatchObject({
+      category: "playback_runtime",
+      message: "Playback Renderer is unavailable."
+    });
+  });
+
   it("replaces a new Play session by aborting the previous stream and emitting the previous stop event", async () => {
     const store = await createVerifiedStore();
     const events: PlaybackEvent[] = [];

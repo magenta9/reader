@@ -7,7 +7,7 @@ import vm from "node:vm";
 const shouldBuild = !process.argv.includes("--no-build");
 if (shouldBuild) await run("scripts/build.mjs", []);
 
-const { ElectronAudioSink } = await import("../dist/main/playback/electron-audio-sink.js");
+const { ElectronPlaybackOutput } = await import("../dist/main/playback/electron-playback-output.js");
 const { PLAYBACK_FEEDBACK_SURFACES } = await import("../dist/shared/app-contracts.js");
 const {
   APP_DATA_CHANNELS,
@@ -42,7 +42,11 @@ const bridgeContractModuleChecks = [
   {
     distPath: "../dist/shared/bridge-contracts/renderer-audio.js",
     sourcePath: "../src/shared/bridge-contracts/renderer-audio.ts",
-    expectedValues: ["RENDERER_AUDIO_CHANNELS", "interface RendererAudioBridge"]
+    expectedValues: [
+      "RENDERER_AUDIO_CHANNELS",
+      "interface PlaybackFeedbackBridge",
+      "interface PlaybackRendererBridge"
+    ]
   },
   {
     name: "playback-overlay",
@@ -114,7 +118,8 @@ const preloadBridgeAdapterModuleChecks = [
     distPath: "../dist/preload/bridge-adapters/renderer-audio.js",
     sourcePath: "../src/preload/bridge-adapters/renderer-audio.ts",
     expectedValues: [
-      "createRendererAudioBridge",
+      "createPlaybackFeedbackBridge",
+      "createPlaybackRendererBridge",
       "RENDERER_AUDIO_CHANNELS",
       "PLAYBACK_OVERLAY_COMMAND_CHANNELS"
     ]
@@ -151,6 +156,8 @@ for (const path of [
   "../dist/renderer/renderer.js",
   "../dist/renderer/record-view-model.js",
   "../dist/renderer/renderer.css",
+  "../dist/playback-renderer/index.html",
+  "../dist/playback-renderer/playback-renderer.js",
   "../dist/assets/voicereader-icon.svg",
   "../dist/assets/voicereader-template-icon.svg",
   "../dist/renderer/assets/voicereader-icon.svg",
@@ -173,6 +180,11 @@ const preloadBundle = await readFile(new URL("../dist/preload/preload.cjs", impo
 const preloadSource = await readFile(new URL("../src/preload/preload.ts", import.meta.url), "utf8");
 const rendererHtml = await readFile(new URL("../dist/renderer/index.html", import.meta.url), "utf8");
 const rendererBundle = await readFile(new URL("../dist/renderer/renderer.js", import.meta.url), "utf8");
+const playbackRendererHtml = await readFile(new URL("../dist/playback-renderer/index.html", import.meta.url), "utf8");
+const playbackRendererBundle = await readFile(
+  new URL("../dist/playback-renderer/playback-renderer.js", import.meta.url),
+  "utf8"
+);
 const overlayHtml = await readFile(new URL("../dist/overlay/index.html", import.meta.url), "utf8");
 const overlayBundle = await readFile(new URL("../dist/overlay/overlay.js", import.meta.url), "utf8");
 const overlayCss = await readFile(new URL("../dist/overlay/overlay.css", import.meta.url), "utf8");
@@ -181,7 +193,11 @@ const appBridgeHandlersSource = await readFile(new URL("../src/main/app-bridge-h
 const appPresenceControllerSource = await readFile(new URL("../src/main/app-presence-controller.ts", import.meta.url), "utf8");
 const rendererSource = await readFile(new URL("../src/renderer/main.tsx", import.meta.url), "utf8");
 const readerWindowAppSource = await readFile(new URL("../src/renderer/App.tsx", import.meta.url), "utf8");
-const rendererAudioSource = await readFile(new URL("../src/renderer/audio-player.ts", import.meta.url), "utf8");
+const playbackAudioSource = await readFile(
+  new URL("../src/playback-renderer/audio-player.ts", import.meta.url),
+  "utf8"
+);
+const playbackRendererSource = await readFile(new URL("../src/playback-renderer/main.ts", import.meta.url), "utf8");
 const overlaySource = await readFile(new URL("../src/overlay/main.tsx", import.meta.url), "utf8");
 const playbackOverlayAppSource = await readFile(new URL("../src/overlay/App.tsx", import.meta.url), "utf8");
 const voiceReaderBridgeSource = await readFile(new URL("../src/shared/voice-reader-bridge.ts", import.meta.url), "utf8");
@@ -235,6 +251,9 @@ assertIncludes(mainBundle, [
   'openReaderWindow("history")',
   'openReaderWindow("favorites")',
   'openReaderWindow("settings")',
+  "VoiceReader Playback Renderer",
+  "playback-renderer/index.html",
+  "backgroundThrottling: false",
   "showInactive"
 ]);
 assert.equal(mainBundle.includes("focusable: false") || mainBundle.includes("focusable: !1"), true);
@@ -251,6 +270,7 @@ assertIncludes(mainBundle, [
   PLAYBACK_OVERLAY_COMMAND_CHANNELS.finishPlayback,
   PLAYBACK_CONTROL_CHANNELS.rendererIdle,
   "PlaybackCommandController",
+  "ElectronPlaybackOutput",
   "stopSession",
   APP_DATA_CHANNELS.setActivationShortcut,
   APP_DATA_CHANNELS.createFavoriteFromHistoryRecord,
@@ -271,6 +291,10 @@ assertIncludes(mainSource, [
   "appPresence.setDockIconFromSvg(appIconAssetPath)",
   "appPresence.hideForSelectionCapture()",
   "ReadingTargetAcquirer",
+  "ElectronPlaybackOutput.create",
+  "createPlaybackRendererWindow",
+  "playbackRendererEntry",
+  "playbackOutput.destroy()",
   "registerAppBridgeHandlers",
   "() => readingTargetAcquirer.acquire()"
 ]);
@@ -347,7 +371,12 @@ assertMissing(mainSource, [
 assertIncludes(appContractsBundle, "PLAYBACK_FEEDBACK_SURFACES");
 assertIncludes(appContractsSource, "FavoriteRecord");
 assertIncludes(appContractsSource, "favoriteDetail");
-assertMissing(appContractsSource, ["interface ReaderWindowBridge", "interface RendererAudioBridge", "interface PlaybackOverlayBridge"]);
+assertMissing(appContractsSource, [
+  "interface ReaderWindowBridge",
+  "interface PlaybackFeedbackBridge",
+  "interface PlaybackRendererBridge",
+  "interface PlaybackOverlayBridge"
+]);
 assertIncludes(bridgeContractsSource, [
   "./bridge-contracts/app-data.js",
   "./bridge-contracts/app-shell.js",
@@ -356,6 +385,9 @@ assertIncludes(bridgeContractsSource, [
   "./bridge-contracts/playback-overlay.js",
   "./bridge-contracts/renderer-audio.js",
   "ReaderWindowBridge",
+  "ReaderWindowRuntimeBridge",
+  "PlaybackFeedbackBridge",
+  "PlaybackRendererBridge",
   "VoiceReaderBridge"
 ]);
 assertMissing(playbackOverlayBridgeSource, "PLAYBACK_OVERLAY_CHANNELS");
@@ -378,17 +410,20 @@ for (const { name, source, expectedValues } of [
     source: preloadSource,
     expectedValues: [
       "readerWindowBridge",
-      "rendererAudioBridge",
+      "playbackRendererBridge",
       "playbackOverlayBridge",
       "createAppShellBridge",
       "createAppDataBridge",
       "createPlaybackControlBridge",
       "createClipboardBridge",
-      "createRendererAudioBridge",
+      "createPlaybackFeedbackBridge",
+      "createPlaybackRendererBridge",
       "createPlaybackOverlayBridge",
       "createRuntimeBridge",
       "isPlaybackOverlayRuntime",
-      'window.location.pathname.includes("/overlay/")'
+      'window.location.pathname.includes("/overlay/")',
+      "isPlaybackRendererRuntime",
+      'window.location.pathname.includes("/playback-renderer/")'
     ]
   },
   {
@@ -397,16 +432,25 @@ for (const { name, source, expectedValues } of [
     expectedValues: [
       "voiceReader: unknown",
       "getReaderWindowBridge",
-      "getRendererAudioBridge",
+      "getPlaybackRendererBridge",
       "getPlaybackOverlayBridge"
     ]
   },
   {
     name: "reader window",
     source: rendererSource,
-    expectedValues: ["getReaderWindowBridge", "getRendererAudioBridge"]
+    expectedValues: ["getReaderWindowBridge"]
   },
-  { name: "renderer audio", source: rendererAudioSource, expectedValues: ["RendererAudioBridge"] },
+  {
+    name: "playback audio",
+    source: playbackAudioSource,
+    expectedValues: ["PlaybackRendererBridge", "mountPlaybackAudio"]
+  },
+  {
+    name: "playback renderer",
+    source: playbackRendererSource,
+    expectedValues: ["getPlaybackRendererBridge", "mountPlaybackAudio"]
+  },
   { name: "playback overlay", source: overlaySource, expectedValues: ["getPlaybackOverlayBridge"] }
 ]) {
   for (const expected of expectedValues) {
@@ -414,22 +458,48 @@ for (const { name, source, expectedValues } of [
   }
 }
 const readerRuntimeBridge = evaluatePreloadBridge("/renderer/index.html");
+const playbackRendererRuntimeBridge = evaluatePreloadBridge("/playback-renderer/index.html");
 const overlayRuntimeBridge = evaluatePreloadBridge("/overlay/index.html");
 assert.equal(typeof readerRuntimeBridge.getSettings, "function");
 assert.equal(typeof readerRuntimeBridge.createFavoriteFromHistoryRecord, "function");
 assert.equal(typeof readerRuntimeBridge.listFavorites, "function");
 assert.equal(typeof readerRuntimeBridge.deleteFavoriteRecord, "function");
 assert.equal(typeof readerRuntimeBridge.playFavoriteRecord, "function");
-assert.equal(typeof readerRuntimeBridge.onPlaybackStart, "function");
+assert.equal(typeof readerRuntimeBridge.onPlaybackFinish, "function");
+assert.equal(typeof readerRuntimeBridge.onPlaybackFail, "function");
+assert.equal(typeof readerRuntimeBridge.onPlaybackStop, "function");
+assert.equal(typeof readerRuntimeBridge.onPlaybackStart, "undefined");
+assert.equal(typeof readerRuntimeBridge.onAudioChunk, "undefined");
+assert.equal(typeof readerRuntimeBridge.onSegmentEnd, "undefined");
+assert.equal(typeof readerRuntimeBridge.notifyPlaybackIdle, "undefined");
+assert.equal(typeof readerRuntimeBridge.sendOverlayMetric, "undefined");
+assert.equal(typeof readerRuntimeBridge.finishOverlayPlayback, "undefined");
 assert.equal(typeof readerRuntimeBridge.onOverlayShow, "undefined");
+assert.equal(typeof playbackRendererRuntimeBridge.onPlaybackStart, "function");
+assert.equal(typeof playbackRendererRuntimeBridge.onAudioChunk, "function");
+assert.equal(typeof playbackRendererRuntimeBridge.onSegmentEnd, "function");
+assert.equal(typeof playbackRendererRuntimeBridge.onPlaybackFinish, "function");
+assert.equal(typeof playbackRendererRuntimeBridge.onPlaybackFail, "function");
+assert.equal(typeof playbackRendererRuntimeBridge.onPlaybackStop, "function");
+assert.equal(typeof playbackRendererRuntimeBridge.notifyPlaybackIdle, "function");
+assert.equal(typeof playbackRendererRuntimeBridge.sendOverlayMetric, "function");
+assert.equal(typeof playbackRendererRuntimeBridge.finishOverlayPlayback, "function");
+assert.equal(typeof playbackRendererRuntimeBridge.getSettings, "undefined");
+assert.equal(typeof playbackRendererRuntimeBridge.updateSettings, "undefined");
+assert.equal(typeof playbackRendererRuntimeBridge.listReadingHistory, "undefined");
+assert.equal(typeof playbackRendererRuntimeBridge.listFavorites, "undefined");
+assert.equal(typeof playbackRendererRuntimeBridge.playReadingTarget, "undefined");
+assert.equal(typeof playbackRendererRuntimeBridge.onOverlayShow, "undefined");
 assert.equal(typeof overlayRuntimeBridge.stopPlayback, "undefined");
 assert.equal(typeof overlayRuntimeBridge.onOverlayShow, "function");
 assert.equal(typeof overlayRuntimeBridge.getSettings, "undefined");
 assert.equal(typeof overlayRuntimeBridge.onPlaybackStart, "undefined");
+assert.equal(typeof overlayRuntimeBridge.onPlaybackFinish, "undefined");
 for (const { name, source } of [
   { name: "reader window entrypoint", source: rendererSource },
   { name: "reader window app", source: readerWindowAppSource },
-  { name: "renderer audio", source: rendererAudioSource },
+  { name: "playback audio", source: playbackAudioSource },
+  { name: "playback renderer entrypoint", source: playbackRendererSource },
   { name: "playback overlay entrypoint", source: overlaySource },
   { name: "playback overlay app", source: playbackOverlayAppSource }
 ]) {
@@ -466,6 +536,25 @@ assert.equal(rendererHtml.includes("manifest.json"), false);
 assert.equal(rendererHtml.includes("VoiceReader"), true);
 assert.equal(rendererHtml.includes("media-src 'self' blob:"), true);
 assert.equal(rendererBundle.includes("./assets/voicereader-icon.svg"), true);
+assert.equal(playbackRendererHtml.includes("manifest.json"), false);
+assertIncludes(playbackRendererHtml, [
+  "VoiceReader Playback Renderer",
+  "media-src 'self' blob:",
+  '<script type="module" src="./playback-renderer.js"></script>'
+]);
+assertIncludes(playbackRendererBundle, [
+  "getByteTimeDomainData",
+  "requestAnimationFrame",
+  "sendOverlayMetric",
+  "finishOverlayPlayback"
+]);
+assertMissing(rendererBundle, [
+  "getByteTimeDomainData",
+  "sendOverlayMetric",
+  "finishOverlayPlayback",
+  RENDERER_AUDIO_CHANNELS.startSession,
+  RENDERER_AUDIO_CHANNELS.audioChunk
+]);
 assertIncludes(appIconSource, 'rect width="1024" height="1024"');
 assertMissing(appIconSource, 'x="64" y="64"');
 assertIncludes(mainSource, [
@@ -486,10 +575,6 @@ assert.equal(rendererBundle.includes("\\u672C\\u5468"), true);
 assert.equal(rendererBundle.includes("\\u66F4\\u65E9"), true);
 assert.equal(rendererBundle.includes("\\u590D\\u5236\\u5168\\u6587"), true);
 assert.equal(rendererBundle.includes("\\u91CD\\u65B0\\u64AD\\u653E"), true);
-assert.equal(rendererBundle.includes("getByteTimeDomainData"), true);
-assert.equal(rendererBundle.includes("requestAnimationFrame"), true);
-assert.equal(rendererBundle.includes("sendOverlayMetric"), true);
-assert.equal(rendererBundle.includes("finishOverlayPlayback"), true);
 for (const label of ["账户与连接", "快捷键", "朗读", "历史记录", "通用"]) {
   assert.equal(readerWindowAppSource.includes(label), true);
 }
@@ -543,8 +628,8 @@ assertIncludes(playbackOverlayControllerSource, "attachOverlayToFullscreenSpaces
 assertIncludes(playbackOverlayControllerSource, "refreshOverlayWorkspaceAttachment(window)");
 assertIncludes(playbackOverlayControllerSource, "metric.progress");
 assertOverlayDragCoverage();
-assertIncludes(rendererAudioSource, ["segmentWeights", "getSessionProgress", "progress:"]);
-assertMissing(rendererAudioSource, "const progress = audioProgress");
+assertIncludes(playbackAudioSource, ["segmentWeights", "getSessionProgress", "progress:"]);
+assertMissing(playbackAudioSource, "const progress = audioProgress");
 assertIncludes(playbackOverlayAppSource, "const BAR_COUNT = 10");
 assertIncludes(appContractsSource, "progress: number");
 assert.equal(packageScript.includes("dereference: true"), false);
@@ -562,74 +647,84 @@ assert.equal(packageScript.includes("appBundleIdentifier = \"com.local.voiceread
 assert.equal(packageScript.includes("=designated => identifier"), true);
 assert.equal(packageScript.includes("--verify"), true);
 
-const { overlaySink, overlayActions, sentPlaybackMessages } = createElectronAudioSinkScenario();
-overlaySink.startSession(createOverlayPlaybackSessionForTest(101));
-assert.deepEqual(overlayActions, ["show"]);
-assert.deepEqual(sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.startSession, 101, false]);
-overlaySink.finishSession(101);
-assert.deepEqual(overlayActions, ["show"]);
-assert.deepEqual(sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.finishSession, 101]);
-overlaySink.stopSession(101);
-assert.deepEqual(overlayActions, ["show", "stop"]);
-assert.deepEqual(sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.stopSession, 101]);
+const playbackRendererReady = deferred();
+const pendingPlaybackRenderer = createPlaybackWindowForTest({
+  loadFile: () => playbackRendererReady.promise
+});
+let playbackOutputReady = false;
+const creatingPlaybackOutput = createElectronPlaybackOutputScenario({
+  playbackRenderer: pendingPlaybackRenderer
+}).then((scenario) => {
+  playbackOutputReady = true;
+  return scenario;
+});
+await Promise.resolve();
+assert.deepEqual(pendingPlaybackRenderer.loadedFiles, ["/app/playback-renderer/index.html"]);
+assert.equal(playbackOutputReady, false);
+playbackRendererReady.resolve();
+const readyPlaybackScenario = await creatingPlaybackOutput;
+assert.equal(playbackOutputReady, true);
+readyPlaybackScenario.output.destroy();
 
-const rendererIdleScenario = createElectronAudioSinkScenario();
-rendererIdleScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest(102));
-assert.deepEqual(rendererIdleScenario.overlayActions, ["show"]);
-rendererIdleScenario.overlaySink.finishSession(102);
-rendererIdleScenario.overlaySink.handleRendererIdle(102);
-rendererIdleScenario.overlaySink.stopSession(102);
-assert.deepEqual(rendererIdleScenario.overlayActions, ["show"]);
-assert.deepEqual(rendererIdleScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.stopSession, 102]);
+const completeDeliveryScenario = await createElectronPlaybackOutputScenario();
+const completeSession = createOverlayPlaybackSessionForTest(101);
+completeDeliveryScenario.output.startSession(completeSession);
+completeDeliveryScenario.output.audioChunk(101, new Uint8Array([1, 2, 3]));
+completeDeliveryScenario.output.endSegment(101);
+completeDeliveryScenario.output.finishSession(101);
+assert.deepEqual(completeDeliveryScenario.playbackRenderer.messages, [
+  [RENDERER_AUDIO_CHANNELS.startSession, completeSession],
+  [RENDERER_AUDIO_CHANNELS.audioChunk, { sessionId: 101, bytes: new Uint8Array([1, 2, 3]) }],
+  [RENDERER_AUDIO_CHANNELS.endSegment, { sessionId: 101 }],
+  [RENDERER_AUDIO_CHANNELS.finishSession, { sessionId: 101 }]
+]);
+assert.deepEqual(completeDeliveryScenario.overlayActions, ["show"]);
 
-const failureScenario = createElectronAudioSinkScenario();
-failureScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest(106));
-failureScenario.overlaySink.failSession(106);
-assert.deepEqual(failureScenario.overlayActions, ["show", "fail"]);
-assert.deepEqual(failureScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.failSession, 106]);
+const readerWindow = createPlaybackWindowForTest();
+const terminalFeedbackScenario = await createElectronPlaybackOutputScenario({ readerWindow });
+terminalFeedbackScenario.output.startSession(createHistoryReplaySessionForTest(201));
+terminalFeedbackScenario.output.audioChunk(201, new Uint8Array([9]));
+terminalFeedbackScenario.output.endSegment(201);
+terminalFeedbackScenario.output.finishSession(201);
+terminalFeedbackScenario.output.startSession(createFavoriteReplaySessionForTest(202));
+terminalFeedbackScenario.output.failSession(202);
+terminalFeedbackScenario.output.startSession(createOverlayPlaybackSessionForTest(203));
+terminalFeedbackScenario.output.stopSession(203);
+assert.deepEqual(readerWindow.messages, [
+  [RENDERER_AUDIO_CHANNELS.finishSession, { sessionId: 201 }],
+  [RENDERER_AUDIO_CHANNELS.failSession, { sessionId: 202 }]
+]);
+assert.deepEqual(
+  terminalFeedbackScenario.playbackRenderer.messages.map(([channel]) => channel),
+  [
+    RENDERER_AUDIO_CHANNELS.startSession,
+    RENDERER_AUDIO_CHANNELS.audioChunk,
+    RENDERER_AUDIO_CHANNELS.endSegment,
+    RENDERER_AUDIO_CHANNELS.finishSession,
+    RENDERER_AUDIO_CHANNELS.startSession,
+    RENDERER_AUDIO_CHANNELS.failSession,
+    RENDERER_AUDIO_CHANNELS.startSession,
+    RENDERER_AUDIO_CHANNELS.stopSession
+  ]
+);
+assert.deepEqual(terminalFeedbackScenario.overlayActions, ["show", "stop"]);
 
-const replacementScenario = createElectronAudioSinkScenario();
-replacementScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest(107));
-replacementScenario.overlaySink.finishSession(107);
-replacementScenario.overlaySink.startSession(createHistoryReplaySessionForTest(108));
-assert.deepEqual(replacementScenario.overlayActions, ["show", "stop"]);
-assert.deepEqual(replacementScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.startSession, 108, false]);
-replacementScenario.overlaySink.stopSession(107);
-assert.deepEqual(replacementScenario.overlayActions, ["show", "stop"]);
+const overlayOwnershipScenario = await createElectronPlaybackOutputScenario();
+overlayOwnershipScenario.output.startSession(createOverlayPlaybackSessionForTest(301));
+overlayOwnershipScenario.output.handleRendererIdle(999);
+overlayOwnershipScenario.output.startSession(createOverlayPlaybackSessionForTest(302));
+overlayOwnershipScenario.output.stopSession(301);
+overlayOwnershipScenario.output.handleRendererIdle(302);
+overlayOwnershipScenario.output.stopSession(302);
+assert.deepEqual(overlayOwnershipScenario.overlayActions, ["show", "stop", "show"]);
 
-const historySinkScenario = createElectronAudioSinkScenario();
-historySinkScenario.overlaySink.startSession(createHistoryReplaySessionForTest(104));
-assert.deepEqual(historySinkScenario.overlayActions, []);
-assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.startSession, 104, false]);
-historySinkScenario.overlaySink.finishSession(104);
-assert.deepEqual(historySinkScenario.overlayActions, []);
-assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.finishSession, 104]);
-historySinkScenario.overlaySink.stopSession(104);
-assert.deepEqual(historySinkScenario.overlayActions, []);
-assert.deepEqual(historySinkScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.stopSession, 104]);
-
-const favoriteSinkScenario = createElectronAudioSinkScenario();
-favoriteSinkScenario.overlaySink.startSession(createFavoriteReplaySessionForTest(109));
-assert.deepEqual(favoriteSinkScenario.overlayActions, []);
-assert.deepEqual(favoriteSinkScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.startSession, 109, false]);
-favoriteSinkScenario.overlaySink.finishSession(109);
-assert.deepEqual(favoriteSinkScenario.overlayActions, []);
-assert.deepEqual(favoriteSinkScenario.sentPlaybackMessages.at(-1), [RENDERER_AUDIO_CHANNELS.finishSession, 109]);
-
-const noWindowScenario = createElectronAudioSinkScenario(() => undefined);
-noWindowScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest(103));
-noWindowScenario.overlaySink.finishSession(103);
-assert.deepEqual(noWindowScenario.overlayActions, ["show", "finish"]);
-noWindowScenario.overlaySink.stopSession(103);
-assert.deepEqual(noWindowScenario.overlayActions, ["show", "finish"]);
-
-let delayedWindow;
-const delayedWindowScenario = createElectronAudioSinkScenario(() => delayedWindow);
-delayedWindowScenario.overlaySink.startSession(createOverlayPlaybackSessionForTest(105));
-delayedWindow = createPlaybackWindowForTest(delayedWindowScenario.sentPlaybackMessages);
-delayedWindowScenario.overlaySink.finishSession(105);
-assert.deepEqual(delayedWindowScenario.overlayActions, ["show", "finish"]);
-assert.deepEqual(delayedWindowScenario.sentPlaybackMessages, []);
+completeDeliveryScenario.output.destroy();
+assert.throws(
+  () => completeDeliveryScenario.output.startSession(createOverlayPlaybackSessionForTest(401)),
+  /Playback Renderer is unavailable/
+);
+terminalFeedbackScenario.output.destroy();
+overlayOwnershipScenario.output.destroy();
 
 console.log("Dist contract tests passed.");
 
@@ -731,9 +826,6 @@ function createOverlayControllerForTest(actions) {
     show() {
       actions.push("show");
     },
-    finish() {
-      actions.push("finish");
-    },
     fail() {
       actions.push("fail");
     },
@@ -743,33 +835,58 @@ function createOverlayControllerForTest(actions) {
   };
 }
 
-function createElectronAudioSinkScenario(getWindow) {
+async function createElectronPlaybackOutputScenario({
+  playbackRenderer = createPlaybackWindowForTest(),
+  readerWindow
+} = {}) {
   const overlayActions = [];
-  const sentPlaybackMessages = [];
-  const playbackWindow = createPlaybackWindowForTest(sentPlaybackMessages);
-  const overlaySink = new ElectronAudioSink(
-    getWindow ?? (() => playbackWindow),
-    createOverlayControllerForTest(overlayActions)
-  );
-
-  return { overlaySink, overlayActions, sentPlaybackMessages };
+  const output = await ElectronPlaybackOutput.create({
+    createPlaybackRenderer: () => playbackRenderer.window,
+    getReaderWindow: () => readerWindow?.window,
+    overlay: createOverlayControllerForTest(overlayActions),
+    playbackRendererEntry: "/app/playback-renderer/index.html"
+  });
+  return { output, overlayActions, playbackRenderer, readerWindow };
 }
 
-function createPlaybackWindowForTest(sentPlaybackMessages) {
-  return {
-    isDestroyed: () => false,
+function createPlaybackWindowForTest({ loadFile = async () => undefined } = {}) {
+  const loadedFiles = [];
+  const messages = [];
+  let destroyed = false;
+  let destroyCount = 0;
+  const window = {
+    destroy() {
+      destroyCount += 1;
+      destroyed = true;
+    },
+    isDestroyed: () => destroyed,
+    async loadFile(path) {
+      loadedFiles.push(path);
+      await loadFile(path);
+    },
     webContents: {
       send(channel, payload) {
-        if (channel === RENDERER_AUDIO_CHANNELS.startSession) {
-          sentPlaybackMessages.push([channel, payload?.sessionId, hasReadingTargetPayload(payload)]);
-          return;
-        }
-        sentPlaybackMessages.push([channel, payload?.sessionId]);
+        messages.push([channel, payload]);
       }
     }
   };
+  return {
+    get destroyCount() {
+      return destroyCount;
+    },
+    get destroyed() {
+      return destroyed;
+    },
+    loadedFiles,
+    messages,
+    window
+  };
 }
 
-function hasReadingTargetPayload(payload) {
-  return Boolean(payload && typeof payload === "object" && "target" in payload);
+function deferred() {
+  let resolve;
+  const promise = new Promise((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
 }

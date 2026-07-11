@@ -1,4 +1,8 @@
-import type { PlaybackOverlayBridge, ReaderWindowBridge, RendererAudioBridge } from "./bridge-contracts.js";
+import type {
+  PlaybackOverlayBridge,
+  PlaybackRendererBridge,
+  ReaderWindowRuntimeBridge
+} from "./bridge-contracts.js";
 
 declare global {
   interface Window {
@@ -6,12 +10,12 @@ declare global {
   }
 }
 
-export function getReaderWindowBridge(): ReaderWindowBridge {
-  return getBridge<ReaderWindowBridge>();
+export function getReaderWindowBridge(): ReaderWindowRuntimeBridge {
+  return getBridge<ReaderWindowRuntimeBridge>();
 }
 
-export function getRendererAudioBridge(): RendererAudioBridge {
-  return getBridge<RendererAudioBridge>();
+export function getPlaybackRendererBridge(): PlaybackRendererBridge {
+  return getBridge<PlaybackRendererBridge>();
 }
 
 export function getPlaybackOverlayBridge(): PlaybackOverlayBridge {

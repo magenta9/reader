@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { PlaybackAudioQueue } from "../../src/renderer/audio-player.js";
+import { mountPlaybackAudio } from "../../src/playback-renderer/audio-player.js";
 import {
   PLAYBACK_FEEDBACK_SURFACES,
+  type AudioChunkPayload,
   type PlaybackAudioSession
 } from "../../src/shared/app-contracts.js";
-import type { RendererAudioBridge } from "../../src/shared/bridge-contracts.js";
+import type { PlaybackRendererBridge } from "../../src/shared/bridge-contracts.js";
 
 let activeBrowserFakes: BrowserFakes | undefined;
 
@@ -14,12 +15,39 @@ afterEach(() => {
   activeBrowserFakes = undefined;
 });
 
-describe("PlaybackAudioQueue", () => {
-  it("starts and finishes a current Reading Target session with overlay completion and renderer idle", async () => {
-    const { queue, events } = createScenario();
+describe("Playback Audio renderer", () => {
+  it("plays sessions emitted through the Playback Renderer seam until disposed", async () => {
+    const events: QueueEvent[] = [];
+    const harness = createPlaybackRendererBridgeHarness(events);
+    const dispose = mountPlaybackAudio(harness.bridge);
 
-    queue.startSession(createOverlaySession(201));
-    queue.finishSession(201);
+    harness.start(createOverlaySession(101));
+    harness.finish({ sessionId: 101 });
+    await flushPlaybackMicrotasks();
+
+    expect(events).toEqual([
+      ["metric", 0, 1],
+      ["finish-overlay"],
+      ["idle", 101]
+    ]);
+
+    dispose();
+    harness.start(createOverlaySession(102));
+    harness.finish({ sessionId: 102 });
+    await flushPlaybackMicrotasks();
+
+    expect(events).toEqual([
+      ["metric", 0, 1],
+      ["finish-overlay"],
+      ["idle", 101]
+    ]);
+  });
+
+  it("starts and finishes a current Reading Target session with overlay completion and renderer idle", async () => {
+    const { events, playback } = createScenario();
+
+    playback.start(createOverlaySession(201));
+    playback.finish({ sessionId: 201 });
     await flushPlaybackMicrotasks();
 
     expect(events).toEqual([
@@ -30,12 +58,12 @@ describe("PlaybackAudioQueue", () => {
   });
 
   it("plays chunks on segment end and emits progress metrics for current Reading Target playback", async () => {
-    const { queue, events, animationFrames, playedAudios } = createScenario();
+    const { events, playback, animationFrames, playedAudios } = createScenario();
 
-    queue.startSession(createSession(203, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay, [9, 1]));
-    queue.pushChunk(203, new Uint8Array([1, 2, 3]));
-    queue.endSegment(203);
-    queue.finishSession(203);
+    playback.start(createSession(203, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay, [9, 1]));
+    playback.audioChunk({ sessionId: 203, bytes: new Uint8Array([1, 2, 3]) });
+    playback.segmentEnd({ sessionId: 203 });
+    playback.finish({ sessionId: 203 });
     await flushPlaybackMicrotasks();
     await flushPlaybackMicrotasks();
 
@@ -53,14 +81,14 @@ describe("PlaybackAudioQueue", () => {
   });
 
   it("tracks weighted progress across multiple current Reading Target segments", async () => {
-    const { queue, events, animationFrames, playedAudios } = createScenario();
+    const { events, playback, animationFrames, playedAudios } = createScenario();
 
-    queue.startSession(createSession(205, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay, [9, 1]));
-    queue.pushChunk(205, new Uint8Array([1]));
-    queue.endSegment(205);
-    queue.pushChunk(205, new Uint8Array([2]));
-    queue.endSegment(205);
-    queue.finishSession(205);
+    playback.start(createSession(205, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay, [9, 1]));
+    playback.audioChunk({ sessionId: 205, bytes: new Uint8Array([1]) });
+    playback.segmentEnd({ sessionId: 205 });
+    playback.audioChunk({ sessionId: 205, bytes: new Uint8Array([2]) });
+    playback.segmentEnd({ sessionId: 205 });
+    playback.finish({ sessionId: 205 });
     await flushPlaybackMicrotasks();
     await flushPlaybackMicrotasks();
 
@@ -91,17 +119,17 @@ describe("PlaybackAudioQueue", () => {
       createSession(204, PLAYBACK_FEEDBACK_SURFACES.historyDetail),
       createSession(206, PLAYBACK_FEEDBACK_SURFACES.favoriteDetail)
     ]) {
-      const { queue, events, animationFrames, playedAudios } = createScenario();
+      const { events, playback, animationFrames, playedAudios } = createScenario();
 
-      queue.startSession(session);
-      queue.pushChunk(session.sessionId, new Uint8Array([4, 5, 6]));
-      queue.endSegment(session.sessionId);
+      playback.start(session);
+      playback.audioChunk({ sessionId: session.sessionId, bytes: new Uint8Array([4, 5, 6]) });
+      playback.segmentEnd({ sessionId: session.sessionId });
       await flushPlaybackMicrotasks();
       await flushPlaybackMicrotasks();
 
       expect(animationFrames).toHaveLength(0);
       expect(events).toEqual([]);
-      queue.finishSession(session.sessionId);
+      playback.finish({ sessionId: session.sessionId });
       await flushPlaybackMicrotasks();
       playedAudios.at(-1)?.listeners.ended?.();
       await flushPlaybackMicrotasks();
@@ -111,27 +139,27 @@ describe("PlaybackAudioQueue", () => {
 
   it("handles fail and stop by stopping playback and notifying renderer idle", () => {
     const failed = createScenario();
-    failed.queue.startSession(createOverlaySession(301));
-    failed.queue.failSession(301);
+    failed.playback.start(createOverlaySession(301));
+    failed.playback.fail({ sessionId: 301 });
     expect(failed.events).toEqual([["idle", 301]]);
 
     const stopped = createScenario();
-    stopped.queue.startSession(createOverlaySession(302));
-    stopped.queue.stopSession(302);
+    stopped.playback.start(createOverlaySession(302));
+    stopped.playback.stop({ sessionId: 302 });
     expect(stopped.events).toEqual([["idle", 302]]);
   });
 
   it("ignores stale session chunks after a replacement session starts", async () => {
-    const { queue, events, playedAudios } = createScenario();
+    const { events, playback, playedAudios } = createScenario();
 
-    queue.startSession(createOverlaySession(401));
-    queue.pushChunk(401, new Uint8Array([1]));
-    queue.startSession(createOverlaySession(402));
-    queue.endSegment(401);
-    queue.finishSession(401);
-    queue.pushChunk(402, new Uint8Array([2]));
-    queue.endSegment(402);
-    queue.finishSession(402);
+    playback.start(createOverlaySession(401));
+    playback.audioChunk({ sessionId: 401, bytes: new Uint8Array([1]) });
+    playback.start(createOverlaySession(402));
+    playback.segmentEnd({ sessionId: 401 });
+    playback.finish({ sessionId: 401 });
+    playback.audioChunk({ sessionId: 402, bytes: new Uint8Array([2]) });
+    playback.segmentEnd({ sessionId: 402 });
+    playback.finish({ sessionId: 402 });
     await flushPlaybackMicrotasks();
     await flushPlaybackMicrotasks();
     playedAudios.at(-1)?.listeners.ended?.();
@@ -157,24 +185,30 @@ interface BrowserFakes {
   restore: () => void;
 }
 
-function createScenario(): BrowserFakes & { queue: PlaybackAudioQueue } {
-  activeBrowserFakes?.restore();
-  const browserFakes = installBrowserFakes();
-  activeBrowserFakes = browserFakes;
-  return {
-    ...browserFakes,
-    queue: new PlaybackAudioQueue(createBridge(browserFakes.events))
-  };
+interface PlaybackRendererBridgeHarness {
+  bridge: PlaybackRendererBridge;
+  audioChunk: (payload: AudioChunkPayload) => void;
+  fail: (payload: { sessionId: number }) => void;
+  finish: (payload: { sessionId: number }) => void;
+  segmentEnd: (payload: { sessionId: number }) => void;
+  start: (session: PlaybackAudioSession) => void;
+  stop: (payload: { sessionId: number }) => void;
 }
 
-function createBridge(events: QueueEvent[]): RendererAudioBridge {
-  return {
-    onPlaybackStart: () => () => undefined,
-    onAudioChunk: () => () => undefined,
-    onSegmentEnd: () => () => undefined,
-    onPlaybackFinish: () => () => undefined,
-    onPlaybackFail: () => () => undefined,
-    onPlaybackStop: () => () => undefined,
+function createPlaybackRendererBridgeHarness(events: QueueEvent[]): PlaybackRendererBridgeHarness {
+  const startListeners = new Set<(session: PlaybackAudioSession) => void>();
+  const audioChunkListeners = new Set<(payload: AudioChunkPayload) => void>();
+  const segmentEndListeners = new Set<(payload: { sessionId: number }) => void>();
+  const finishListeners = new Set<(payload: { sessionId: number }) => void>();
+  const failListeners = new Set<(payload: { sessionId: number }) => void>();
+  const stopListeners = new Set<(payload: { sessionId: number }) => void>();
+  const bridge: PlaybackRendererBridge = {
+    onPlaybackStart: (listener) => subscribe(startListeners, listener),
+    onAudioChunk: (listener) => subscribe(audioChunkListeners, listener),
+    onSegmentEnd: (listener) => subscribe(segmentEndListeners, listener),
+    onPlaybackFinish: (listener) => subscribe(finishListeners, listener),
+    onPlaybackFail: (listener) => subscribe(failListeners, listener),
+    onPlaybackStop: (listener) => subscribe(stopListeners, listener),
     notifyPlaybackIdle: async (sessionId) => {
       events.push(["idle", sessionId]);
     },
@@ -185,6 +219,41 @@ function createBridge(events: QueueEvent[]): RendererAudioBridge {
       events.push(["finish-overlay"]);
     }
   };
+  return {
+    bridge,
+    audioChunk: (payload) => emitListeners(audioChunkListeners, payload),
+    fail: (payload) => emitListeners(failListeners, payload),
+    finish: (payload) => emitListeners(finishListeners, payload),
+    segmentEnd: (payload) => emitListeners(segmentEndListeners, payload),
+    start: (session) => emitListeners(startListeners, session),
+    stop: (payload) => emitListeners(stopListeners, payload)
+  };
+}
+
+function subscribe<T>(listeners: Set<(payload: T) => void>, listener: (payload: T) => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function emitListeners<T>(listeners: Set<(payload: T) => void>, payload: T): void {
+  for (const listener of listeners) listener(payload);
+}
+
+function createScenario(): BrowserFakes & { playback: PlaybackRendererBridgeHarness } {
+  activeBrowserFakes?.restore();
+  const browserFakes = installBrowserFakes();
+  const playback = createPlaybackRendererBridgeHarness(browserFakes.events);
+  const disposePlayback = mountPlaybackAudio(playback.bridge);
+  const scenario = {
+    ...browserFakes,
+    playback,
+    restore() {
+      disposePlayback();
+      browserFakes.restore();
+    }
+  };
+  activeBrowserFakes = scenario;
+  return scenario;
 }
 
 function createOverlaySession(sessionId: number): PlaybackAudioSession {

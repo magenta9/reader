@@ -11,7 +11,7 @@ import {
   type FavoriteRecord,
   type ReadingHistoryRecord
 } from "../../src/shared/app-contracts.js";
-import type { ReaderWindowBridge, RendererAudioBridge } from "../../src/shared/bridge-contracts.js";
+import type { ReaderWindowRuntimeBridge } from "../../src/shared/bridge-contracts.js";
 
 afterEach(() => {
   cleanup();
@@ -109,7 +109,7 @@ interface RenderReaderWindowOptions {
   favorites?: FavoriteRecord[];
   hasApiKey?: boolean;
   history?: ReadingHistoryRecord[];
-  readerPatch?: Partial<ReaderWindowBridge>;
+  readerPatch?: Partial<ReaderWindowRuntimeBridge>;
   settings?: AppSettings;
 }
 
@@ -119,10 +119,12 @@ function renderReaderWindow(options: RenderReaderWindowOptions = {}): void {
     ...options,
     settings
   });
-  render(<ReaderWindowApp audioBridge={createAudioBridge()} readerBridge={readerBridge} />);
+  render(<ReaderWindowApp readerBridge={readerBridge} />);
 }
 
-function createReaderBridge(options: Required<Pick<RenderReaderWindowOptions, "settings">> & RenderReaderWindowOptions): ReaderWindowBridge {
+function createReaderBridge(
+  options: Required<Pick<RenderReaderWindowOptions, "settings">> & RenderReaderWindowOptions
+): ReaderWindowRuntimeBridge {
   let settings = options.settings;
   return {
     getBootstrapState: async () => ({
@@ -176,21 +178,10 @@ function createReaderBridge(options: Required<Pick<RenderReaderWindowOptions, "s
     playFavoriteRecord: async () => ({ started: true, sessionId: 3 }),
     stopPlayback: async () => undefined,
     copyText: async () => undefined,
-    ...options.readerPatch
-  };
-}
-
-function createAudioBridge(): RendererAudioBridge {
-  return {
-    onPlaybackStart: () => () => undefined,
-    onAudioChunk: () => () => undefined,
-    onSegmentEnd: () => () => undefined,
     onPlaybackFinish: () => () => undefined,
     onPlaybackFail: () => () => undefined,
     onPlaybackStop: () => () => undefined,
-    notifyPlaybackIdle: async () => undefined,
-    sendOverlayMetric: async () => undefined,
-    finishOverlayPlayback: async () => undefined
+    ...options.readerPatch
   };
 }
 

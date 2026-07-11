@@ -58,6 +58,19 @@ await cp(resolve(root, "assets/voicereader-template-icon.svg"), resolve(dist, "a
 await cp(resolve(root, "assets/voicereader-icon.svg"), resolve(dist, "renderer/assets/voicereader-icon.svg"));
 
 await bundle({
+  entryPoints: [resolve(root, "src/playback-renderer/main.ts")],
+  outfile: resolve(dist, "playback-renderer/playback-renderer.js"),
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: "es2022",
+  sourcemap: true,
+  logLevel: "silent"
+});
+
+await cp(resolve(root, "src/playback-renderer/index.html"), resolve(dist, "playback-renderer/index.html"));
+
+await bundle({
   entryPoints: [resolve(root, "src/overlay/main.tsx")],
   outfile: resolve(dist, "overlay/overlay.js"),
   bundle: true,

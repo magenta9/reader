@@ -1,8 +1,26 @@
-import type { PlaybackAudioSession, RendererAudioBridge } from "./bridge.js";
-import { usesPlaybackOverlayFeedback } from "../shared/app-contracts.js";
-import { getRendererAudioBridge } from "../shared/voice-reader-bridge.js";
+import { usesPlaybackOverlayFeedback, type PlaybackAudioSession } from "../shared/app-contracts.js";
+import type { PlaybackRendererBridge } from "../shared/bridge-contracts.js";
 
-export class PlaybackAudioQueue {
+export function mountPlaybackAudio(bridge: PlaybackRendererBridge): () => void {
+  const queue = new PlaybackAudioQueue(bridge);
+  const subscriptions = [
+    bridge.onPlaybackStart((session) => queue.startSession(session)),
+    bridge.onAudioChunk((payload) => queue.pushChunk(payload.sessionId, payload.bytes)),
+    bridge.onSegmentEnd((payload) => queue.endSegment(payload.sessionId)),
+    bridge.onPlaybackFinish((payload) => queue.finishSession(payload.sessionId)),
+    bridge.onPlaybackFail((payload) => queue.failSession(payload.sessionId)),
+    bridge.onPlaybackStop((payload) => queue.stopSession(payload.sessionId))
+  ];
+  let disposed = false;
+  return () => {
+    if (disposed) return;
+    disposed = true;
+    for (const unsubscribe of subscriptions) unsubscribe();
+    queue.stop();
+  };
+}
+
+class PlaybackAudioQueue {
   private sessionId = 0;
   private chunks: Uint8Array[] = [];
   private playbackTail = Promise.resolve();
@@ -18,7 +36,7 @@ export class PlaybackAudioQueue {
   private completedSegmentWeight = 0;
   private nextSegmentIndex = 0;
 
-  constructor(private readonly bridge: RendererAudioBridge = getRendererAudioBridge()) {}
+  constructor(private readonly bridge: PlaybackRendererBridge) {}
 
   startSession(session: PlaybackAudioSession): void {
     this.stop();
