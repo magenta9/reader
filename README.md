@@ -65,12 +65,12 @@ macOS 上构建 Selected Text 原生采集模块和打包 app 需要 Xcode Comma
 - [领域词汇](CONTEXT.md)
 - [macOS MVP PRD](docs/prd/macos-voicereader-mvp.md)
 - [ADR](docs/adr/)
-- [本地 issue tracker 说明](docs/agents/issue-tracker.md)
+- [Linear issue tracker 说明](docs/agents/issue-tracker.md)
 
 ## 当前计划
 
 - Canonical PRD: `docs/prd/macos-voicereader-mvp.md`
-- Local PRD: `.scratch/voicereader-macos/PRD.md`
-- Issues: `.scratch/voicereader-macos/issues/`
+- Linear PRD: [VoiceReader macOS MVP](https://linear.app/devbox-zhang/document/prd-voicereader-macos-mvp-4789a0b07559)
+- Issues: [Linear `reader` project](https://linear.app/devbox-zhang/project/reader-41eb054cdf91)
 
 旧 Chrome extension PRD 保留为历史文档，不再作为 active implementation workflow。

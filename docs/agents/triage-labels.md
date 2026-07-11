@@ -8,7 +8,8 @@ The skills speak in terms of canonical triage roles. This file maps those roles 
 | `needs-info`               | `needs-info`         | Waiting on reporter for more information |
 | `ready-for-agent`          | `ready-for-agent`    | Fully specified, ready for an AFK agent  |
 | `ready-for-human`          | `ready-for-human`    | Requires human implementation            |
-| `completed`                | `completed`          | Implementation is complete               |
 | `wontfix`                  | `wontfix`            | Will not be actioned                     |
 
 When a skill mentions a role, use the corresponding label string from this table.
+
+Completed work uses Linear's native `Done` state rather than a `completed` label.

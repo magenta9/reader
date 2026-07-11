@@ -2,11 +2,11 @@
 
 ### Issue tracker
 
-Issues and PRDs are tracked as local markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+Issues and PRDs are tracked in the Linear `reader` project under team `dev`; PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-The repo uses the default mattpocock/skills triage label vocabulary. See `docs/agents/triage-labels.md`.
+The repo uses the default mattpocock/skills triage vocabulary as Linear labels; completed work uses Linear's native `Done` status. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

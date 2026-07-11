@@ -39,11 +39,11 @@ open release/mac/VoiceReader.app
 
 当前主线工作在：
 
-- PRD：`.scratch/voicereader-macos/PRD.md`
-- Issues：`.scratch/voicereader-macos/issues/`
+- PRD：[Linear: VoiceReader macOS MVP](https://linear.app/devbox-zhang/document/prd-voicereader-macos-mvp-4789a0b07559)
+- Issues：[Linear `reader` project](https://linear.app/devbox-zhang/project/reader-41eb054cdf91)
 - Canonical PRD：`docs/prd/macos-voicereader-mvp.md`
 
-Issue 文件使用 `Status:` 记录状态；标签含义见 `docs/agents/triage-labels.md`。新增或拆分任务时，遵循 `docs/agents/issue-tracker.md` 的本地 Markdown 约定。
+Issue 使用 Linear 原生状态和依赖关系；标签含义见 `docs/agents/triage-labels.md`。新增或拆分任务时，遵循 `docs/agents/issue-tracker.md` 的 Linear 约定。
 
 ## 编码约定
 
