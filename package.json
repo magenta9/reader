@@ -4,15 +4,30 @@
   "private": true,
   "type": "module",
   "main": "dist/main/main.js",
+  "packageManager": "bun@1.3.14",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "trustedDependencies": [
+    "electron",
+    "esbuild"
+  ],
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "package:mac": "node scripts/package-mac.mjs",
-    "start": "electron .",
-    "test": "vitest run",
-    "test:dist": "node scripts/run-dist-contract-tests.mjs",
-    "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
-    "verify": "npm run typecheck && npm run test && npm run build && npm run test:dist -- --no-build"
+    "preinstall": "node scripts/toolchain-preflight.mjs",
+    "check:toolchain": "node scripts/toolchain-preflight.mjs",
+    "check:install": "node scripts/toolchain-preflight.mjs --verify-install",
+    "clean": "bun run check:toolchain && node scripts/clean.mjs",
+    "build": "bun run check:toolchain && node scripts/build.mjs",
+    "package:mac": "bun run check:toolchain && node scripts/package-mac.mjs",
+    "smoke:packaged": "bun run check:toolchain && node scripts/packaged-smoke.mjs",
+    "deploy:mac": "bun run check:toolchain && node scripts/deploy-mac.mjs",
+    "start": "bun run check:toolchain && node scripts/electron-runtime.mjs --launch",
+    "test": "bun run check:toolchain && vitest run",
+    "test:dist": "bun run check:toolchain && node scripts/run-dist-contract-tests.mjs",
+    "test:electron": "bun run check:toolchain && node scripts/electron-runtime.mjs",
+    "test:watch": "bun run check:toolchain && vitest",
+    "typecheck": "bun run check:toolchain && tsc --noEmit",
+    "verify": "bun run check:toolchain && /usr/bin/make verify"
   },
   "dependencies": {
     "react": "^19.2.6",
@@ -22,10 +37,10 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^25.0.2",
+    "@types/node": "^24.0.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "electron": "^41.5.1",
+    "electron": "41.10.1",
     "esbuild": "^0.28.1",
     "jsdom": "^29.1.1",
     "typescript": "^5.9.3",

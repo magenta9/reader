@@ -1,12 +1,18 @@
+import { existsSync, lstatSync } from "node:fs";
 import { cp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
-import { dirname, resolve, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, dirname, relative, resolve, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { runElectronRuntimeProbe } from "./electron-runtime.mjs";
+import { assertCommand, spawnCommand } from "./spawn-command.mjs";
+import { verifyMacApplicationStructure } from "./verify-mac-app.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const releaseDir = resolve(root, "release/mac");
 const appName = "VoiceReader";
+const appVersion = "0.1.0";
 const appPath = join(releaseDir, `${appName}.app`);
+const dmgPath = join(releaseDir, `${appName}-${appVersion}-arm64.dmg`);
+const installedAppPath = "/Applications/VoiceReader.app";
 const electronAppPath = resolve(root, "node_modules/electron/dist/Electron.app");
 const iconsetPath = join(releaseDir, "VoiceReader.iconset");
 const iconPath = join(releaseDir, "VoiceReader.icns");
@@ -15,41 +21,102 @@ const appBundleIdentifier = "com.local.voicereader";
 const appDesignatedRequirement = `=designated => identifier "${appBundleIdentifier}"`;
 const plistScalarValuePattern = String.raw`<(?:string|true|false|integer|real)(?:\s*/>|>[^<]*</(?:string|integer|real)>)`;
 
-await run(process.execPath, [resolve(root, "scripts/build.mjs")], root);
-await rm(appPath, { recursive: true, force: true });
-await mkdir(releaseDir, { recursive: true });
-await cp(electronAppPath, appPath, { recursive: true, verbatimSymlinks: true });
-await rm(join(appPath, "Contents/Resources/default_app.asar"), { force: true });
+export const PACKAGING_PLAN = {
+  platform: "darwin",
+  arch: "arm64",
+  app: relative(root, appPath),
+  dmg: relative(root, dmgPath),
+  dmgTool: "/usr/bin/hdiutil",
+  customPackager: true,
+  installsApplication: false
+};
 
-await generateIcon();
-await cp(iconPath, join(appPath, "Contents/Resources/VoiceReader.icns"));
+export async function packageMac() {
+  assertSupportedPlatform();
+  const installedBefore = snapshotInstalledApplication();
+  await rm(releaseDir, { recursive: true, force: true });
+  await run(process.execPath, [resolve(root, "scripts/build.mjs")], root);
+  await mkdir(releaseDir, { recursive: true });
+  await cp(electronAppPath, appPath, { recursive: true, verbatimSymlinks: true });
+  await rm(join(appPath, "Contents/Resources/default_app.asar"), { force: true });
 
-await rm(join(appPath, "Contents/Resources/app"), { recursive: true, force: true });
-await mkdir(join(appPath, "Contents/Resources/app"), { recursive: true });
-await cp(resolve(root, "dist"), join(appPath, "Contents/Resources/app/dist"), { recursive: true });
-await writeFile(
-  join(appPath, "Contents/Resources/app/package.json"),
-  JSON.stringify(
-    {
-      name: "voicereader",
-      productName: appName,
-      version: "0.1.0",
-      type: "module",
-      main: "dist/main/main.js"
-    },
-    null,
-    2
-  )
-);
+  await generateIcon();
+  await cp(iconPath, join(appPath, "Contents/Resources/VoiceReader.icns"));
 
-await rename(join(appPath, "Contents/MacOS/Electron"), join(appPath, `Contents/MacOS/${appName}`));
-await updateInfoPlist();
-await updateHelperInfoPlists();
-await rm(iconsetPath, { recursive: true, force: true });
-await signAppBundle();
-await verifyAppSignature();
+  await rm(join(appPath, "Contents/Resources/app"), { recursive: true, force: true });
+  await mkdir(join(appPath, "Contents/Resources/app"), { recursive: true });
+  await cp(resolve(root, "dist"), join(appPath, "Contents/Resources/app/dist"), { recursive: true });
+  await writeFile(
+    join(appPath, "Contents/Resources/app/package.json"),
+    JSON.stringify(
+      {
+        name: "voicereader",
+        productName: appName,
+        version: appVersion,
+        type: "module",
+        main: "dist/main/main.js"
+      },
+      null,
+      2
+    )
+  );
 
-console.log(`Packaged ${appPath}`);
+  await rename(join(appPath, "Contents/MacOS/Electron"), join(appPath, `Contents/MacOS/${appName}`));
+  await updateInfoPlist();
+  await updateHelperInfoPlists();
+  await rm(iconsetPath, { recursive: true, force: true });
+  await signAppBundle();
+  await verifyPackagedApplication();
+  await createDmg();
+  await verifyDmgOutput();
+
+  if (snapshotInstalledApplication() !== installedBefore) {
+    throw new Error("Artifact-only packaging modified /Applications/VoiceReader.app");
+  }
+  return { application: appPath, dmg: dmgPath };
+}
+
+function assertSupportedPlatform() {
+  if (process.platform !== PACKAGING_PLAN.platform || process.arch !== PACKAGING_PLAN.arch) {
+    throw new Error(
+      `VoiceReader packaging supports darwin arm64 only; received ${process.platform} ${process.arch}`
+    );
+  }
+}
+
+function snapshotInstalledApplication() {
+  if (!existsSync(installedAppPath)) return null;
+  const stat = lstatSync(installedAppPath, { bigint: true });
+  return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}`;
+}
+
+async function verifyPackagedApplication() {
+  const { executable, addon } = await verifyMacApplicationStructure(appPath);
+  await runElectronRuntimeProbe({ electronExecutable: executable, addonPath: addon });
+}
+
+async function createDmg() {
+  const dmgRoot = join(releaseDir, ".dmg-root");
+  await rm(dmgRoot, { recursive: true, force: true });
+  await mkdir(dmgRoot, { recursive: true });
+  await cp(appPath, join(dmgRoot, basename(appPath)), { recursive: true, verbatimSymlinks: true });
+  try {
+    await run(
+      PACKAGING_PLAN.dmgTool,
+      ["create", "-volname", appName, "-srcfolder", dmgRoot, "-ov", "-format", "UDZO", dmgPath],
+      root
+    );
+  } finally {
+    await rm(dmgRoot, { recursive: true, force: true });
+  }
+}
+
+async function verifyDmgOutput() {
+  const dmgFiles = (await readdir(releaseDir)).filter((name) => name.endsWith(".dmg"));
+  if (dmgFiles.length !== 1 || dmgFiles[0] !== basename(dmgPath)) {
+    throw new Error(`Expected exactly ${basename(dmgPath)}; found ${dmgFiles.join(", ") || "none"}`);
+  }
+}
 
 async function generateIcon() {
   await rm(iconsetPath, { recursive: true, force: true });
@@ -91,8 +158,8 @@ async function updateInfoPlist() {
   plist = replacePlistValue(plist, "CFBundleIconFile", "VoiceReader.icns");
   plist = replacePlistValue(plist, "CFBundleIdentifier", appBundleIdentifier);
   plist = replacePlistValue(plist, "CFBundleName", appName);
-  plist = replacePlistValue(plist, "CFBundleShortVersionString", "0.1.0");
-  plist = replacePlistValue(plist, "CFBundleVersion", "0.1.0");
+  plist = replacePlistValue(plist, "CFBundleShortVersionString", appVersion);
+  plist = replacePlistValue(plist, "CFBundleVersion", appVersion);
   plist = removePlistEntry(plist, "LSUIElement");
   await writeFile(plistPath, plist);
 }
@@ -120,10 +187,6 @@ async function signAppBundle() {
   await run("/usr/bin/codesign", ["--force", "--sign", "-", "--requirements", appDesignatedRequirement, appPath], root);
 }
 
-async function verifyAppSignature() {
-  await run("/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=4", appPath], root);
-}
-
 function replacePlistValue(plist, key, value) {
   return plist.replace(
     new RegExp(`(<key>${key}</key>\\s*<string>)([^<]*)(</string>)`),
@@ -140,16 +203,7 @@ function removePlistEntry(plist, key) {
 }
 
 function run(command, args, cwd) {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      stdio: "inherit"
-    });
-    child.on("exit", (code) => {
-      if (code === 0) resolvePromise();
-      else reject(new Error(`${command} exited with code ${code}`));
-    });
-  });
+  return spawnCommand(command, args, { cwd }).then((result) => assertCommand(result, command));
 }
 
 function uint32(value) {
@@ -177,4 +231,21 @@ async function writeIcnsFromIconset(iconset, outputPath) {
     totalLength += chunk.length;
   }
   await writeFile(outputPath, Buffer.concat([Buffer.from("icns"), uint32(totalLength), ...chunks]));
+}
+
+export async function main(argv = process.argv.slice(2)) {
+  if (argv.length === 1 && argv[0] === "plan") {
+    process.stdout.write(`${JSON.stringify(PACKAGING_PLAN)}\n`);
+    return;
+  }
+  if (argv.length > 0) throw new Error("Usage: package-mac.mjs [plan]");
+  const output = await packageMac();
+  process.stdout.write(`${JSON.stringify(output)}\n`);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  void main().catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  });
 }

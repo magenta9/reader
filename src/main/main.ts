@@ -25,6 +25,10 @@ import { ElectronPlaybackOutput } from "./playback/electron-playback-output.js";
 import { PlaybackOverlayController } from "./playback/playback-overlay-controller.js";
 import { PlaybackCommandController } from "./playback/playback-command-controller.js";
 import { ReadingTargetAcquirer } from "./reading-target/reading-target-acquirer.js";
+import {
+  enterPackagedSmokeMode,
+  readPackagedSmokeConfiguration
+} from "./packaged-smoke-runtime.js";
 
 let readerWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -59,16 +63,29 @@ const TRAY_ICON_LINES = [
   { x1: 5.8, y1: 9, x2: 12.2, y2: 9 },
   { x1: 6.9, y1: 10.95, x2: 11.1, y2: 10.95 }
 ];
+const packagedSmoke = readPackagedSmokeConfiguration();
 
 app.setName("VoiceReader");
-app.setPath("userData", join(app.getPath("appData"), "VoiceReader"));
+if (packagedSmoke.enabled) {
+  app.setPath("userData", packagedSmoke.userData);
+} else {
+  app.setPath("userData", join(app.getPath("appData"), "VoiceReader"));
+}
 
-void bootstrap();
+void bootstrap().catch((error) => {
+  process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+  app.exit(1);
+});
 
 async function bootstrap(): Promise<void> {
   await app.whenReady();
 
-  appDataStore = new AppDataStore(join(app.getPath("userData"), "voicereader.sqlite"));
+  const databasePath = join(app.getPath("userData"), "voicereader.sqlite");
+  appDataStore = new AppDataStore(databasePath);
+  if (packagedSmoke.enabled) {
+    enterPackagedSmokeMode({ app, appDataStore, databasePath });
+    return;
+  }
   minimaxAccountService = new MiniMaxAccountService(appDataStore);
   overlayController = new PlaybackOverlayController();
   appPresence = new AppPresenceController({

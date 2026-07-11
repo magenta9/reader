@@ -1,8 +1,8 @@
 import { cp, mkdir, rm } from "node:fs/promises";
-import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as bundle } from "esbuild";
+import { assertCommand, spawnCommand } from "./spawn-command.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = resolve(root, "dist");
@@ -21,7 +21,7 @@ await bundle({
   bundle: true,
   format: "esm",
   platform: "node",
-  target: "node22",
+  target: "node24",
   external: ["electron"],
   sourcemap: true,
   logLevel: "silent"
@@ -83,29 +83,24 @@ await bundle({
 
 await cp(resolve(root, "src/overlay/index.html"), resolve(dist, "overlay/index.html"));
 
-function runNodeScript(command, args, cwd) {
-  return spawnCommand(process.execPath, [command, ...args], cwd);
+async function runNodeScript(command, args, cwd) {
+  await runExecutable(process.execPath, [command, ...args], cwd);
 }
 
-function runExecutable(command, args, cwd) {
-  return spawnCommand(command, args, cwd);
-}
-
-function spawnCommand(command, args, cwd) {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      stdio: "inherit"
-    });
-    child.on("exit", (code) => {
-      if (code === 0) resolvePromise();
-      else reject(new Error(`${command} exited with code ${code}`));
-    });
-  });
+async function runExecutable(command, args, cwd) {
+  const result = await spawnCommand(command, args, { cwd });
+  assertCommand(result, command);
 }
 
 async function buildNativeSelectionCopyAddon() {
   if (process.platform !== "darwin") return;
+  try {
+    await runExecutable("/usr/bin/xcrun", ["--find", "clang++"], root);
+  } catch {
+    throw new Error(
+      "Xcode Command Line Tools are required to build the Selected Text addon; install them with xcode-select --install."
+    );
+  }
   await runExecutable(
     "/usr/bin/xcrun",
     [
