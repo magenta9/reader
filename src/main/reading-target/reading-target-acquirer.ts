@@ -148,7 +148,7 @@ interface ClipboardSnapshot {
   image: NativeImage;
 }
 
-function loadDarwinSelectionCopyAddon(): SelectionCopyAddon {
+export function loadDarwinSelectionCopyAddon(): SelectionCopyAddon {
   if (process.platform !== "darwin") {
     throw new Error("Selected Text capture is only supported on macOS.");
   }

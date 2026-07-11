@@ -1,39 +1,48 @@
 # 贡献指南
 
-VoiceReader 使用本地 Markdown issue tracker 管理当前工作。提交代码前先确认改动对应的 PRD、issue 或明确的用户请求。
+VoiceReader 使用 Linear 管理当前工作。提交代码前先确认改动对应的 PRD、issue 或明确的用户请求。
 
 ## 开始开发
 
 ```bash
-pnpm install
-pnpm verify
+make install
+make verify
 ```
 
 如果只需要快速检查某一类问题，可以单独运行：
 
 ```bash
-pnpm typecheck
-pnpm test
-pnpm test:watch
-pnpm build
-pnpm test:dist
+bun run typecheck
+bun run test
+bun run test:watch
+bun run build
+bun run test:dist
 ```
 
-`pnpm test` 运行快速 Vitest source-level 和 jsdom React UI 测试；`pnpm test:watch` 用于本地迭代；`pnpm test:dist` 检查构建产物和跨进程边界合同。完整提交前默认运行 `pnpm verify`，它会依次执行 typecheck、Vitest、build 和 dist contract checks。
+`bun run test` 运行快速 Vitest source-level 和 jsdom React UI 测试；`bun run test:watch` 用于本地迭代；`bun run test:dist` 检查构建产物和跨进程边界合同。完整提交前默认运行 `make verify`，它会从 frozen install 开始执行依赖脚本审计、两轮 clean build、typecheck、Vitest 和 dist contract checks。
 
 本地运行 app：
 
 ```bash
-pnpm build
-pnpm start
+bun run build
+bun run start
 ```
 
 本地打包 macOS app：
 
 ```bash
-pnpm package:mac
+make package-mac
+make smoke-packaged
 open release/mac/VoiceReader.app
 ```
+
+完整本地部署：
+
+```bash
+make deploy
+```
+
+`make package-mac` 只生成并验证 ARM64 `.app` 与 DMG，不修改 `/Applications`。`make deploy` 会先执行完整验证和 candidate smoke；如果 `/Applications/VoiceReader.app` 正在运行，它会要求开发者正常退出应用并拒绝继续，不会自动结束进程。替换采用 staging/backup 流程，installed smoke 失败时恢复旧应用；所有 smoke 都使用临时 userData，不接触正常的本机数据。
 
 ## 选择任务
 
@@ -59,7 +68,7 @@ Issue 使用 Linear 原生状态和依赖关系；标签含义见 `docs/agents/t
 1. 从最新主线创建短分支，分支名建议使用 `feat/`、`fix/`、`docs/`、`refactor/` 等前缀。
 2. 阅读相关 PRD、issue、`CONTEXT.md` 和 ADR。
 3. 实现改动，并尽量让每个 commit 只覆盖一个清晰目的。
-4. 运行适合改动范围的验证。一般文档改动至少检查链接和命令是否仍然准确；代码改动默认运行 `pnpm verify`。
+4. 运行适合改动范围的验证。一般文档改动至少检查链接和命令是否仍然准确；代码改动默认运行 `make verify`。
 5. 更新对应 issue 的状态或评论，说明完成内容和验证结果。
 6. 提交代码，commit message 建议使用 Conventional Commits，例如：
 

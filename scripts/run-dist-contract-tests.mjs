@@ -210,6 +210,7 @@ const playbackOverlayControllerSource = await readFile(new URL("../src/main/play
 const readingTargetAcquirerSource = await readFile(new URL("../src/main/reading-target/reading-target-acquirer.ts", import.meta.url), "utf8");
 const rendererCssSource = await readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 const packageScript = await readFile(new URL("../scripts/package-mac.mjs", import.meta.url), "utf8");
+const appVerificationScript = await readFile(new URL("../scripts/verify-mac-app.mjs", import.meta.url), "utf8");
 const appIconSource = await readFile(new URL("../assets/voicereader-icon.svg", import.meta.url), "utf8");
 const templateTrayIconSource = await readFile(new URL("../assets/voicereader-template-icon.svg", import.meta.url), "utf8");
 const builtTemplateTrayIcon = await readFile(new URL("../dist/assets/voicereader-template-icon.svg", import.meta.url), "utf8");
@@ -645,7 +646,10 @@ assert.equal(packageScript.includes("--deep"), true);
 assert.equal(packageScript.includes("--requirements"), true);
 assert.equal(packageScript.includes("appBundleIdentifier = \"com.local.voicereader\""), true);
 assert.equal(packageScript.includes("=designated => identifier"), true);
-assert.equal(packageScript.includes("--verify"), true);
+assert.equal(packageScript.includes("/usr/bin/hdiutil"), true);
+assert.equal(appVerificationScript.includes("/usr/bin/lipo"), true);
+assert.equal(appVerificationScript.includes("/usr/bin/codesign"), true);
+assert.equal(appVerificationScript.includes("--verify"), true);
 
 const playbackRendererReady = deferred();
 const pendingPlaybackRenderer = createPlaybackWindowForTest({
