@@ -4,6 +4,18 @@ export type AppRoute = "home" | "history" | "favorites" | "settings";
 
 export type HistoryRetention = "7d" | "1m" | "3m" | "forever";
 
+export interface HistoryRetentionImpact {
+  historyRetention: HistoryRetention;
+  deleteCount: number;
+  remainingCount: number;
+}
+
+export interface HistoryRetentionChangeResult {
+  applied: boolean;
+  impact: HistoryRetentionImpact;
+  settings: AppSettings;
+}
+
 export const DEFAULT_ACTIVATION_SHORTCUT = "Control+Command+R";
 export const LEGACY_DEFAULT_ACTIVATION_SHORTCUT = "Command+Shift+R";
 
@@ -23,6 +35,8 @@ export interface AppSettings {
   voices: MiniMaxVoice[];
   preferredVoicesByLanguage: Partial<Record<DetectedLanguage, string>>;
 }
+
+export type AppSettingsPatch = Partial<Omit<AppSettings, "historyRetention">>;
 
 export interface BootstrapState {
   hasCompletedOnboarding: boolean;
@@ -67,6 +81,7 @@ export interface PlaybackStartResult {
     | "missing_history_record"
     | "missing_favorite_record";
   sessionId?: number;
+  stopShortcutAvailable?: boolean;
 }
 
 export const PLAYBACK_FEEDBACK_SURFACES = {
@@ -106,10 +121,10 @@ export interface SessionPayload {
 
 export interface OverlayMetric {
   amplitude: number;
+  levels?: number[];
   progress: number;
 }
 
-export interface OverlayDragDelta {
-  deltaX: number;
-  deltaY: number;
+export interface SessionOverlayMetric extends OverlayMetric {
+  sessionId: number;
 }

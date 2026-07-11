@@ -1,4 +1,4 @@
-import type { OverlayDragDelta, OverlayMetric } from "../app-contracts.js";
+import type { OverlayMetric } from "../app-contracts.js";
 
 export const PLAYBACK_OVERLAY_EVENT_CHANNELS = {
   show: "overlay:show",
@@ -10,8 +10,18 @@ export const PLAYBACK_OVERLAY_EVENT_CHANNELS = {
 
 export const PLAYBACK_OVERLAY_COMMAND_CHANNELS = {
   metric: "overlay:metric",
-  moveBy: "overlay:move-by",
-  finishPlayback: "overlay:finish-playback"
+  finishPlayback: "overlay:finish-playback",
+  ready: "overlay:ready"
+} as const;
+
+export const PLAYBACK_OVERLAY_TIMING = {
+  transitionMs: 170,
+  outcomeHoldMs: {
+    finish: 360,
+    fail: 1_400,
+    stop: 240
+  },
+  controllerBufferMs: 30
 } as const;
 
 export interface PlaybackOverlayBridge {
@@ -20,5 +30,5 @@ export interface PlaybackOverlayBridge {
   onOverlayFinish: (listener: () => void) => () => void;
   onOverlayFail: (listener: () => void) => () => void;
   onOverlayStop: (listener: () => void) => () => void;
-  moveOverlayBy: (delta: OverlayDragDelta) => Promise<void>;
+  notifyOverlayReady: () => Promise<void>;
 }

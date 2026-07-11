@@ -4,7 +4,8 @@ import { mountPlaybackAudio } from "../../src/playback-renderer/audio-player.js"
 import {
   PLAYBACK_FEEDBACK_SURFACES,
   type AudioChunkPayload,
-  type PlaybackAudioSession
+  type PlaybackAudioSession,
+  type SessionOverlayMetric
 } from "../../src/shared/app-contracts.js";
 import type { PlaybackRendererBridge } from "../../src/shared/bridge-contracts.js";
 
@@ -26,8 +27,8 @@ describe("Playback Audio renderer", () => {
     await flushPlaybackMicrotasks();
 
     expect(events).toEqual([
-      ["metric", 0, 1],
-      ["finish-overlay"],
+      ["metric", 101, 0, 1],
+      ["finish-overlay", 101],
       ["idle", 101]
     ]);
 
@@ -37,8 +38,8 @@ describe("Playback Audio renderer", () => {
     await flushPlaybackMicrotasks();
 
     expect(events).toEqual([
-      ["metric", 0, 1],
-      ["finish-overlay"],
+      ["metric", 101, 0, 1],
+      ["finish-overlay", 101],
       ["idle", 101]
     ]);
   });
@@ -51,8 +52,8 @@ describe("Playback Audio renderer", () => {
     await flushPlaybackMicrotasks();
 
     expect(events).toEqual([
-      ["metric", 0, 1],
-      ["finish-overlay"],
+      ["metric", 201, 0, 1],
+      ["finish-overlay", 201],
       ["idle", 201]
     ]);
   });
@@ -70,7 +71,9 @@ describe("Playback Audio renderer", () => {
     const firstAudio = playedAudios.at(-1);
     expect(firstAudio?.src).toBe("blob:voice-reader-test");
     animationFrames.shift()?.();
-    expect(events.some((event) => event[0] === "metric" && event[1] > 0)).toBe(true);
+    expect(events.some((event) => event[0] === "metric" && event[2] > 0)).toBe(true);
+    expect(playback.metrics.at(-1)?.levels).toHaveLength(13);
+    expect(new Set(playback.metrics.at(-1)?.levels?.map((level) => level.toFixed(3))).size).toBeGreaterThan(1);
     expect(events.some((event) => event[0] === "finish-overlay")).toBe(false);
     firstAudio?.listeners.ended?.();
     await flushPlaybackMicrotasks();
@@ -95,8 +98,8 @@ describe("Playback Audio renderer", () => {
     const firstAudio = playedAudios.at(-1);
     animationFrames.shift()?.();
     const firstMetric = events.find((event) => event[0] === "metric");
-    expect(firstMetric?.[2]).toBeGreaterThan(0.4);
-    expect(firstMetric?.[2]).toBeLessThan(0.5);
+    expect(firstMetric?.[3]).toBeGreaterThan(0.4);
+    expect(firstMetric?.[3]).toBeLessThan(0.5);
     firstAudio?.listeners.ended?.();
     await flushPlaybackMicrotasks();
     await flushPlaybackMicrotasks();
@@ -107,8 +110,8 @@ describe("Playback Audio renderer", () => {
       animationFrames.shift()?.();
     }
     const secondMetric = events.filter((event) => event[0] === "metric").at(-1);
-    expect(secondMetric?.[2]).toBeGreaterThan(0.9);
-    expect(secondMetric?.[2]).toBeLessThan(1);
+    expect(secondMetric?.[3]).toBeGreaterThan(0.9);
+    expect(secondMetric?.[3]).toBeLessThan(1);
     secondAudio?.listeners.ended?.();
     await flushPlaybackMicrotasks();
     await flushPlaybackMicrotasks();
@@ -172,7 +175,7 @@ describe("Playback Audio renderer", () => {
   });
 });
 
-type QueueEvent = ["metric", number, number] | ["finish-overlay"] | ["idle", number];
+type QueueEvent = ["metric", number, number, number] | ["finish-overlay", number] | ["idle", number];
 
 interface BrowserFakes {
   animationFrames: Array<() => void>;
@@ -190,6 +193,7 @@ interface PlaybackRendererBridgeHarness {
   audioChunk: (payload: AudioChunkPayload) => void;
   fail: (payload: { sessionId: number }) => void;
   finish: (payload: { sessionId: number }) => void;
+  metrics: SessionOverlayMetric[];
   segmentEnd: (payload: { sessionId: number }) => void;
   start: (session: PlaybackAudioSession) => void;
   stop: (payload: { sessionId: number }) => void;
@@ -202,6 +206,7 @@ function createPlaybackRendererBridgeHarness(events: QueueEvent[]): PlaybackRend
   const finishListeners = new Set<(payload: { sessionId: number }) => void>();
   const failListeners = new Set<(payload: { sessionId: number }) => void>();
   const stopListeners = new Set<(payload: { sessionId: number }) => void>();
+  const metrics: SessionOverlayMetric[] = [];
   const bridge: PlaybackRendererBridge = {
     onPlaybackStart: (listener) => subscribe(startListeners, listener),
     onAudioChunk: (listener) => subscribe(audioChunkListeners, listener),
@@ -213,10 +218,11 @@ function createPlaybackRendererBridgeHarness(events: QueueEvent[]): PlaybackRend
       events.push(["idle", sessionId]);
     },
     sendOverlayMetric: async (metric) => {
-      events.push(["metric", metric.amplitude, metric.progress]);
+      metrics.push(metric);
+      events.push(["metric", metric.sessionId, metric.amplitude, metric.progress]);
     },
-    finishOverlayPlayback: async () => {
-      events.push(["finish-overlay"]);
+    finishOverlayPlayback: async (sessionId) => {
+      events.push(["finish-overlay", sessionId]);
     }
   };
   return {
@@ -224,6 +230,7 @@ function createPlaybackRendererBridgeHarness(events: QueueEvent[]): PlaybackRend
     audioChunk: (payload) => emitListeners(audioChunkListeners, payload),
     fail: (payload) => emitListeners(failListeners, payload),
     finish: (payload) => emitListeners(finishListeners, payload),
+    metrics,
     segmentEnd: (payload) => emitListeners(segmentEndListeners, payload),
     start: (session) => emitListeners(startListeners, session),
     stop: (payload) => emitListeners(stopListeners, payload)
@@ -296,8 +303,13 @@ function installBrowserFakes(): BrowserFakes {
       createAnalyser() {
         return {
           fftSize: 0,
-          frequencyBinCount: 4,
+          frequencyBinCount: 32,
           connect() {},
+          getByteFrequencyData(data: Uint8Array) {
+            data.forEach((_value, index) => {
+              data[index] = Math.max(20, 235 - index * 6);
+            });
+          },
           getByteTimeDomainData(data: Uint8Array) {
             data.fill(255);
           }

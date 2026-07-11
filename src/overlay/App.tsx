@@ -1,49 +1,37 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent, ReactElement } from "react";
-import type { PlaybackOverlayBridge } from "../shared/bridge-contracts.js";
+import type { CSSProperties, ReactElement } from "react";
+import {
+  PLAYBACK_OVERLAY_TIMING,
+  type PlaybackOverlayBridge
+} from "../shared/bridge-contracts.js";
 
-const BAR_COUNT = 10;
-const DRAG_HOLD_MS = 320;
-const DRAG_START_TOLERANCE_PX = 5;
+const BAR_COUNT = 13;
 
 interface OverlayState {
   visible: boolean;
   leaving: boolean;
-  amplitude: number;
   progress: number;
+  status: OverlayStatus;
 }
 
-interface OverlayDragState {
-  hasLongPressActivated: boolean;
-  pointerId?: number;
-  holdTimer?: number;
-  startScreenX: number;
-  startScreenY: number;
-  lastScreenX: number;
-  lastScreenY: number;
+type OverlayStatus = "preparing" | "playing" | "finished" | "failed" | "stopped";
+
+interface WaveformMotion {
+  energy: number;
+  levels: number[];
+  phase: number;
 }
 
 export function PlaybackOverlayApp({ overlayBridge }: { overlayBridge: PlaybackOverlayBridge }): ReactElement {
   const [state, setState] = useState<OverlayState>({
     visible: false,
     leaving: false,
-    amplitude: 0,
-    progress: 0
+    progress: 0,
+    status: "preparing"
   });
-  const [phase, setPhase] = useState(0);
-  const [dragging, setDragging] = useState(false);
-  const dragState = useRef<OverlayDragState | undefined>(undefined);
-
-  const clearDragHoldTimer = (): void => {
-    if (dragState.current?.holdTimer) window.clearTimeout(dragState.current.holdTimer);
-    if (dragState.current) dragState.current.holdTimer = undefined;
-  };
-
-  const cancelDrag = (): void => {
-    clearDragHoldTimer();
-    dragState.current = undefined;
-    setDragging(false);
-  };
+  const [motion, setMotion] = useState<WaveformMotion>(() => createRestingMotion());
+  const motionTarget = useRef({ energy: 0.08, levels: createEmptyLevels() });
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {
     let hideTimer: number | undefined;
@@ -51,161 +39,240 @@ export function PlaybackOverlayApp({ overlayBridge }: { overlayBridge: PlaybackO
       if (hideTimer) window.clearTimeout(hideTimer);
       hideTimer = undefined;
     };
-    const leave = (): void => {
+    const showOutcome = (status: Exclude<OverlayStatus, "preparing" | "playing">): void => {
       clearHideTimer();
-      cancelDrag();
+      motionTarget.current = { energy: 0, levels: createEmptyLevels() };
       setState((current) => ({
         ...current,
         visible: true,
-        leaving: true,
-        amplitude: 0
+        leaving: false,
+        progress: status === "finished" ? 1 : current.progress,
+        status
       }));
       hideTimer = window.setTimeout(() => {
-        setState((current) => ({ ...current, visible: false, leaving: false }));
-      }, 170);
+        setState((current) => ({ ...current, leaving: true }));
+        hideTimer = window.setTimeout(() => {
+          setState((current) => ({ ...current, visible: false, leaving: false }));
+        }, PLAYBACK_OVERLAY_TIMING.transitionMs);
+      }, outcomeHoldMs(status));
     };
 
     const subscriptions = [
       overlayBridge.onOverlayShow(() => {
         clearHideTimer();
-        setState({ visible: true, leaving: false, amplitude: 0.1, progress: 0 });
+        motionTarget.current = { energy: 0.08, levels: createEmptyLevels() };
+        setMotion(createRestingMotion());
+        setState({ visible: true, leaving: false, progress: 0, status: "preparing" });
       }),
       overlayBridge.onOverlayMetric((metric) => {
-        setState((current) => ({
-          ...current,
-          amplitude: clamp01(metric.amplitude),
-          progress: Math.max(current.progress, clamp01(metric.progress))
-        }));
+        const amplitude = clamp01(metric.amplitude);
+        motionTarget.current = {
+          energy: amplitude,
+          levels: normalizeWaveformLevels(metric.levels, amplitude)
+        };
+        setState((current) => {
+          if (!current.visible || !isActiveStatus(current.status)) return current;
+          return {
+            ...current,
+            progress: Math.max(current.progress, clamp01(metric.progress)),
+            status: "playing"
+          };
+        });
       }),
-      overlayBridge.onOverlayFinish(leave),
-      overlayBridge.onOverlayFail(leave),
-      overlayBridge.onOverlayStop(leave)
+      overlayBridge.onOverlayFinish(() => showOutcome("finished")),
+      overlayBridge.onOverlayFail(() => showOutcome("failed")),
+      overlayBridge.onOverlayStop(() => showOutcome("stopped"))
     ];
+    void overlayBridge.notifyOverlayReady();
 
     return () => {
       clearHideTimer();
-      cancelDrag();
       for (const unsubscribe of subscriptions) unsubscribe();
     };
   }, []);
 
   useEffect(() => {
-    if (!state.visible || state.leaving) return undefined;
+    if (!state.visible || state.leaving || !isActiveStatus(state.status) || prefersReducedMotion) return undefined;
     let frame = 0;
     let previous = performance.now();
     const tick = (now: number): void => {
       const delta = Math.min(34, now - previous);
       previous = now;
-      setPhase((current) => (current + delta * (0.006 + state.amplitude * 0.014)) % (Math.PI * 2));
+      setMotion((current) => {
+        const target = motionTarget.current;
+        const energy = smoothMotionValue(current.energy, target.energy, delta, 68, 190);
+        const levels = current.levels.map((level, index) =>
+          smoothMotionValue(level, target.levels[index] ?? target.energy, delta, 54, 220)
+        );
+        return {
+          energy,
+          levels,
+          phase: (current.phase + delta * (0.0045 + energy * 0.0065)) % (Math.PI * 2)
+        };
+      });
       frame = window.requestAnimationFrame(tick);
     };
     frame = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(frame);
-  }, [state.amplitude, state.leaving, state.visible]);
+  }, [prefersReducedMotion, state.leaving, state.status, state.visible]);
 
   const barScales = useMemo(
     () =>
       Array.from({ length: BAR_COUNT }, (_, index) => {
         const center = 1 - Math.abs((index - (BAR_COUNT - 1) / 2) / ((BAR_COUNT - 1) / 2));
-        const carrier = 0.5 + Math.sin(phase + index * 0.62) * 0.5;
-        const detail = 0.5 + Math.cos(phase * 0.74 + index * 1.17) * 0.5;
-        const energy = Math.max(0.12, state.amplitude);
-        const scale = 0.2 + center * 0.28 + energy * (0.16 + center * (0.9 * carrier + 0.42 * detail));
-        return Math.min(1, scale);
+        if (prefersReducedMotion) return 0.24 + center * 0.18;
+        if (state.status === "preparing") {
+          const carrier = 0.5 + Math.sin(motion.phase - index * 0.7) * 0.5;
+          const undertow = 0.5 + Math.cos(motion.phase * 0.62 + index * 0.44) * 0.5;
+          return 0.17 + center * 0.1 + carrier * 0.11 + undertow * 0.035;
+        }
+        const level = motion.levels[index] ?? motion.energy;
+        const neighborLevel =
+          ((motion.levels[index - 1] ?? level) + (motion.levels[index + 1] ?? level)) / 2;
+        const blendedLevel = level * 0.72 + neighborLevel * 0.28;
+        const shapedLevel = Math.pow(blendedLevel, 1.3);
+        const flow = Math.sin(motion.phase - index * 0.48) * (0.035 + motion.energy * 0.065);
+        return Math.min(
+          1,
+          Math.max(0.12, 0.13 + center * 0.06 + shapedLevel * 0.76 + motion.energy * 0.05 + flow)
+        );
       }),
-    [phase, state.amplitude]
+    [motion, prefersReducedMotion, state.status]
   );
-
-  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    if (event.button !== 0 || !state.visible || state.leaving) return;
-
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragState.current = {
-      hasLongPressActivated: false,
-      pointerId: event.pointerId,
-      startScreenX: event.screenX,
-      startScreenY: event.screenY,
-      lastScreenX: event.screenX,
-      lastScreenY: event.screenY
-    };
-    dragState.current.holdTimer = window.setTimeout(() => {
-      if (!dragState.current || dragState.current.pointerId !== event.pointerId) return;
-      dragState.current.hasLongPressActivated = true;
-      setDragging(true);
-    }, DRAG_HOLD_MS);
-  };
-
-  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    const drag = dragState.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-
-    const deltaFromStart = Math.hypot(event.screenX - drag.startScreenX, event.screenY - drag.startScreenY);
-    if (!drag.hasLongPressActivated) {
-      if (deltaFromStart > DRAG_START_TOLERANCE_PX) cancelDrag();
-      return;
-    }
-
-    event.preventDefault();
-    const deltaX = event.screenX - drag.lastScreenX;
-    const deltaY = event.screenY - drag.lastScreenY;
-    drag.lastScreenX = event.screenX;
-    drag.lastScreenY = event.screenY;
-    if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) return;
-    void overlayBridge.moveOverlayBy({ deltaX, deltaY });
-  };
-
-  const handlePointerRelease = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    const pointerId = dragState.current?.pointerId;
-    if (pointerId !== undefined && event.currentTarget.hasPointerCapture(pointerId)) {
-      event.currentTarget.releasePointerCapture(pointerId);
-    }
-    cancelDrag();
-  };
 
   const overlayClassName = [
     "overlay-root",
     state.visible ? "is-visible" : "",
     state.leaving ? "is-leaving" : "",
-    dragging ? "is-dragging" : ""
+    `is-${state.status}`
   ]
     .filter(Boolean)
     .join(" ");
 
+  const progressPercent = Math.round(state.progress * 100);
+  const statusLabel = overlayStatusLabel(state.status);
+  const pillStyle: CSSProperties = {
+    transform:
+      !prefersReducedMotion && state.status === "playing"
+        ? `scaleX(${1 + motion.energy * 0.012})`
+        : "scaleX(1)"
+  };
+
   return (
-    <div aria-hidden={!state.visible} aria-label="Playback Overlay" className={overlayClassName}>
-      <div
-        className="overlay-pill"
-        onContextMenu={(event) => event.preventDefault()}
-        onLostPointerCapture={handlePointerRelease}
-        onPointerCancel={handlePointerRelease}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerRelease}
+    <div aria-hidden={!state.visible} className={overlayClassName}>
+      <span
+        aria-atomic="true"
+        aria-live={state.status === "failed" ? "assertive" : "polite"}
+        className="sr-only"
+        role={state.status === "failed" ? "alert" : "status"}
       >
+        {statusLabel}
+      </span>
+      <div className="overlay-pill" style={pillStyle}>
         <div
-          aria-label="Playback progress"
+          aria-hidden={state.status !== "playing"}
+          aria-label="朗读进度"
           aria-valuemax={100}
           aria-valuemin={0}
-          aria-valuenow={Math.round(state.progress * 100)}
-          className="hover-progress"
-          role="progressbar"
+          aria-valuenow={progressPercent}
+          aria-valuetext={`约 ${progressPercent}%`}
+          className="playback-progress"
+          role={state.status === "playing" ? "progressbar" : undefined}
         >
           <span style={{ transform: `scaleX(${state.progress})` }} />
         </div>
         <div className="waveform" aria-hidden="true">
-          {barScales.map((barScale, index) => (
-            <span
-              className="waveform-bar"
-              key={index}
-              style={{
-                transform: `scaleY(${barScale})`
-              }}
-            />
-          ))}
+          <span
+            className="waveform-aura"
+            style={{
+              opacity: state.status === "playing" ? 0.08 + motion.energy * 0.2 : 0.06,
+              transform: `scaleX(${0.72 + motion.energy * 0.28})`
+            }}
+          />
+          <div className="waveform-bars">
+            {barScales.map((barScale, index) => (
+              <span
+                className="waveform-bar"
+                key={index}
+                style={{
+                  opacity: 0.58 + barScale * 0.42,
+                  transform: `scaleY(${barScale})`
+                }}
+              />
+            ))}
+          </div>
         </div>
+        <span aria-hidden="true" className="outcome-mark" />
       </div>
     </div>
   );
+}
+
+function overlayStatusLabel(status: OverlayStatus): string {
+  if (status === "preparing") return "正在准备朗读，按 Esc 停止";
+  if (status === "playing") return "正在朗读，按 Esc 停止";
+  if (status === "finished") return "朗读完成";
+  if (status === "failed") return "朗读失败。请从菜单栏打开 VoiceReader，检查连接和朗读设置后重试。";
+  return "已停止朗读";
+}
+
+function outcomeHoldMs(status: Exclude<OverlayStatus, "preparing" | "playing">): number {
+  if (status === "finished") return PLAYBACK_OVERLAY_TIMING.outcomeHoldMs.finish;
+  if (status === "failed") return PLAYBACK_OVERLAY_TIMING.outcomeHoldMs.fail;
+  return PLAYBACK_OVERLAY_TIMING.outcomeHoldMs.stop;
+}
+
+function isActiveStatus(status: OverlayStatus): boolean {
+  return status === "preparing" || status === "playing";
+}
+
+function createEmptyLevels(): number[] {
+  return Array.from({ length: BAR_COUNT }, () => 0);
+}
+
+function createRestingMotion(): WaveformMotion {
+  return { energy: 0.08, levels: createEmptyLevels(), phase: 0 };
+}
+
+function normalizeWaveformLevels(levels: number[] | undefined, amplitude: number): number[] {
+  if (!levels?.length) {
+    const centerIndex = (BAR_COUNT - 1) / 2;
+    return Array.from({ length: BAR_COUNT }, (_, index) => {
+      const center = 1 - Math.abs(index - centerIndex) / centerIndex;
+      return clamp01(amplitude * (0.46 + center * 0.38));
+    });
+  }
+  return Array.from({ length: BAR_COUNT }, (_, index) => {
+    const sourceIndex = Math.round((index / (BAR_COUNT - 1)) * (levels.length - 1));
+    return clamp01(levels[sourceIndex] ?? amplitude);
+  });
+}
+
+function smoothMotionValue(
+  current: number,
+  target: number,
+  deltaMs: number,
+  attackMs: number,
+  releaseMs: number
+): number {
+  const timeConstant = target > current ? attackMs : releaseMs;
+  return current + (target - current) * (1 - Math.exp(-deltaMs / timeConstant));
+}
+
+function usePrefersReducedMotion(): boolean {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(
+    () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+  );
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!mediaQuery) return undefined;
+    const updatePreference = (): void => setPrefersReducedMotion(mediaQuery.matches);
+    mediaQuery.addEventListener("change", updatePreference);
+    return () => mediaQuery.removeEventListener("change", updatePreference);
+  }, []);
+
+  return prefersReducedMotion;
 }
 
 function clamp01(value: number): number {

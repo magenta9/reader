@@ -72,6 +72,26 @@ describe("PlaybackCommandController", () => {
     }
   });
 
+  it("reports an unavailable Stop Shortcut while preserving the explicit stop fallback", async () => {
+    const store = createCommandStore();
+    const playback = createPlaybackPort();
+    const shortcuts = createShortcutRegistry();
+    shortcuts.failures.add("Escape");
+    const commands = new PlaybackCommandController(
+      store,
+      playback.port,
+      shortcuts,
+      async () => selectedTextTargetInput("停止快捷键不可用。")
+    );
+
+    const result = await commands.startReadingTargetPlayback();
+
+    expect(result).toMatchObject({ started: true, stopShortcutAvailable: false });
+    expect(shortcuts.handlers.has("Escape")).toBe(false);
+    commands.stopPlayback();
+    expect(playback.events.at(-1)).toEqual(["stop", result.sessionId]);
+  });
+
   it("normalizes Activation Shortcut updates and preserves the previous shortcut on registration failure", () => {
     const store = createCommandStore();
     const playback = createPlaybackPort();

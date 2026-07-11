@@ -48,7 +48,7 @@ describe("ElectronPlaybackOutput", () => {
       [RENDERER_AUDIO_CHANNELS.endSegment, { sessionId: 101 }],
       [RENDERER_AUDIO_CHANNELS.finishSession, { sessionId: 101 }]
     ]);
-    expect(overlayActions).toEqual(["show"]);
+    expect(overlayActions).toEqual(["show:101"]);
   });
 
   it.each([
@@ -72,7 +72,8 @@ describe("ElectronPlaybackOutput", () => {
   it("sends terminal feedback to an optional Reader Window without routing audio through it", async () => {
     const renderer = createWindow();
     const reader = createWindow();
-    const output = await createOutput({ playbackRenderer: renderer, readerWindow: reader });
+    const overlayActions: string[] = [];
+    const output = await createOutput({ playbackRenderer: renderer, readerWindow: reader, overlayActions });
 
     output.startSession(createSession(301, PLAYBACK_FEEDBACK_SURFACES.historyDetail));
     output.audioChunk(301, new Uint8Array([9]));
@@ -97,6 +98,7 @@ describe("ElectronPlaybackOutput", () => {
       RENDERER_AUDIO_CHANNELS.startSession,
       RENDERER_AUDIO_CHANNELS.stopSession
     ]);
+    expect(overlayActions).toEqual(["show:303", "stop:303"]);
   });
 
   it("keeps Playback Overlay ownership scoped to the active Playback Session", async () => {
@@ -111,7 +113,18 @@ describe("ElectronPlaybackOutput", () => {
     output.handleRendererIdle(402);
     output.stopSession(402);
 
-    expect(overlayActions).toEqual(["show", "stop", "show"]);
+    expect(overlayActions).toEqual(["show:401", "show:402"]);
+  });
+
+  it("silently dismisses an active status capsule when the next session uses Reader feedback", async () => {
+    const renderer = createWindow();
+    const overlayActions: string[] = [];
+    const output = await createOutput({ playbackRenderer: renderer, overlayActions });
+
+    output.startSession(createSession(410, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay));
+    output.startSession(createSession(411, PLAYBACK_FEEDBACK_SURFACES.historyDetail));
+
+    expect(overlayActions).toEqual(["show:410", "dismiss"]);
   });
 
   it("destroys its owned Playback Renderer exactly once", async () => {
@@ -189,9 +202,10 @@ async function createOutput({
     createPlaybackRenderer: () => playbackRenderer.browserWindow,
     getReaderWindow: () => readerWindow?.browserWindow,
     overlay: {
-      fail: () => overlayActions.push("fail"),
-      show: () => overlayActions.push("show"),
-      stop: () => overlayActions.push("stop")
+      dismiss: () => overlayActions.push("dismiss"),
+      fail: (sessionId) => overlayActions.push(`fail:${sessionId}`),
+      show: (sessionId) => overlayActions.push(`show:${sessionId}`),
+      stop: (sessionId) => overlayActions.push(`stop:${sessionId}`)
     },
     playbackRendererEntry: "/app/playback-renderer/index.html"
   });

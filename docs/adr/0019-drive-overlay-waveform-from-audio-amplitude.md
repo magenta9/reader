@@ -1,3 +1,3 @@
 # Drive the Overlay Waveform from Audio Amplitude
 
-VoiceReader's Playback Overlay will render a waveform driven by real playback amplitude rather than a purely decorative animation. The playback renderer should derive lightweight normalized amplitude data from the active audio stream and send it to the overlay at a bounded rate; raw audio bytes are not sent to the overlay or persisted for this purpose.
+VoiceReader's Playback Overlay will render a waveform driven by real playback energy rather than a purely decorative animation. The playback renderer derives lightweight normalized amplitude plus a compact 13-level spectral profile from the active audio stream and sends it to the overlay at a bounded rate. The overlay interpolates those targets at display refresh rate with a fast attack and slower release, preserving a continuous Dynamic-Island-like form without sending raw audio bytes or persisting audio-derived metrics.

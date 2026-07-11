@@ -1,72 +1,93 @@
 import { BrowserWindow, screen } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { OverlayDragDelta, OverlayMetric } from "../../shared/app-contracts.js";
-import { PLAYBACK_OVERLAY_EVENT_CHANNELS } from "../../shared/bridge-contracts.js";
+import type { OverlayMetric, SessionOverlayMetric } from "../../shared/app-contracts.js";
+import {
+  PLAYBACK_OVERLAY_EVENT_CHANNELS,
+  PLAYBACK_OVERLAY_TIMING
+} from "../../shared/bridge-contracts.js";
 
 export class PlaybackOverlayController {
   private overlayWindow: BrowserWindow | undefined;
   private visibilityGeneration = 0;
-  private overlayLoaded = false;
+  private overlayReady = false;
   private pendingShow = false;
-  private followTimer: NodeJS.Timeout | undefined;
-  private manualPosition: OverlayWindowPosition | undefined;
+  private pendingMetric: OverlayMetric | undefined;
+  private pendingOutcome: OverlayOutcome | undefined;
+  private activeSessionId: number | undefined;
+  private maintenanceTimer: NodeJS.Timeout | undefined;
+  private anchorPosition: OverlayWindowPosition | undefined;
 
-  show(): void {
+  show(sessionId: number): void {
     this.visibilityGeneration += 1;
+    this.activeSessionId = sessionId;
     this.pendingShow = true;
-    this.manualPosition = undefined;
+    this.pendingMetric = undefined;
+    this.pendingOutcome = undefined;
     const window = this.getOrCreateWindow();
-    keepOverlayAttached(window);
+    this.anchorPosition = defaultOverlayPosition(window);
+    keepOverlayAttached(window, this.anchorPosition);
     if (!window.isVisible()) window.showInactive();
     // Re-bind after show so macOS attaches the panel to active fullscreen Spaces.
     attachOverlayToFullscreenSpaces(window);
     window.moveTop();
-    this.startFollowing();
-    this.sendPendingShow();
+    this.startMaintainingPosition();
+    this.flushPendingState();
   }
 
-  sendMetric(metric: OverlayMetric): void {
-    this.overlayWindow?.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.metric, {
+  sendMetric(metric: SessionOverlayMetric): void {
+    if (metric.sessionId !== this.activeSessionId) return;
+    const nextMetric = {
       amplitude: clamp01(metric.amplitude),
+      ...(metric.levels ? { levels: metric.levels.slice(0, OVERLAY_LEVEL_COUNT).map(clamp01) } : {}),
       progress: clamp01(metric.progress)
-    });
+    };
+    if (!this.overlayReady) {
+      this.pendingMetric = nextMetric;
+      return;
+    }
+    this.overlayWindow?.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.metric, nextMetric);
   }
 
-  moveBy(delta: OverlayDragDelta): void {
+  markReady(): void {
+    this.overlayReady = true;
+    this.flushPendingState();
+  }
+
+  finish(sessionId: number): void {
+    this.queueOutcome(sessionId, "finish");
+  }
+
+  fail(sessionId: number): void {
+    this.queueOutcome(sessionId, "fail");
+  }
+
+  stop(sessionId: number): void {
+    this.queueOutcome(sessionId, "stop");
+  }
+
+  dismiss(): void {
+    this.visibilityGeneration += 1;
+    this.activeSessionId = undefined;
+    this.pendingShow = false;
+    this.pendingMetric = undefined;
+    this.pendingOutcome = undefined;
     const window = this.overlayWindow;
-    if (!window || window.isDestroyed() || !window.isVisible()) return;
-
-    const [currentX, currentY] = window.getPosition();
-    this.manualPosition = constrainOverlayPosition(window, {
-      x: currentX + delta.deltaX,
-      y: currentY + delta.deltaY
-    });
-    window.setPosition(this.manualPosition.x, this.manualPosition.y, false);
-    window.moveTop();
-  }
-
-  finish(): void {
-    this.overlayWindow?.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.finish);
-    this.hideSoon();
-  }
-
-  fail(): void {
-    this.overlayWindow?.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.fail);
-    this.hideSoon();
-  }
-
-  stop(): void {
-    this.overlayWindow?.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.stop);
-    this.hideSoon();
+    if (window && !window.isDestroyed() && window.isVisible()) window.hide();
+    this.stopMaintainingPosition();
   }
 
   destroy(): void {
-    this.stopFollowing();
+    this.stopMaintainingPosition();
     if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
       this.overlayWindow.destroy();
     }
     this.overlayWindow = undefined;
+    this.overlayReady = false;
+    this.activeSessionId = undefined;
+    this.pendingShow = false;
+    this.pendingMetric = undefined;
+    this.pendingOutcome = undefined;
   }
 
   private getOrCreateWindow(): BrowserWindow {
@@ -97,70 +118,91 @@ export class PlaybackOverlayController {
         sandbox: false
       }
     });
-    this.overlayLoaded = false;
+    this.overlayReady = false;
+    this.overlayWindow.setIgnoreMouseEvents(true);
     attachOverlayToFullscreenSpaces(this.overlayWindow);
     this.overlayWindow.setAlwaysOnTop(true, overlayWindowLevel);
-    this.overlayWindow.webContents.once("did-finish-load", () => {
-      this.overlayLoaded = true;
-      this.sendPendingShow();
+    this.overlayWindow.webContents.on("did-start-loading", () => {
+      this.overlayReady = false;
     });
     void this.overlayWindow.loadFile(join(mainBundleDir, "../overlay/index.html"));
     return this.overlayWindow;
   }
 
-  private sendPendingShow(): void {
-    if (!this.pendingShow || !this.overlayLoaded || !this.overlayWindow || this.overlayWindow.isDestroyed()) {
-      return;
-    }
-    this.pendingShow = false;
-    this.overlayWindow.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.show);
+  private queueOutcome(sessionId: number, outcome: OverlayOutcome): void {
+    if (sessionId !== this.activeSessionId) return;
+    this.activeSessionId = undefined;
+    this.pendingOutcome = outcome;
+    this.flushPendingState();
   }
 
-  private hideSoon(): void {
+  private flushPendingState(): void {
+    const window = this.overlayWindow;
+    if (!this.overlayReady || !window || window.isDestroyed()) return;
+    if (this.pendingShow) {
+      this.pendingShow = false;
+      window.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.show);
+    }
+    if (this.pendingMetric) {
+      window.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.metric, this.pendingMetric);
+      this.pendingMetric = undefined;
+    }
+    if (this.pendingOutcome) {
+      const outcome = this.pendingOutcome;
+      this.pendingOutcome = undefined;
+      window.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS[outcome]);
+      this.hideAfterOutcome(outcome);
+    }
+  }
+
+  private hideAfterOutcome(outcome: keyof typeof PLAYBACK_OVERLAY_TIMING.outcomeHoldMs): void {
     const generation = ++this.visibilityGeneration;
     const window = this.overlayWindow;
     if (!window || window.isDestroyed()) return;
-    setTimeout(() => {
-      if (generation !== this.visibilityGeneration) return;
-      if (!window.isDestroyed()) {
-        window.hide();
-        this.stopFollowing();
-      }
-    }, 180);
+    setTimeout(
+      () => {
+        if (generation !== this.visibilityGeneration) return;
+        if (!window.isDestroyed()) {
+          window.hide();
+          this.stopMaintainingPosition();
+        }
+      },
+      PLAYBACK_OVERLAY_TIMING.outcomeHoldMs[outcome] +
+        PLAYBACK_OVERLAY_TIMING.transitionMs +
+        PLAYBACK_OVERLAY_TIMING.controllerBufferMs
+    );
   }
 
-  private startFollowing(): void {
-    this.stopFollowing();
-    this.followTimer = setInterval(() => {
+  private startMaintainingPosition(): void {
+    this.stopMaintainingPosition();
+    this.maintenanceTimer = setInterval(() => {
       const window = this.overlayWindow;
-      if (!window || window.isDestroyed() || !window.isVisible()) return;
-      keepOverlayAttached(window, this.manualPosition);
+      const position = this.anchorPosition;
+      if (!window || !position || window.isDestroyed() || !window.isVisible()) return;
+      keepOverlayAttached(window, position);
       window.moveTop();
     }, 250);
   }
 
-  private stopFollowing(): void {
-    if (this.followTimer) clearInterval(this.followTimer);
-    this.followTimer = undefined;
+  private stopMaintainingPosition(): void {
+    if (this.maintenanceTimer) clearInterval(this.maintenanceTimer);
+    this.maintenanceTimer = undefined;
   }
 }
 
 const mainBundleDir = dirname(fileURLToPath(import.meta.url));
+const OVERLAY_LEVEL_COUNT = 13;
+type OverlayOutcome = keyof typeof PLAYBACK_OVERLAY_TIMING.outcomeHoldMs;
 
 interface OverlayWindowPosition {
   x: number;
   y: number;
 }
 
-function keepOverlayAttached(window: BrowserWindow, manualPosition?: OverlayWindowPosition): void {
+function keepOverlayAttached(window: BrowserWindow, position: OverlayWindowPosition): void {
   refreshOverlayWorkspaceAttachment(window);
   window.setAlwaysOnTop(true, overlayWindowLevel);
-  if (manualPosition) {
-    const position = constrainOverlayPosition(window, manualPosition);
-    window.setPosition(position.x, position.y, false);
-    return;
-  }
-  positionOverlayWindow(window);
+  window.setPosition(position.x, position.y, false);
 }
 
 function attachOverlayToFullscreenSpaces(window: BrowserWindow): void {
@@ -179,27 +221,13 @@ function refreshOverlayWorkspaceAttachment(window: BrowserWindow): void {
 
 const overlayWindowLevel = "screen-saver";
 
-function positionOverlayWindow(window: BrowserWindow): void {
+function defaultOverlayPosition(window: BrowserWindow): OverlayWindowPosition {
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const bounds = display.workArea;
   const [width, height] = window.getSize();
-  window.setPosition(
-    Math.round(bounds.x + (bounds.width - width) / 2),
-    Math.round(bounds.y + bounds.height - height - 28),
-    false
-  );
-}
-
-function constrainOverlayPosition(window: BrowserWindow, position: OverlayWindowPosition): OverlayWindowPosition {
-  const [width, height] = window.getSize();
-  const display = screen.getDisplayNearestPoint({
-    x: position.x + width / 2,
-    y: position.y + height / 2
-  });
-  const bounds = display.workArea;
   return {
-    x: Math.round(Math.max(bounds.x, Math.min(position.x, bounds.x + bounds.width - width))),
-    y: Math.round(Math.max(bounds.y, Math.min(position.y, bounds.y + bounds.height - height)))
+    x: Math.round(bounds.x + (bounds.width - width) / 2),
+    y: Math.round(bounds.y + bounds.height - height - 28)
   };
 }
 

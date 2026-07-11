@@ -113,14 +113,17 @@ export class PlaybackCommandController {
     play: () => Promise<PlaybackStartResult>
   ): Promise<PlaybackStartResult> {
     const result = await play();
-    if (result.started) this.registerStopShortcut(result.sessionId);
-    return result;
+    if (!result.started) return result;
+    return {
+      ...result,
+      stopShortcutAvailable: this.registerStopShortcut(result.sessionId)
+    };
   }
 
-  private registerStopShortcut(sessionId: number | undefined): void {
+  private registerStopShortcut(sessionId: number | undefined): boolean {
     this.stopShortcutSessionId = sessionId;
     this.shortcuts.unregister(STOP_SHORTCUT);
-    this.shortcuts.register(STOP_SHORTCUT, this.stopPlaybackFromShortcut);
+    return this.shortcuts.register(STOP_SHORTCUT, this.stopPlaybackFromShortcut);
   }
 
   private unregisterStopShortcut(): void {

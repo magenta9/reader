@@ -1,4 +1,4 @@
-import type { OverlayDragDelta, OverlayMetric } from "../../shared/app-contracts.js";
+import type { OverlayMetric } from "../../shared/app-contracts.js";
 import {
   PLAYBACK_OVERLAY_COMMAND_CHANNELS,
   PLAYBACK_OVERLAY_EVENT_CHANNELS,
@@ -18,7 +18,6 @@ export function createPlaybackOverlayBridge(ipc: PreloadIpc): PlaybackOverlayBri
       subscribeVoid(ipc, PLAYBACK_OVERLAY_EVENT_CHANNELS.fail, listener),
     onOverlayStop: (listener: () => void) =>
       subscribeVoid(ipc, PLAYBACK_OVERLAY_EVENT_CHANNELS.stop, listener),
-    moveOverlayBy: (delta: OverlayDragDelta) =>
-      invoke<void>(ipc, PLAYBACK_OVERLAY_COMMAND_CHANNELS.moveBy, delta)
+    notifyOverlayReady: () => invoke<void>(ipc, PLAYBACK_OVERLAY_COMMAND_CHANNELS.ready)
   };
 }

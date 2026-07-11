@@ -1,4 +1,4 @@
-import type { AppSettings } from "../../shared/app-contracts.js";
+import type { AppSettings, AppSettingsPatch, HistoryRetention } from "../../shared/app-contracts.js";
 import { APP_DATA_CHANNELS } from "../../shared/bridge-contracts.js";
 import type { DetectedLanguage } from "../../shared/types.js";
 import type { AppBridgeHandlerDependencies } from "./dependencies.js";
@@ -16,8 +16,8 @@ export function registerAppDataHandlers({
   playbackCommands
 }: AppDataHandlerDependencies): void {
   ipcMain.handle(APP_DATA_CHANNELS.getSettings, () => appDataStore.getSettings());
-  ipcMain.handle(APP_DATA_CHANNELS.updateSettings, (_event, patch: Partial<AppSettings>) =>
-    appDataStore.updateSettings(patch)
+  ipcMain.handle(APP_DATA_CHANNELS.updateSettings, (_event, patch: AppSettingsPatch) =>
+    appDataStore.updateSettings(withoutHistoryRetention(patch))
   );
   ipcMain.handle(APP_DATA_CHANNELS.setLaunchAtLogin, (_event, launchAtLogin: boolean) => {
     app.setLoginItemSettings({ openAtLogin: launchAtLogin });
@@ -41,9 +41,20 @@ export function registerAppDataHandlers({
   ipcMain.handle(APP_DATA_CHANNELS.getErrorLogCount, () => appDataStore.getErrorLogCount());
   ipcMain.handle(APP_DATA_CHANNELS.clearErrorLog, () => appDataStore.clearErrorLogs());
   ipcMain.handle(APP_DATA_CHANNELS.getReadingHistoryCount, () => appDataStore.getReadingHistoryCount());
+  ipcMain.handle(APP_DATA_CHANNELS.previewReadingHistoryRetention, (_event, historyRetention: HistoryRetention) =>
+    appDataStore.previewReadingHistoryRetention(historyRetention)
+  );
+  ipcMain.handle(
+    APP_DATA_CHANNELS.applyReadingHistoryRetention,
+    (_event, historyRetention: HistoryRetention, expectedDeleteCount: number) =>
+      appDataStore.applyReadingHistoryRetention(historyRetention, expectedDeleteCount)
+  );
   ipcMain.handle(APP_DATA_CHANNELS.listReadingHistory, () => appDataStore.listReadingHistoryRecords());
   ipcMain.handle(APP_DATA_CHANNELS.deleteReadingHistoryRecord, (_event, id: string) =>
     appDataStore.deleteReadingHistoryRecord(id)
+  );
+  ipcMain.handle(APP_DATA_CHANNELS.undoReadingHistoryDeletion, (_event, undoToken: string) =>
+    appDataStore.undoReadingHistoryDeletion(undoToken)
   );
   ipcMain.handle(APP_DATA_CHANNELS.clearReadingHistory, () => appDataStore.clearReadingHistory());
   ipcMain.handle(APP_DATA_CHANNELS.createFavoriteFromHistoryRecord, (_event, id: string) =>
@@ -53,4 +64,13 @@ export function registerAppDataHandlers({
   ipcMain.handle(APP_DATA_CHANNELS.deleteFavoriteRecord, (_event, id: string) =>
     appDataStore.deleteFavoriteRecord(id)
   );
+  ipcMain.handle(APP_DATA_CHANNELS.undoFavoriteDeletion, (_event, undoToken: string) =>
+    appDataStore.undoFavoriteDeletion(undoToken)
+  );
+}
+
+function withoutHistoryRetention(patch: AppSettingsPatch): AppSettingsPatch {
+  const safePatch = { ...patch } as Partial<AppSettings>;
+  delete safePatch.historyRetention;
+  return safePatch;
 }

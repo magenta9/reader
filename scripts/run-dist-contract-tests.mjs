@@ -267,8 +267,8 @@ assertIncludes(mainBundle, [
   "setPosition",
   APP_SHELL_CHANNELS.navigate,
   PLAYBACK_OVERLAY_EVENT_CHANNELS.metric,
-  PLAYBACK_OVERLAY_COMMAND_CHANNELS.moveBy,
   PLAYBACK_OVERLAY_COMMAND_CHANNELS.finishPlayback,
+  PLAYBACK_OVERLAY_COMMAND_CHANNELS.ready,
   PLAYBACK_CONTROL_CHANNELS.rendererIdle,
   "PlaybackCommandController",
   "ElectronPlaybackOutput",
@@ -297,6 +297,7 @@ assertIncludes(mainSource, [
   "playbackRendererEntry",
   "playbackOutput.destroy()",
   "registerAppBridgeHandlers",
+  'label: "停止朗读"',
   "() => readingTargetAcquirer.acquire()"
 ]);
 assertIncludes(appBridgeHandlersSource, [
@@ -583,7 +584,7 @@ for (const label of [
   "MiniMax API Key",
   "验证连接",
   "刷新 Voice",
-  "快捷键已注册",
+  "开始朗读快捷键可用",
   "0.5",
   "3",
   "自定义 Model ID",
@@ -597,7 +598,7 @@ for (const label of [
   "收藏于",
   "原朗读",
   "收藏重播中",
-  "Error Log"
+  "错误记录"
 ]) {
   assert.equal(readerWindowAppSource.includes(label), true);
 }
@@ -606,14 +607,35 @@ assert.equal(readerWindowAppSource.includes("function Home"), true);
 assert.equal(readerWindowAppSource.includes("getSetupRecoveryAction"), true);
 assert.equal(readerWindowAppSource.includes('role="group"'), true);
 assert.equal(readerWindowAppSource.includes("aria-pressed"), true);
-for (const homeClass of [".home-dashboard", ".health-strip", ".command-panel", ".setup-action", ".voice-panel"]) {
+assertIncludes(readerWindowAppSource, ["SETTINGS_GROUP_IDS", "aria-labelledby={SETTINGS_GROUP_IDS[group]}"]);
+for (const homeClass of [
+  ".home-dashboard",
+  ".command-panel",
+  ".setup-action",
+  ".home-status-line",
+  ".shortcut-status",
+  ".home-options"
+]) {
   assert.equal(rendererCssSource.includes(homeClass), true);
 }
+assertMissing(rendererCssSource, [
+  ".health-strip",
+  ".shortcut-card",
+  ".shortcut-hint",
+  ".status-dot",
+  ".voice-panel"
+]);
 assertIncludes(rendererCssSource, ["--window-drag-height", "-webkit-app-region: drag"]);
 assert.equal(rendererCssSource.includes("prefers-color-scheme: dark"), true);
 assert.equal(rendererCssSource.includes(".brand-mark"), true);
 assert.equal(rendererCssSource.includes("background: transparent"), true);
-assert.equal(rendererCssSource.includes("grid-template-columns: repeat(2"), true);
+assertIncludes(rendererCssSource, [
+  "container-type: inline-size",
+  "grid-template-columns: 176px minmax(0, 1fr)",
+  ".settings-section + .settings-section",
+  "@container (max-width: 620px)"
+]);
+assertMissing(rendererCssSource, ["grid-template-columns: repeat(2"]);
 assert.equal(rendererCssSource.includes(".shortcut-recorder"), true);
 assert.equal(rendererCssSource.includes(".range-control"), true);
 assertMissing(overlayHtml, "manifest.json");
@@ -622,17 +644,17 @@ assertIncludes(overlayBundle, ["onOverlayShow", "onOverlayMetric", "scaleY"]);
 assertMissing(overlayBundle, ["stopPlayback", "×", "\\xD7", "播放"]);
 assertMissing(playbackOverlayAppSource, "viewBox");
 assertIncludes(playbackOverlayAppSource, ["progress: number", "Math.max(current.progress", "scaleX"]);
-assertIncludes(overlayCss, ["transparent", "--pill: #000", "--pill-border", "border: 1px solid var(--pill-border)", "prefers-reduced-motion", "width: 120px", "height: 32px", "gap: 4px", "padding: 0 15px", "width: 3.6px", ".overlay-root.is-visible .overlay-pill:hover", ".hover-progress span", "scale(1.035)"]);
+assertIncludes(overlayCss, ["transparent", "--pill: #000", "--pill-border", "border: 1px solid var(--pill-border)", "prefers-reduced-motion", "width: 120px", "height: 32px", "gap: 2.65px", "width: 2.6px", ".waveform-aura", ".waveform-bars", ".overlay-root.is-playing .playback-progress", ".playback-progress span", ".overlay-root.is-preparing .waveform"]);
 assertMissing(overlayCss, [".close-button", "grid-template-columns:", "--pill: #000;\n    --shadow", "button {", "box-shadow: inset 0 1px 0"]);
 assertIncludes(playbackOverlayControllerSource, ["type: \"panel\"", "width: 132", "height: 44", 'const overlayWindowLevel = "screen-saver"', "getDisplayNearestPoint(screen.getCursorScreenPoint())", "skipTransformProcessType"]);
 assertIncludes(playbackOverlayControllerSource, "attachOverlayToFullscreenSpaces(window);\n    window.moveTop()");
 assertIncludes(playbackOverlayControllerSource, "refreshOverlayWorkspaceAttachment(window)");
 assertIncludes(playbackOverlayControllerSource, "metric.progress");
-assertOverlayDragCoverage();
-assertIncludes(playbackAudioSource, ["segmentWeights", "getSessionProgress", "progress:"]);
+assertOverlayPassiveCoverage();
+assertIncludes(playbackAudioSource, ["segmentWeights", "getSessionProgress", "createVoiceLevels", "smoothingTimeConstant", "levels,", "progress:"]);
 assertMissing(playbackAudioSource, "const progress = audioProgress");
-assertIncludes(playbackOverlayAppSource, "const BAR_COUNT = 10");
-assertIncludes(appContractsSource, "progress: number");
+assertIncludes(playbackOverlayAppSource, ["const BAR_COUNT = 13", "smoothMotionValue", "normalizeWaveformLevels"]);
+assertIncludes(appContractsSource, ["levels?: number[]", "progress: number"]);
 assert.equal(packageScript.includes("dereference: true"), false);
 assert.equal(packageScript.includes("verbatimSymlinks: true"), true);
 assert.equal(packageScript.includes("default_app.asar"), true);
@@ -682,7 +704,7 @@ assert.deepEqual(completeDeliveryScenario.playbackRenderer.messages, [
   [RENDERER_AUDIO_CHANNELS.endSegment, { sessionId: 101 }],
   [RENDERER_AUDIO_CHANNELS.finishSession, { sessionId: 101 }]
 ]);
-assert.deepEqual(completeDeliveryScenario.overlayActions, ["show"]);
+assert.deepEqual(completeDeliveryScenario.overlayActions, ["show:101"]);
 
 const readerWindow = createPlaybackWindowForTest();
 const terminalFeedbackScenario = await createElectronPlaybackOutputScenario({ readerWindow });
@@ -711,7 +733,7 @@ assert.deepEqual(
     RENDERER_AUDIO_CHANNELS.stopSession
   ]
 );
-assert.deepEqual(terminalFeedbackScenario.overlayActions, ["show", "stop"]);
+assert.deepEqual(terminalFeedbackScenario.overlayActions, ["show:203", "stop:203"]);
 
 const overlayOwnershipScenario = await createElectronPlaybackOutputScenario();
 overlayOwnershipScenario.output.startSession(createOverlayPlaybackSessionForTest(301));
@@ -720,7 +742,7 @@ overlayOwnershipScenario.output.startSession(createOverlayPlaybackSessionForTest
 overlayOwnershipScenario.output.stopSession(301);
 overlayOwnershipScenario.output.handleRendererIdle(302);
 overlayOwnershipScenario.output.stopSession(302);
-assert.deepEqual(overlayOwnershipScenario.overlayActions, ["show", "stop", "show"]);
+assert.deepEqual(overlayOwnershipScenario.overlayActions, ["show:301", "show:302"]);
 
 completeDeliveryScenario.output.destroy();
 assert.throws(
@@ -764,18 +786,26 @@ function assertMissing(source, expected) {
   }
 }
 
-function assertOverlayDragCoverage() {
-  assertIncludes(overlayBundle, "moveOverlayBy");
+function assertOverlayPassiveCoverage() {
   assertIncludes(playbackOverlayAppSource, [
-    "DRAG_HOLD_MS",
-    "setPointerCapture",
-    "hasLongPressActivated",
-    "cancelDrag();\n      setState",
-    "moveOverlayBy"
+    'status: "preparing"',
+    'status: "playing"',
+    "notifyOverlayReady",
+    'aria-label="朗读进度"',
+    'className="sr-only"'
   ]);
-  assertIncludes(overlayCss, ["cursor: grab", ".overlay-root.is-dragging .overlay-pill"]);
-  assertIncludes(playbackOverlayControllerSource, ["moveBy(delta", "manualPosition", "constrainOverlayPosition"]);
-  assertIncludes(playbackOverlayBridgeSource, ["OverlayDragDelta", "moveOverlayBy"]);
+  assertMissing(playbackOverlayAppSource, ["DRAG_HOLD_MS", "setPointerCapture", "moveOverlayBy"]);
+  assertMissing(overlayCss, ["cursor: grab", ".is-dragging", ":hover"]);
+  assertIncludes(playbackOverlayControllerSource, [
+    "setIgnoreMouseEvents(true)",
+    "pendingOutcome",
+    "activeSessionId",
+    "markReady",
+    "anchorPosition"
+  ]);
+  assertMissing(playbackOverlayControllerSource, ["moveBy(delta", "manualPosition", "constrainOverlayPosition"]);
+  assertIncludes(playbackOverlayBridgeSource, ["notifyOverlayReady", 'ready: "overlay:ready"']);
+  assertMissing(playbackOverlayBridgeSource, ["OverlayDragDelta", "moveOverlayBy"]);
 }
 
 function evaluatePreloadBridge(pathname) {
@@ -827,14 +857,17 @@ function createPlaybackSessionForTest(sessionId, feedbackSurface, segmentWeights
 
 function createOverlayControllerForTest(actions) {
   return {
-    show() {
-      actions.push("show");
+    dismiss() {
+      actions.push("dismiss");
     },
-    fail() {
-      actions.push("fail");
+    show(sessionId) {
+      actions.push(`show:${sessionId}`);
     },
-    stop() {
-      actions.push("stop");
+    fail(sessionId) {
+      actions.push(`fail:${sessionId}`);
+    },
+    stop(sessionId) {
+      actions.push(`stop:${sessionId}`);
     }
   };
 }

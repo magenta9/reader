@@ -1,7 +1,7 @@
 import type {
   AudioChunkPayload,
-  OverlayMetric,
   PlaybackAudioSession,
+  SessionOverlayMetric,
   SessionPayload
 } from "../../shared/app-contracts.js";
 import {
@@ -35,8 +35,9 @@ export function createPlaybackRendererBridge(ipc: PreloadIpc): PlaybackRendererB
       subscribe(ipc, RENDERER_AUDIO_CHANNELS.audioChunk, listener),
     onSegmentEnd: (listener: (payload: SessionPayload) => void) =>
       subscribe(ipc, RENDERER_AUDIO_CHANNELS.endSegment, listener),
-    sendOverlayMetric: (metric: OverlayMetric) =>
+    sendOverlayMetric: (metric: SessionOverlayMetric) =>
       invoke<void>(ipc, PLAYBACK_OVERLAY_COMMAND_CHANNELS.metric, metric),
-    finishOverlayPlayback: () => invoke<void>(ipc, PLAYBACK_OVERLAY_COMMAND_CHANNELS.finishPlayback)
+    finishOverlayPlayback: (sessionId: number) =>
+      invoke<void>(ipc, PLAYBACK_OVERLAY_COMMAND_CHANNELS.finishPlayback, sessionId)
   };
 }
