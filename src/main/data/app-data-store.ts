@@ -11,13 +11,7 @@ import {
   type HistoryRetention,
   type ReadingHistoryRecord
 } from "../../shared/app-contracts.js";
-import type { ReadingSource } from "../../shared/types.js";
-import {
-  createReadingHistoryRecord,
-  readingHistoryRetentionCutoff,
-  READING_HISTORY_DEDUPE_WINDOW_MS,
-  type ReadingHistoryInput
-} from "./reading-history-record.js";
+import type { DetectedLanguage, ReadingSegment, ReadingSource } from "../../shared/types.js";
 
 export type RuntimeErrorCategory =
   | "minimax_runtime"
@@ -26,6 +20,13 @@ export type RuntimeErrorCategory =
   | "unknown_runtime";
 
 export type SkippedPlaybackReason = "empty_clipboard" | "non_text_clipboard" | "missing_api_key";
+
+interface ReadingHistoryInput {
+  text: string;
+  source: ReadingSource;
+  segments: ReadingSegment[];
+  createdAt?: number;
+}
 
 export interface ErrorLogInput {
   category: RuntimeErrorCategory;
@@ -91,6 +92,7 @@ const SETTINGS_KEY = "app.settings";
 const MINIMAX_API_KEY = "minimax.apiKey";
 const LEGACY_ENCRYPTED_MINIMAX_API_KEY = "minimax.apiKey.encrypted";
 const MAX_ERROR_LOG_ENTRIES = 100;
+const READING_HISTORY_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
 const FAVORITE_RECORD_COLUMNS =
   "id, favorited_at, source_created_at, text, preview, duration_estimate_seconds, language_summary, source";
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -204,7 +206,7 @@ export class AppDataStore
       return existing;
     }
 
-    const record = createReadingHistoryRecord({ ...input, createdAt });
+    const record = createReadingHistoryRecord(input, createdAt);
     this.db
       .prepare(
         `INSERT INTO reading_history (
@@ -532,6 +534,55 @@ function normalizeApiKeyStatus(value: unknown): AppSettings["apiKeyStatus"] {
 
 function sanitizeErrorMessage(value: string): string {
   return value.trim().replace(/\s+/g, " ").slice(0, 240) || "Runtime failure";
+}
+
+function createReadingHistoryRecord(input: ReadingHistoryInput, createdAt: number): ReadingHistoryRecord {
+  return {
+    id: randomUUID(),
+    createdAt,
+    text: input.text,
+    preview: createReadingHistoryPreview(input.text),
+    durationEstimateSeconds: estimateReadingDurationSeconds(input.text),
+    languageSummary: summarizeReadingSegmentLanguages(input.segments),
+    source: input.source
+  };
+}
+
+function createReadingHistoryPreview(text: string): string {
+  const firstBlock = text.split(/\n+/).find((part) => part.trim()) ?? text;
+  const normalized = firstBlock.trim().replace(/\s+/g, " ");
+  return normalized.length > 120 ? `${normalized.slice(0, 119)}…` : normalized;
+}
+
+function estimateReadingDurationSeconds(text: string): number {
+  const cjkCount = Array.from(text).filter((char) => /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(char)).length;
+  const wordCount = text.match(/[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)?/g)?.length ?? 0;
+  const cjkSeconds = (cjkCount / 280) * 60;
+  const wordSeconds = (wordCount / 170) * 60;
+  return Math.max(1, Math.ceil(cjkSeconds + wordSeconds));
+}
+
+function summarizeReadingSegmentLanguages(segments: ReadingSegment[]): string {
+  const ordered: DetectedLanguage[] = ["zh", "en", "ja", "ko", "latin", "unknown"];
+  const seen = new Set(segments.map((segment) => segment.language));
+  const labels = ordered.filter((language) => seen.has(language)).map(readingHistoryLanguageLabel);
+  return labels.length ? labels.join(" / ") : "未知";
+}
+
+function readingHistoryRetentionCutoff(now: number, retention: HistoryRetention): number | undefined {
+  if (retention === "forever") return undefined;
+  if (retention === "7d") return now - 7 * 24 * 60 * 60 * 1000;
+  if (retention === "3m") return now - 90 * 24 * 60 * 60 * 1000;
+  return now - 30 * 24 * 60 * 60 * 1000;
+}
+
+function readingHistoryLanguageLabel(language: DetectedLanguage): string {
+  if (language === "zh") return "中文";
+  if (language === "en") return "英文";
+  if (language === "ja") return "日文";
+  if (language === "ko") return "韩文";
+  if (language === "latin") return "其他拉丁语";
+  return "未知";
 }
 
 function toErrorLogEntry(row: ErrorLogRow): ErrorLogEntry {

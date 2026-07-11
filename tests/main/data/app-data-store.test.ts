@@ -181,6 +181,33 @@ describe("AppDataStore", () => {
     }
   });
 
+  it("derives Reading History Record metadata through the store interface", async () => {
+    const { store } = await createStore();
+    try {
+      const longText = ` ${"a".repeat(130)} `;
+      const emptyLanguageRecord = store.saveOrReuseReadingHistoryRecord({
+        text: longText,
+        source: "clipboard",
+        segments: []
+      });
+      const mixedLanguageRecord = store.saveOrReuseReadingHistoryRecord({
+        text: "第一段中文文本。\n\nSecond English paragraph.",
+        source: "selected_text",
+        segments: [
+          ...historySegments(),
+          { id: "segment-unknown", text: "???", language: "unknown" }
+        ]
+      });
+
+      expect(emptyLanguageRecord.preview).toBe(`${"a".repeat(119)}…`);
+      expect(emptyLanguageRecord.languageSummary).toBe("未知");
+      expect(emptyLanguageRecord.durationEstimateSeconds).toBeGreaterThan(0);
+      expect(mixedLanguageRecord.languageSummary).toBe("中文 / 英文 / 未知");
+    } finally {
+      store.close();
+    }
+  });
+
   it("persists duplicate Favorite Records independently from Reading History", async () => {
     const { store } = await createStore();
     try {
