@@ -214,6 +214,70 @@ describe("ReaderWindowApp", () => {
     expect(detailScope.getByText("历史记录预览。完整正文。")).toBeInTheDocument();
   });
 
+  it.each([
+    {
+      route: "history" as const,
+      record: createHistoryRecord({ id: "history-actions", text: "历史操作正文", preview: "历史操作" }),
+      replayMethod: "playHistoryRecord" as const
+    },
+    {
+      route: "favorites" as const,
+      record: createFavoriteRecord({ id: "favorite-actions", text: "收藏操作正文", preview: "收藏操作" }),
+      replayMethod: "playFavoriteRecord" as const
+    }
+  ])("keeps copy, replay, and stop behavior at the $route seam", async ({ route, record, replayMethod }) => {
+    const options = route === "history" ? { history: [record] } : { favorites: [record] };
+    const bridge = renderReaderWindow({ bootstrapRoute: route, ...options });
+    const copyText = vi.spyOn(bridge, "copyText");
+    const replay = vi.spyOn(bridge, replayMethod);
+    const stopPlayback = vi.spyOn(bridge, "stopPlayback");
+
+    await userEvent.click(await screen.findByRole("button", { name: new RegExp(record.preview) }));
+    await userEvent.click(screen.getByRole("button", { name: "复制全文" }));
+    expect(copyText).toHaveBeenCalledWith(record.text);
+
+    await userEvent.click(screen.getByRole("button", { name: "重新播放" }));
+    await waitFor(() => expect(replay).toHaveBeenCalledWith(record.id));
+    await userEvent.click(await screen.findByRole("button", { name: "停止" }));
+    expect(stopPlayback).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the add-to-Favorites feedback attached to its Reading History Record", async () => {
+    const first = createHistoryRecord({ id: "history-first", preview: "第一条历史" });
+    const second = createHistoryRecord({ id: "history-second", preview: "第二条历史" });
+    const bridge = renderReaderWindow({ bootstrapRoute: "history", history: [first, second] });
+    vi.spyOn(bridge, "createFavoriteFromHistoryRecord").mockResolvedValue(createFavoriteRecord());
+
+    await userEvent.click(await screen.findByRole("button", { name: /第一条历史/ }));
+    await userEvent.click(screen.getByRole("button", { name: "添加收藏" }));
+    expect(await screen.findByRole("button", { name: "已添加" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /第二条历史/ }));
+    await userEvent.click(screen.getByRole("button", { name: /第一条历史/ }));
+    expect(screen.getByRole("button", { name: "已添加" })).toBeInTheDocument();
+  });
+
+  it("does not move focus into a new route when a Reading History deletion finishes late", async () => {
+    let finishDeletion!: (undoToken: string | undefined) => void;
+    const deletion = new Promise<string | undefined>((resolve) => {
+      finishDeletion = resolve;
+    });
+    const bridge = renderReaderWindow({
+      bootstrapRoute: "history",
+      history: [createHistoryRecord({ id: "history-late", preview: "延迟删除" })]
+    });
+    vi.spyOn(bridge, "deleteReadingHistoryRecord").mockReturnValue(deletion);
+
+    await userEvent.click(await screen.findByRole("button", { name: /延迟删除/ }));
+    fireEvent.click(screen.getByRole("button", { name: "删除记录" }));
+    await userEvent.click(screen.getByRole("button", { name: "收藏" }));
+    const favoritesEmptyState = await screen.findByText("暂无收藏", { selector: ".empty-list" });
+
+    await act(async () => finishDeletion("late-undo-token"));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(favoritesEmptyState).not.toHaveFocus();
+  });
+
   it("deletes and restores a Reading History Record through the global undo notice", async () => {
     const record = createHistoryRecord({ id: "history-undo", preview: "可撤销历史" });
     const bridge = renderReaderWindow({
@@ -235,6 +299,7 @@ describe("ReaderWindowApp", () => {
 
     await waitFor(() => expect(undoDeletion).toHaveBeenCalledWith(`history-undo-${record.id}`));
     expect(await screen.findByRole("heading", { name: "可撤销历史" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: /可撤销历史/ })).toHaveFocus());
   });
 
   it("uses the same undo pattern when removing a Favorite", async () => {
@@ -248,14 +313,18 @@ describe("ReaderWindowApp", () => {
     const undoDeletion = vi.spyOn(bridge, "undoFavoriteDeletion");
 
     await userEvent.click(await screen.findByRole("button", { name: /可撤销收藏/ }));
+    expect(screen.queryByRole("button", { name: "清空收藏" })).not.toBeInTheDocument();
+    expect(screen.queryByText("收藏数量")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "移除收藏" }));
 
     expect(await screen.findByText("已移除 1 条收藏")).toBeInTheDocument();
     expect(deleteFavorite).toHaveBeenCalledWith(favorite.id);
+    expect(screen.getByText("暂无收藏", { selector: ".empty-list" })).toHaveFocus();
     await userEvent.click(screen.getByRole("button", { name: "撤销" }));
 
     await waitFor(() => expect(undoDeletion).toHaveBeenCalledWith(`favorite-undo-${favorite.id}`));
     expect(await screen.findByRole("heading", { name: "可撤销收藏" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: /可撤销收藏/ })).toHaveFocus());
   });
 
   it("keeps the latest undo action available while navigating between routes", async () => {

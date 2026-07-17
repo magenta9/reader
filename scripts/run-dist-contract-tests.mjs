@@ -591,18 +591,10 @@ for (const label of [
   "保存 Model",
   "保存 Model 时不做可用性验证",
   "历史全文和收藏全文只保存在本机，不保存音频；当前朗读文本会发送给 MiniMax 生成语音。",
-  "添加收藏",
-  "已添加",
-  "暂无收藏",
-  "在历史记录详情中添加收藏后，会显示在这里。",
-  "收藏于",
-  "原朗读",
-  "收藏重播中",
   "错误记录"
 ]) {
   assert.equal(readerWindowAppSource.includes(label), true);
 }
-assertMissing(readerWindowAppSource, ["清空收藏", "收藏数量"]);
 assert.equal(readerWindowAppSource.includes("function Home"), true);
 assert.equal(readerWindowAppSource.includes("getSetupRecoveryAction"), true);
 assert.equal(readerWindowAppSource.includes('role="group"'), true);
