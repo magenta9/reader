@@ -1,6 +1,10 @@
 import type {
   AppSettings,
+  AppSettingsPatch,
   FavoriteRecord,
+  HistoryRetention,
+  HistoryRetentionChangeResult,
+  HistoryRetentionImpact,
   MiniMaxSetupResult,
   ReadingHistoryRecord,
   ShortcutUpdateResult
@@ -12,7 +16,7 @@ import { invoke, type PreloadIpc } from "./ipc.js";
 export function createAppDataBridge(ipc: PreloadIpc): AppDataBridge {
   return {
     getSettings: () => invoke<AppSettings>(ipc, APP_DATA_CHANNELS.getSettings),
-    updateSettings: (patch: Partial<AppSettings>) =>
+    updateSettings: (patch: AppSettingsPatch) =>
       invoke<AppSettings>(ipc, APP_DATA_CHANNELS.updateSettings, patch),
     setLaunchAtLogin: (launchAtLogin: boolean) =>
       invoke<AppSettings>(ipc, APP_DATA_CHANNELS.setLaunchAtLogin, launchAtLogin),
@@ -28,13 +32,27 @@ export function createAppDataBridge(ipc: PreloadIpc): AppDataBridge {
     getErrorLogCount: () => invoke<number>(ipc, APP_DATA_CHANNELS.getErrorLogCount),
     clearErrorLog: () => invoke<void>(ipc, APP_DATA_CHANNELS.clearErrorLog),
     getReadingHistoryCount: () => invoke<number>(ipc, APP_DATA_CHANNELS.getReadingHistoryCount),
+    previewReadingHistoryRetention: (historyRetention: HistoryRetention) =>
+      invoke<HistoryRetentionImpact>(ipc, APP_DATA_CHANNELS.previewReadingHistoryRetention, historyRetention),
+    applyReadingHistoryRetention: (historyRetention: HistoryRetention, expectedDeleteCount: number) =>
+      invoke<HistoryRetentionChangeResult>(
+        ipc,
+        APP_DATA_CHANNELS.applyReadingHistoryRetention,
+        historyRetention,
+        expectedDeleteCount
+      ),
     listReadingHistory: () => invoke<ReadingHistoryRecord[]>(ipc, APP_DATA_CHANNELS.listReadingHistory),
     deleteReadingHistoryRecord: (id: string) =>
-      invoke<void>(ipc, APP_DATA_CHANNELS.deleteReadingHistoryRecord, id),
-    clearReadingHistory: () => invoke<void>(ipc, APP_DATA_CHANNELS.clearReadingHistory),
+      invoke<string | undefined>(ipc, APP_DATA_CHANNELS.deleteReadingHistoryRecord, id),
+    undoReadingHistoryDeletion: (undoToken: string) =>
+      invoke<boolean>(ipc, APP_DATA_CHANNELS.undoReadingHistoryDeletion, undoToken),
+    clearReadingHistory: () => invoke<number>(ipc, APP_DATA_CHANNELS.clearReadingHistory),
     createFavoriteFromHistoryRecord: (id: string) =>
       invoke<FavoriteRecord | undefined>(ipc, APP_DATA_CHANNELS.createFavoriteFromHistoryRecord, id),
     listFavorites: () => invoke<FavoriteRecord[]>(ipc, APP_DATA_CHANNELS.listFavorites),
-    deleteFavoriteRecord: (id: string) => invoke<void>(ipc, APP_DATA_CHANNELS.deleteFavoriteRecord, id)
+    deleteFavoriteRecord: (id: string) =>
+      invoke<string | undefined>(ipc, APP_DATA_CHANNELS.deleteFavoriteRecord, id),
+    undoFavoriteDeletion: (undoToken: string) =>
+      invoke<boolean>(ipc, APP_DATA_CHANNELS.undoFavoriteDeletion, undoToken)
   };
 }

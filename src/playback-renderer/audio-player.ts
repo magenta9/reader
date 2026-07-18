@@ -1,6 +1,9 @@
 import { usesPlaybackOverlayFeedback, type PlaybackAudioSession } from "../shared/app-contracts.js";
 import type { PlaybackRendererBridge } from "../shared/bridge-contracts.js";
 
+const OVERLAY_LEVEL_COUNT = 13;
+const OVERLAY_METRIC_INTERVAL_MS = 64;
+
 export function mountPlaybackAudio(bridge: PlaybackRendererBridge): () => void {
   const queue = new PlaybackAudioQueue(bridge);
   const subscriptions = [
@@ -66,8 +69,13 @@ class PlaybackAudioQueue {
     void this.playbackTail.finally(() => {
       if (sessionId !== this.sessionId) return;
       if (shouldFinishOverlay) {
-        void this.bridge.sendOverlayMetric({ amplitude: 0, progress: 1 });
-        void this.bridge.finishOverlayPlayback();
+        void this.bridge.sendOverlayMetric({
+          sessionId,
+          amplitude: 0,
+          levels: Array.from({ length: OVERLAY_LEVEL_COUNT }, () => 0),
+          progress: 1
+        });
+        void this.bridge.finishOverlayPlayback(sessionId);
       }
       void this.bridge.notifyPlaybackIdle(sessionId);
       this.stop();
@@ -150,27 +158,36 @@ class PlaybackAudioQueue {
     const context = new AudioContextCtor();
     const source = context.createMediaElementSource(audio);
     const analyser = context.createAnalyser();
-    analyser.fftSize = 256;
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.76;
     source.connect(analyser);
     analyser.connect(context.destination);
-    const data = new Uint8Array(analyser.frequencyBinCount);
+    const timeData = new Uint8Array(analyser.frequencyBinCount);
+    const frequencyData = new Uint8Array(analyser.frequencyBinCount);
 
     const tick = (): void => {
       if (this.currentAudio !== audio || !this.overlayMetricsEnabled) return;
-      analyser.getByteTimeDomainData(data);
+      analyser.getByteTimeDomainData(timeData);
+      analyser.getByteFrequencyData(frequencyData);
       let sum = 0;
-      for (const sample of data) {
+      for (const sample of timeData) {
         const centered = (sample - 128) / 128;
         sum += centered * centered;
       }
-      const amplitude = Math.min(1, Math.sqrt(sum / data.length) * 2.4);
+      const amplitude = Math.min(1, Math.sqrt(sum / timeData.length) * 2.4);
+      const levels = createVoiceLevels(frequencyData, amplitude);
       const audioProgress =
         Number.isFinite(audio.duration) && audio.duration > 0 ? audio.currentTime / audio.duration : 0;
       const progress = this.getSessionProgress(audioProgress, segmentWeight);
       const now = performance.now();
-      if (now - this.lastMetricAt >= 80) {
+      if (now - this.lastMetricAt >= OVERLAY_METRIC_INTERVAL_MS) {
         this.lastMetricAt = now;
-        void this.bridge.sendOverlayMetric({ amplitude, progress });
+        void this.bridge.sendOverlayMetric({
+          sessionId: this.sessionId,
+          amplitude,
+          levels,
+          progress
+        });
       }
       this.animationFrame = window.requestAnimationFrame(tick);
     };
@@ -203,4 +220,24 @@ declare global {
 function normalizeSegmentWeights(weights: number[]): number[] {
   const normalized = weights.filter((weight) => Number.isFinite(weight) && weight > 0);
   return normalized.length ? normalized : [1];
+}
+
+function createVoiceLevels(frequencyData: Uint8Array, amplitude: number): number[] {
+  const centerIndex = (OVERLAY_LEVEL_COUNT - 1) / 2;
+  const usableBins = Math.max(2, Math.min(frequencyData.length, 48));
+  return Array.from({ length: OVERLAY_LEVEL_COUNT }, (_, index) => {
+    const distance = Math.abs(index - centerIndex);
+    const bandStart = Math.min(usableBins - 1, Math.max(1, Math.round(1.48 ** distance)));
+    const bandEnd = Math.min(usableBins, Math.max(bandStart + 1, Math.round(1.48 ** (distance + 1))));
+    let sum = 0;
+    for (let bin = bandStart; bin < bandEnd; bin += 1) sum += frequencyData[bin] ?? 0;
+    const spectralEnergy = sum / Math.max(1, bandEnd - bandStart) / 255;
+    const centerProfile = 1 - (distance / centerIndex) * 0.16;
+    return clamp01((Math.pow(spectralEnergy, 0.72) * 0.88 + amplitude * 0.24) * centerProfile);
+  });
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
 }

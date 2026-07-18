@@ -239,6 +239,10 @@ function createMenuBarMenu(): void {
         }
       },
       {
+        label: "停止朗读",
+        click: () => playbackCommands.stopPlayback()
+      },
+      {
         label: "打开 VoiceReader",
         click: () => openReaderWindow("home")
       },

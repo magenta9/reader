@@ -1,6 +1,10 @@
 import type {
   AppSettings,
+  AppSettingsPatch,
   FavoriteRecord,
+  HistoryRetention,
+  HistoryRetentionChangeResult,
+  HistoryRetentionImpact,
   MiniMaxSetupResult,
   ReadingHistoryRecord,
   ShortcutUpdateResult
@@ -21,17 +25,21 @@ export const APP_DATA_CHANNELS = {
   getErrorLogCount: "app-data:get-error-log-count",
   clearErrorLog: "app-data:clear-error-log",
   getReadingHistoryCount: "app-data:get-reading-history-count",
+  previewReadingHistoryRetention: "app-data:preview-reading-history-retention",
+  applyReadingHistoryRetention: "app-data:apply-reading-history-retention",
   listReadingHistory: "app-data:list-reading-history",
   deleteReadingHistoryRecord: "app-data:delete-reading-history-record",
+  undoReadingHistoryDeletion: "app-data:undo-reading-history-deletion",
   clearReadingHistory: "app-data:clear-reading-history",
   createFavoriteFromHistoryRecord: "app-data:create-favorite-from-history-record",
   listFavorites: "app-data:list-favorites",
-  deleteFavoriteRecord: "app-data:delete-favorite-record"
+  deleteFavoriteRecord: "app-data:delete-favorite-record",
+  undoFavoriteDeletion: "app-data:undo-favorite-deletion"
 } as const;
 
 export interface AppDataBridge {
   getSettings: () => Promise<AppSettings>;
-  updateSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>;
+  updateSettings: (patch: AppSettingsPatch) => Promise<AppSettings>;
   setLaunchAtLogin: (launchAtLogin: boolean) => Promise<AppSettings>;
   setActivationShortcut: (shortcut: string) => Promise<ShortcutUpdateResult>;
   setMiniMaxApiKey: (apiKey: string) => Promise<void>;
@@ -43,10 +51,17 @@ export interface AppDataBridge {
   getErrorLogCount: () => Promise<number>;
   clearErrorLog: () => Promise<void>;
   getReadingHistoryCount: () => Promise<number>;
+  previewReadingHistoryRetention: (historyRetention: HistoryRetention) => Promise<HistoryRetentionImpact>;
+  applyReadingHistoryRetention: (
+    historyRetention: HistoryRetention,
+    expectedDeleteCount: number
+  ) => Promise<HistoryRetentionChangeResult>;
   listReadingHistory: () => Promise<ReadingHistoryRecord[]>;
-  deleteReadingHistoryRecord: (id: string) => Promise<void>;
-  clearReadingHistory: () => Promise<void>;
+  deleteReadingHistoryRecord: (id: string) => Promise<string | undefined>;
+  undoReadingHistoryDeletion: (undoToken: string) => Promise<boolean>;
+  clearReadingHistory: () => Promise<number>;
   createFavoriteFromHistoryRecord: (id: string) => Promise<FavoriteRecord | undefined>;
   listFavorites: () => Promise<FavoriteRecord[]>;
-  deleteFavoriteRecord: (id: string) => Promise<void>;
+  deleteFavoriteRecord: (id: string) => Promise<string | undefined>;
+  undoFavoriteDeletion: (undoToken: string) => Promise<boolean>;
 }

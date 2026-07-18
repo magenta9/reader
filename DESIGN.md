@@ -234,8 +234,8 @@ VoiceReader uses a hybrid of tonal layering and small macOS shadows. Most hierar
 
 ### Playback Overlay
 - **Style:** A compact 120px by 32px black pill with a subtle white inset highlight and white waveform bars.
-- **Motion:** The overlay appears with a 170ms opacity/translate/scale transition. Waveform bars respond to audio amplitude. Reduced-motion users get near-instant transitions.
-- **Boundary:** The overlay shows playback activity only. It must not display Selected Text, Clipboard Text, raw MiniMax responses, or generated audio details.
+- **Motion:** The overlay appears with a 170ms opacity/translate/scale transition. A weak traveling wave communicates preparation; active reading uses 13 tightly spaced bars driven by real multi-band audio energy, with fast attack, slower release, and a restrained aura so the waveform feels continuous rather than like a mechanical equalizer. Reduced-motion users get a static waveform and near-instant transitions.
+- **Boundary:** The overlay is a passive status indicator, not a player control. It ignores mouse input and must not display Selected Text, Clipboard Text, raw MiniMax responses, or generated audio details.
 
 ## 6. Do's and Don'ts
 

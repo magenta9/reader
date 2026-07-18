@@ -208,6 +208,93 @@ describe("AppDataStore", () => {
     }
   });
 
+  it("previews and atomically applies Reading History retention changes", async () => {
+    const { store } = await createStore();
+    const day = 24 * 60 * 60 * 1000;
+    const now = 100 * day;
+    try {
+      store.updateSettings({ historyRetention: "forever" });
+      const expired = store.saveOrReuseReadingHistoryRecord({
+        text: "刚好超过七天",
+        source: "clipboard",
+        segments: createReadingSegments("刚好超过七天"),
+        createdAt: now - 7 * day - 1
+      });
+      store.saveOrReuseReadingHistoryRecord({
+        text: "正好七天",
+        source: "clipboard",
+        segments: createReadingSegments("正好七天"),
+        createdAt: now - 7 * day
+      });
+      store.saveOrReuseReadingHistoryRecord({
+        text: "七天以内",
+        source: "clipboard",
+        segments: createReadingSegments("七天以内"),
+        createdAt: now - 6 * day
+      });
+      const favorite = store.createFavoriteFromHistoryRecord(expired.id, now);
+
+      expect(store.previewReadingHistoryRetention("7d", now)).toEqual({
+        historyRetention: "7d",
+        deleteCount: 1,
+        remainingCount: 2
+      });
+      expect(store.previewReadingHistoryRetention("forever", now)).toEqual({
+        historyRetention: "forever",
+        deleteCount: 0,
+        remainingCount: 3
+      });
+
+      const stale = store.applyReadingHistoryRetention("7d", 2, now);
+      expect(stale.applied).toBe(false);
+      expect(store.getSettings().historyRetention).toBe("forever");
+      expect(store.getReadingHistoryCount()).toBe(3);
+
+      const applied = store.applyReadingHistoryRetention("7d", 1, now);
+      expect(applied.applied).toBe(true);
+      expect(applied.impact).toEqual({ historyRetention: "7d", deleteCount: 1, remainingCount: 2 });
+      expect(store.getSettings().historyRetention).toBe("7d");
+      expect(store.getReadingHistoryRecord(expired.id)).toBeUndefined();
+      expect(store.getFavoriteRecord(favorite?.id ?? "")?.text).toBe(expired.text);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("issues opaque one-time undo tokens for History and Favorite deletion", async () => {
+    const { store } = await createStore();
+    try {
+      store.updateSettings({ historyRetention: "forever" });
+      const history = store.saveOrReuseReadingHistoryRecord({
+        text: "可以撤销的历史记录",
+        source: "selected_text",
+        segments: createReadingSegments("可以撤销的历史记录")
+      });
+      const favorite = store.createFavoriteFromHistoryRecord(history.id);
+
+      const historyUndoToken = store.deleteReadingHistoryRecord(history.id);
+      expect(historyUndoToken).toEqual(expect.any(String));
+      expect(historyUndoToken).not.toBe(history.id);
+      expect(store.getReadingHistoryRecord(history.id)).toBeUndefined();
+      expect(store.undoReadingHistoryDeletion(historyUndoToken ?? "")).toBe(true);
+      expect(store.getReadingHistoryRecord(history.id)).toEqual(history);
+      expect(store.undoReadingHistoryDeletion(historyUndoToken ?? "")).toBe(false);
+
+      const favoriteUndoToken = store.deleteFavoriteRecord(favorite?.id ?? "");
+      expect(favoriteUndoToken).toEqual(expect.any(String));
+      expect(store.getFavoriteRecord(favorite?.id ?? "")).toBeUndefined();
+      expect(store.undoFavoriteDeletion(favoriteUndoToken ?? "")).toBe(true);
+      expect(store.getFavoriteRecord(favorite?.id ?? "")).toEqual(favorite);
+      expect(store.undoFavoriteDeletion(favoriteUndoToken ?? "")).toBe(false);
+
+      expect(store.clearReadingHistory()).toBe(1);
+      expect(store.clearReadingHistory()).toBe(0);
+      expect(store.getFavoriteRecord(favorite?.id ?? "")).toEqual(favorite);
+    } finally {
+      store.close();
+    }
+  });
+
   it("persists duplicate Favorite Records independently from Reading History", async () => {
     const { store } = await createStore();
     try {

@@ -1,7 +1,7 @@
 import type {
   AudioChunkPayload,
-  OverlayMetric,
   PlaybackAudioSession,
+  SessionOverlayMetric,
   SessionPayload
 } from "../app-contracts.js";
 
@@ -25,6 +25,6 @@ export interface PlaybackRendererBridge extends PlaybackFeedbackBridge {
   onAudioChunk: (listener: (payload: AudioChunkPayload) => void) => () => void;
   onSegmentEnd: (listener: (payload: SessionPayload) => void) => () => void;
   notifyPlaybackIdle: (sessionId: number) => Promise<void>;
-  sendOverlayMetric: (metric: OverlayMetric) => Promise<void>;
-  finishOverlayPlayback: () => Promise<void>;
+  sendOverlayMetric: (metric: SessionOverlayMetric) => Promise<void>;
+  finishOverlayPlayback: (sessionId: number) => Promise<void>;
 }

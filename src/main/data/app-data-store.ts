@@ -9,6 +9,8 @@ import {
   type AppSettings,
   type FavoriteRecord,
   type HistoryRetention,
+  type HistoryRetentionChangeResult,
+  type HistoryRetentionImpact,
   type ReadingHistoryRecord
 } from "../../shared/app-contracts.js";
 import type { DetectedLanguage, ReadingSegment, ReadingSource } from "../../shared/types.js";
@@ -66,8 +68,15 @@ export interface ReadingHistoryStore {
   listReadingHistoryRecords(): ReadingHistoryRecord[];
   getReadingHistoryRecord(id: string): ReadingHistoryRecord | undefined;
   getReadingHistoryCount(): number;
-  clearReadingHistory(): void;
-  deleteReadingHistoryRecord(id: string): void;
+  previewReadingHistoryRetention(retention: HistoryRetention, now?: number): HistoryRetentionImpact;
+  applyReadingHistoryRetention(
+    retention: HistoryRetention,
+    expectedDeleteCount: number,
+    now?: number
+  ): HistoryRetentionChangeResult;
+  clearReadingHistory(): number;
+  deleteReadingHistoryRecord(id: string): string | undefined;
+  undoReadingHistoryDeletion(undoToken: string, now?: number): boolean;
   cleanupExpiredReadingHistory(now?: number, retention?: HistoryRetention): void;
 }
 
@@ -75,7 +84,8 @@ export interface FavoriteRecordStore {
   createFavoriteFromHistoryRecord(id: string, favoritedAt?: number): FavoriteRecord | undefined;
   listFavoriteRecords(): FavoriteRecord[];
   getFavoriteRecord(id: string): FavoriteRecord | undefined;
-  deleteFavoriteRecord(id: string): void;
+  deleteFavoriteRecord(id: string): string | undefined;
+  undoFavoriteDeletion(undoToken: string): boolean;
 }
 
 export type MiniMaxAccountDataStore = AppSettingsStore & Pick<MiniMaxCredentialStore, "readMiniMaxApiKey">;
@@ -88,10 +98,17 @@ export type PlaybackDataStore = AppSettingsStore &
   Pick<ReadingHistoryStore, "getReadingHistoryRecord" | "saveOrReuseReadingHistoryRecord"> &
   Pick<FavoriteRecordStore, "getFavoriteRecord">;
 
+type PendingDeletion =
+  | { kind: "history"; record: ReadingHistoryRecord }
+  | { kind: "favorite"; record: FavoriteRecord };
+
+type PendingDeletionUndo = PendingDeletion;
+
 const SETTINGS_KEY = "app.settings";
 const MINIMAX_API_KEY = "minimax.apiKey";
 const LEGACY_ENCRYPTED_MINIMAX_API_KEY = "minimax.apiKey.encrypted";
 const MAX_ERROR_LOG_ENTRIES = 100;
+const MAX_PENDING_DELETION_UNDOS = 20;
 const READING_HISTORY_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
 const FAVORITE_RECORD_COLUMNS =
   "id, favorited_at, source_created_at, text, preview, duration_estimate_seconds, language_summary, source";
@@ -112,6 +129,7 @@ export class AppDataStore
   implements AppSettingsStore, MiniMaxCredentialStore, ErrorLogStore, ReadingHistoryStore, FavoriteRecordStore
 {
   private readonly db: DatabaseSync;
+  private readonly pendingDeletionUndos = new Map<string, PendingDeletionUndo>();
 
   constructor(private readonly dbPath: string) {
     mkdirSync(dirname(dbPath), { recursive: true });
@@ -121,6 +139,7 @@ export class AppDataStore
   }
 
   close(): void {
+    this.pendingDeletionUndos.clear();
     this.db.close();
   }
 
@@ -260,12 +279,105 @@ export class AppDataStore
     return row.count;
   }
 
-  clearReadingHistory(): void {
-    this.db.exec("DELETE FROM reading_history");
+  previewReadingHistoryRetention(retention: HistoryRetention, now = Date.now()): HistoryRetentionImpact {
+    const normalizedRetention = normalizeHistoryRetention(retention);
+    const cutoff = readingHistoryRetentionCutoff(now, normalizedRetention);
+    if (cutoff === undefined) {
+      const totalCount = this.getReadingHistoryCount();
+      return { historyRetention: normalizedRetention, deleteCount: 0, remainingCount: totalCount };
+    }
+    const row = this.db
+      .prepare(
+        `SELECT
+           COUNT(*) AS total_count,
+           COALESCE(SUM(CASE WHEN created_at < ? THEN 1 ELSE 0 END), 0) AS delete_count
+         FROM reading_history`
+      )
+      .get(cutoff) as { total_count: number; delete_count: number };
+    return {
+      historyRetention: normalizedRetention,
+      deleteCount: row.delete_count,
+      remainingCount: row.total_count - row.delete_count
+    };
   }
 
-  deleteReadingHistoryRecord(id: string): void {
-    this.db.prepare("DELETE FROM reading_history WHERE id = ?").run(id);
+  applyReadingHistoryRetention(
+    retention: HistoryRetention,
+    expectedDeleteCount: number,
+    now = Date.now()
+  ): HistoryRetentionChangeResult {
+    const normalizedRetention = normalizeHistoryRetention(retention);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const impact = this.previewReadingHistoryRetention(normalizedRetention, now);
+      const currentSettings = this.getSettings();
+      if (!Number.isInteger(expectedDeleteCount) || impact.deleteCount !== expectedDeleteCount) {
+        this.db.exec("ROLLBACK");
+        return { applied: false, impact, settings: currentSettings };
+      }
+      const nextSettings = normalizeSettings({ ...currentSettings, historyRetention: normalizedRetention });
+      this.setJsonSetting(SETTINGS_KEY, nextSettings);
+      this.cleanupExpiredReadingHistory(now, normalizedRetention);
+      this.db.exec("COMMIT");
+      return { applied: true, impact, settings: nextSettings };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  clearReadingHistory(): number {
+    const result = this.db.prepare("DELETE FROM reading_history").run();
+    return Number(result.changes);
+  }
+
+  deleteReadingHistoryRecord(id: string): string | undefined {
+    const row = this.db
+      .prepare(
+        `DELETE FROM reading_history
+         WHERE id = ?
+         RETURNING id, created_at, text, preview, duration_estimate_seconds, language_summary, source`
+      )
+      .get(id) as unknown as ReadingHistoryRow | undefined;
+    return row
+      ? this.rememberPendingDeletion({ kind: "history", record: toReadingHistoryRecord(row) })
+      : undefined;
+  }
+
+  undoReadingHistoryDeletion(undoToken: string, now = Date.now()): boolean {
+    const deletion = this.getPendingDeletion(undoToken, "history");
+    if (!deletion) return false;
+    const record = deletion.record;
+    const cutoff = readingHistoryRetentionCutoff(now, this.getSettings().historyRetention);
+    if (cutoff !== undefined && record.createdAt < cutoff) {
+      this.pendingDeletionUndos.delete(undoToken);
+      return false;
+    }
+    const result = this.db
+      .prepare(
+        `INSERT INTO reading_history (
+          id,
+          created_at,
+          text,
+          preview,
+          duration_estimate_seconds,
+          language_summary,
+          source
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO NOTHING`
+      )
+      .run(
+        record.id,
+        record.createdAt,
+        record.text,
+        record.preview,
+        record.durationEstimateSeconds,
+        record.languageSummary,
+        record.source
+      );
+    this.pendingDeletionUndos.delete(undoToken);
+    return Number(result.changes) > 0;
   }
 
   cleanupExpiredReadingHistory(now = Date.now(), retention = this.getSettings().historyRetention): void {
@@ -336,8 +448,70 @@ export class AppDataStore
     return row ? toFavoriteRecord(row) : undefined;
   }
 
-  deleteFavoriteRecord(id: string): void {
-    this.db.prepare("DELETE FROM favorite_records WHERE id = ?").run(id);
+  deleteFavoriteRecord(id: string): string | undefined {
+    const row = this.db
+      .prepare(
+        `DELETE FROM favorite_records
+         WHERE id = ?
+         RETURNING ${FAVORITE_RECORD_COLUMNS}`
+      )
+      .get(id) as unknown as FavoriteRecordRow | undefined;
+    return row
+      ? this.rememberPendingDeletion({ kind: "favorite", record: toFavoriteRecord(row) })
+      : undefined;
+  }
+
+  undoFavoriteDeletion(undoToken: string): boolean {
+    const deletion = this.getPendingDeletion(undoToken, "favorite");
+    if (!deletion) return false;
+    const record = deletion.record;
+    const result = this.db
+      .prepare(
+        `INSERT INTO favorite_records (
+          id,
+          favorited_at,
+          source_created_at,
+          text,
+          preview,
+          duration_estimate_seconds,
+          language_summary,
+          source
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO NOTHING`
+      )
+      .run(
+        record.id,
+        record.favoritedAt,
+        record.sourceCreatedAt,
+        record.text,
+        record.preview,
+        record.durationEstimateSeconds,
+        record.languageSummary,
+        record.source
+      );
+    this.pendingDeletionUndos.delete(undoToken);
+    return Number(result.changes) > 0;
+  }
+
+  private rememberPendingDeletion(deletion: PendingDeletion): string {
+    while (this.pendingDeletionUndos.size >= MAX_PENDING_DELETION_UNDOS) {
+      const oldestToken = this.pendingDeletionUndos.keys().next().value as string | undefined;
+      if (!oldestToken) break;
+      this.pendingDeletionUndos.delete(oldestToken);
+    }
+    const undoToken = randomUUID();
+    this.pendingDeletionUndos.set(undoToken, deletion);
+    return undoToken;
+  }
+
+  private getPendingDeletion<TKind extends PendingDeletion["kind"]>(
+    undoToken: string,
+    kind: TKind
+  ): Extract<PendingDeletionUndo, { kind: TKind }> | undefined {
+    const deletion = this.pendingDeletionUndos.get(undoToken);
+    if (!deletion || deletion.kind !== kind) return undefined;
+    return deletion as Extract<PendingDeletionUndo, { kind: TKind }>;
   }
 
   getRawSettingForTest(key: string): string | undefined {
