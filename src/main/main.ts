@@ -83,7 +83,7 @@ async function bootstrap(): Promise<void> {
   await app.whenReady();
 
   const databasePath = join(app.getPath("userData"), "voicereader.sqlite");
-  appDataStore = new AppDataStore(databasePath);
+  appDataStore = AppDataStore.open(databasePath);
   if (packagedSmoke.enabled) {
     enterPackagedSmokeMode({ app, appDataStore, databasePath });
     return;

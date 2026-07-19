@@ -14,6 +14,7 @@ import {
   type ReadingHistoryRecord
 } from "../../shared/app-contracts.js";
 import type { DetectedLanguage, ReadingSegment, ReadingSource } from "../../shared/types.js";
+import { migrateAppDataSchema } from "./app-data-schema.js";
 
 export type RuntimeErrorCategory =
   | "minimax_runtime"
@@ -112,6 +113,7 @@ const MAX_PENDING_DELETION_UNDOS = 20;
 const READING_HISTORY_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
 const FAVORITE_RECORD_COLUMNS =
   "id, favorited_at, source_created_at, text, preview, duration_estimate_seconds, language_summary, source";
+const VERSIONED_APP_DATA_OPEN = Symbol("versioned-app-data-open");
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   hasCompletedOnboarding: false,
   lastRoute: "home",
@@ -131,11 +133,21 @@ export class AppDataStore
   private readonly db: DatabaseSync;
   private readonly pendingDeletionUndos = new Map<string, PendingDeletionUndo>();
 
-  constructor(private readonly dbPath: string) {
+  static open(dbPath: string): AppDataStore {
+    return new AppDataStore(dbPath, VERSIONED_APP_DATA_OPEN);
+  }
+
+  constructor(dbPath: string, openMode?: typeof VERSIONED_APP_DATA_OPEN) {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
-    this.migrate();
-    this.cleanupExpiredReadingHistory();
+    try {
+      if (openMode === VERSIONED_APP_DATA_OPEN) migrateAppDataSchema(this.db);
+      else this.migrate();
+      this.cleanupExpiredReadingHistory();
+    } catch (error) {
+      this.db.close();
+      throw error;
+    }
   }
 
   close(): void {

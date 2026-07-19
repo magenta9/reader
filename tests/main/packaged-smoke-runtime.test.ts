@@ -29,7 +29,7 @@ describe("packaged smoke runtime", () => {
     const root = mkdtempSync(join(tmpdir(), "voicereader-smoke-schema-"));
     temporaryRoots.push(root);
     const databasePath = join(root, "voicereader.sqlite");
-    const store = new AppDataStore(databasePath);
+    const store = AppDataStore.open(databasePath);
     store.close();
 
     expect(assertMigratedAppDataSchema(databasePath)).toBe(4);

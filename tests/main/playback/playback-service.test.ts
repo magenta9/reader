@@ -383,7 +383,7 @@ function createSink(events: PlaybackEvent[]): PlaybackAudioSink {
 
 async function createVerifiedStore(): Promise<AppDataStore> {
   const dataDir = await mkdtemp(join(tmpdir(), "voicereader-playback-service-"));
-  const store = new AppDataStore(join(dataDir, "voicereader.sqlite"));
+  const store = AppDataStore.open(join(dataDir, "voicereader.sqlite"));
   stores.push(store);
   store.saveMiniMaxApiKey("playback-key");
   store.updateSettings({
