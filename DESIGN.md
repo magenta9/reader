@@ -74,7 +74,7 @@ spacing:
   md: "12px"
   lg: "16px"
   xl: "22px"
-  page-x: "40px"
+  page-x: "32px"
 components:
   button-primary:
     backgroundColor: "{colors.accent}"
@@ -102,9 +102,13 @@ components:
   input-field:
     backgroundColor: "{colors.surface-muted}"
     textColor: "{colors.text}"
-    rounded: "{rounded.md}"
-    padding: "0 14px"
-    height: "42px"
+    rounded: "{rounded.sm}"
+    padding: "0 10px"
+    height: "36px"
+  settings-action:
+    rounded: "{rounded.sm}"
+    padding: "0 12px"
+    height: "32px"
   status-chip:
     backgroundColor: "{colors.surface-muted}"
     textColor: "{colors.muted}"
@@ -207,6 +211,7 @@ VoiceReader uses a hybrid of tonal layering and small macOS shadows. Most hierar
 
 ### Buttons
 - **Shape:** Full pill for actions (`999px`) with compact heights (`40px` to `44px`).
+- **Settings exception:** Dense Settings rows use 32px actions with 8px corners so buttons align precisely with 36px fields without reading as oversized pills.
 - **Primary:** Utility Action Blue background with dark text, 24px horizontal padding, and bold weight. Use for Play and the most direct recovery action only.
 - **Hover / Focus:** Focus uses a 2px accent outline with a 2px offset. Active state scales to `0.96` over 130ms.
 - **Secondary / Ghost / Tertiary:** Secondary actions invert to Primary Ink on Raised Surface. Text actions stay transparent with blue text. Danger actions use Destructive Red only after confirmation or when the destructive intent is explicit.
@@ -223,12 +228,12 @@ VoiceReader uses a hybrid of tonal layering and small macOS shadows. Most hierar
 - **Internal Padding:** Use 16px for compact modules, 18px for command panels, and 22px for settings/history surfaces.
 
 ### Inputs / Fields
-- **Style:** Inputs and selects use Muted Surface, no visible border, 12px radius, 42px height, 14px horizontal padding, and a hairline outline.
+- **Style:** Inputs and selects use Muted Surface, an 8px radius, 36px height, 10px horizontal padding, a fine border, and a subtle inset highlight. Hover strengthens the edge without changing layout.
 - **Focus:** Replace hairline with a 2px accent-tinted outline.
 - **Error / Disabled:** Error notes use a red-tinted background and Destructive Red text. Disabled actions reduce opacity and keep the same shape.
 
 ### Navigation
-- **Style:** The sidebar is a fixed 248px plane with labeled nav buttons. Active items use a translucent white fill in light and dark modes, not a saturated accent fill.
+- **Style:** The sidebar is a fixed 220px plane with 40px labeled nav buttons. Active items use a translucent white fill in light and dark modes, not a saturated accent fill.
 - **Typography:** Nav labels use system sans body sizing with stronger weight only when active.
 - **States:** Hover and active states change fill and text color in 130ms. Icons or marks remain secondary and never carry meaning alone.
 

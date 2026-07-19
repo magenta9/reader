@@ -22,7 +22,7 @@ export function resolveSelectedRecordId<T extends { id: string }>(
 ): string | undefined {
   if (preferredId && records.some((record) => record.id === preferredId)) return preferredId;
   if (currentId && records.some((record) => record.id === currentId)) return currentId;
-  return records[0]?.id;
+  return undefined;
 }
 
 export function resolveAdjacentSelectionAfterDelete<T extends { id: string }>(

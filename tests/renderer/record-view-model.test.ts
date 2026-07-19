@@ -33,7 +33,7 @@ describe("record view model", () => {
       createFavoriteRecord("yesterday", 1000, "昨日收藏全文")
     ];
 
-    expect(resolveSelectedRecordId(records, undefined)).toBe("today-late");
+    expect(resolveSelectedRecordId(records, undefined)).toBeUndefined();
     expect(resolveSelectedRecordId(records, "yesterday")).toBe("yesterday");
     expect(resolveSelectedRecordId(records, "missing", "today-late")).toBe("today-late");
     expect(resolveSelectedRecordId([], "today-late")).toBeUndefined();

@@ -19,6 +19,23 @@ afterEach(() => {
 });
 
 describe("ReaderWindowApp", () => {
+  it("keeps Home task-first and gives utility routes concise page context", async () => {
+    renderReaderWindow({ settings: createVerifiedSettings() });
+
+    expect(await screen.findByRole("heading", { name: "朗读当前选区" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "主页" })).not.toBeInTheDocument();
+
+    for (const [route, description] of [
+      ["历史记录", "查看、重播与管理仅保存在本机的朗读内容。"],
+      ["收藏", "保存重要的朗读内容，随时重新播放。"],
+      ["设置", "管理连接、朗读偏好与本机数据。"]
+    ] as const) {
+      await userEvent.click(screen.getByRole("button", { name: route }));
+      expect(await screen.findByRole("heading", { name: route })).toBeInTheDocument();
+      expect(screen.getByText(description)).toBeInTheDocument();
+    }
+  });
+
   it("shows the Home setup blocker when no MiniMax API key is available", async () => {
     renderReaderWindow({
       hasApiKey: false,
@@ -186,32 +203,100 @@ describe("ReaderWindowApp", () => {
     });
 
     expect(await screen.findByText("暂无历史记录")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "选择一条历史记录" })).toBeInTheDocument();
+    expect(screen.getByText("朗读选中文本或剪切板后，历史记录会显示在这里。")).toBeInTheDocument();
   });
 
-  it("selects a Reading History Record and shows detail actions", async () => {
-    const record = createHistoryRecord({
-      id: "history-1",
-      preview: "历史记录预览",
-      text: "历史记录预览。完整正文。",
-      createdAt: 1_700_000_000_000
-    });
+  it("summarizes local Reading History retention and manages it in Settings", async () => {
     renderReaderWindow({
       bootstrapRoute: "history",
-      history: [record],
+      settings: createVerifiedSettings({ historyRetention: "3m" })
+    });
+
+    expect(await screen.findByText("仅存本机")).toBeInTheDocument();
+    expect(await screen.findByText("保留 3 个月")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "管理" }));
+
+    expect(await screen.findByRole("heading", { name: "设置" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "历史记录" })).toBeInTheDocument();
+  });
+
+  it("keeps the local-only History promise visible when retention settings cannot be loaded", async () => {
+    renderReaderWindow({
+      bootstrapRoute: "history",
+      readerPatch: { getSettings: async () => Promise.reject(new Error("settings unavailable")) },
       settings: createVerifiedSettings()
     });
 
-    await userEvent.click(await screen.findByRole("button", { name: /历史记录预览/ }));
+    expect(await screen.findByText("仅存本机")).toBeInTheDocument();
+    expect(await screen.findByText("保留期限暂不可用")).toBeInTheDocument();
+  });
 
-    const detail = screen.getByRole("heading", { name: "历史记录预览" }).closest(".history-detail");
+  it("recovers inline when Reading History cannot be loaded", async () => {
+    const record = createHistoryRecord({ id: "history-recovered", preview: "重新载入后的历史" });
+    const listReadingHistory = vi
+      .fn<ReaderWindowRuntimeBridge["listReadingHistory"]>()
+      .mockRejectedValueOnce(new Error("database busy"))
+      .mockResolvedValueOnce([record]);
+    renderReaderWindow({
+      bootstrapRoute: "history",
+      readerPatch: { listReadingHistory },
+      settings: createVerifiedSettings()
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("无法载入历史记录");
+    await userEvent.click(screen.getByRole("button", { name: "重试" }));
+
+    expect(await screen.findByRole("button", { name: /重新载入后的历史/ })).toBeInTheDocument();
+    expect(listReadingHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it("scans Reading History metadata and expands only the selected Record inline", async () => {
+    const first = createHistoryRecord({
+      id: "history-first",
+      preview: "第一条历史记录",
+      text: "第一条历史记录的完整正文。",
+      durationEstimateSeconds: 125,
+      languageSummary: "中文",
+      source: "selected_text"
+    });
+    const second = createHistoryRecord({
+      id: "history-second",
+      preview: "第二条历史记录",
+      text: "第二条历史记录的完整正文。",
+      durationEstimateSeconds: 42,
+      languageSummary: "英文",
+      source: "clipboard"
+    });
+    renderReaderWindow({
+      bootstrapRoute: "history",
+      history: [first, second],
+      settings: createVerifiedSettings()
+    });
+
+    const firstRow = await screen.findByRole("button", { name: /第一条历史记录.*约 2 分钟.*中文.*选区/ });
+    const secondRow = screen.getByRole("button", { name: /第二条历史记录.*约 1 分钟.*英文.*剪切板/ });
+    expect(firstRow).toHaveAttribute("aria-expanded", "false");
+    expect(secondRow).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("第一条历史记录的完整正文。")).not.toBeInTheDocument();
+
+    await userEvent.click(firstRow);
+
+    const detail = screen.getByRole("heading", { name: "第一条历史记录" }).closest(".history-detail");
     expect(detail).not.toBeNull();
     const detailScope = within(detail as HTMLElement);
     expect(detailScope.getByRole("button", { name: "重新播放" })).toBeEnabled();
     expect(detailScope.getByRole("button", { name: "复制全文" })).toBeEnabled();
     expect(detailScope.getByRole("button", { name: "添加收藏" })).toBeEnabled();
     expect(detailScope.getByRole("button", { name: "删除记录" })).toBeEnabled();
-    expect(detailScope.getByText("历史记录预览。完整正文。")).toBeInTheDocument();
+    expect(detailScope.getByText("第一条历史记录的完整正文。")).toBeInTheDocument();
+
+    await userEvent.click(secondRow);
+
+    expect(firstRow).toHaveAttribute("aria-expanded", "false");
+    expect(secondRow).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByText("第一条历史记录的完整正文。")).not.toBeInTheDocument();
+    expect(screen.getByText("第二条历史记录的完整正文。")).toBeInTheDocument();
   });
 
   it.each([
@@ -240,6 +325,39 @@ describe("ReaderWindowApp", () => {
     await waitFor(() => expect(replay).toHaveBeenCalledWith(record.id));
     await userEvent.click(await screen.findByRole("button", { name: "停止" }));
     expect(stopPlayback).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops an inline replay before collapsing it or expanding another History Record", async () => {
+    const first = createHistoryRecord({ id: "history-playing", preview: "正在重播的历史" });
+    const second = createHistoryRecord({ id: "history-next", preview: "下一条历史" });
+    const bridge = renderReaderWindow({ bootstrapRoute: "history", history: [first, second] });
+    const stopPlayback = vi.spyOn(bridge, "stopPlayback");
+
+    await userEvent.click(await screen.findByRole("button", { name: /正在重播的历史/ }));
+    await userEvent.click(screen.getByRole("button", { name: "重新播放" }));
+    expect(await screen.findByLabelText("历史重播中")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /下一条历史/ }));
+
+    expect(stopPlayback).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("历史重播中")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /下一条历史/ })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("keeps replay failure feedback inside the expanded History Record", async () => {
+    const record = createHistoryRecord({ id: "history-replay-error", preview: "无法重播的历史" });
+    renderReaderWindow({
+      bootstrapRoute: "history",
+      history: [record],
+      readerPatch: { playHistoryRecord: async () => Promise.reject(new Error("playback unavailable")) }
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: /无法重播的历史/ }));
+    const detail = screen.getByRole("heading", { name: "无法重播的历史" }).closest(".history-detail");
+    expect(detail).not.toBeNull();
+    await userEvent.click(within(detail as HTMLElement).getByRole("button", { name: "重新播放" }));
+
+    expect(await within(detail as HTMLElement).findByRole("alert")).toHaveTextContent("重播失败");
   });
 
   it("keeps the add-to-Favorites feedback attached to its Reading History Record", async () => {
@@ -271,7 +389,8 @@ describe("ReaderWindowApp", () => {
     await userEvent.click(await screen.findByRole("button", { name: /延迟删除/ }));
     fireEvent.click(screen.getByRole("button", { name: "删除记录" }));
     await userEvent.click(screen.getByRole("button", { name: "收藏" }));
-    const favoritesEmptyState = await screen.findByText("暂无收藏", { selector: ".empty-list" });
+    const favoritesEmptyState = (await screen.findByText("暂无收藏")).closest("[tabindex]");
+    expect(favoritesEmptyState).not.toBeNull();
 
     await act(async () => finishDeletion("late-undo-token"));
     await new Promise((resolve) => window.setTimeout(resolve, 0));
@@ -293,7 +412,9 @@ describe("ReaderWindowApp", () => {
 
     expect(await screen.findByText("已删除 1 条历史记录")).toBeInTheDocument();
     expect(deleteRecord).toHaveBeenCalledWith(record.id);
-    expect(screen.getByText("暂无历史记录")).toHaveFocus();
+    const historyEmptyState = screen.getByText("暂无历史记录").closest("[tabindex]");
+    expect(historyEmptyState).not.toBeNull();
+    expect(historyEmptyState).toHaveFocus();
 
     await userEvent.click(screen.getByRole("button", { name: "撤销" }));
 
@@ -319,7 +440,9 @@ describe("ReaderWindowApp", () => {
 
     expect(await screen.findByText("已移除 1 条收藏")).toBeInTheDocument();
     expect(deleteFavorite).toHaveBeenCalledWith(favorite.id);
-    expect(screen.getByText("暂无收藏", { selector: ".empty-list" })).toHaveFocus();
+    const favoritesEmptyState = screen.getByText("暂无收藏").closest("[tabindex]");
+    expect(favoritesEmptyState).not.toBeNull();
+    expect(favoritesEmptyState).toHaveFocus();
     await userEvent.click(screen.getByRole("button", { name: "撤销" }));
 
     await waitFor(() => expect(undoDeletion).toHaveBeenCalledWith(`favorite-undo-${favorite.id}`));
@@ -382,6 +505,7 @@ describe("ReaderWindowApp", () => {
       expect(within(panel).getByRole("region", { name: group })).toBeInTheDocument();
     }
     expect(screen.getByRole("slider", { name: "语速" })).toHaveAttribute("aria-valuetext", "1.0 倍");
+    expect(screen.queryByRole("button", { name: "标记首次配置完成" })).not.toBeInTheDocument();
   });
 
   it("keeps the Settings layout stable while settings are loading", async () => {
