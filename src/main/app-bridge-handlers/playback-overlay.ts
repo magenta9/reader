@@ -11,9 +11,6 @@ export function registerPlaybackOverlayHandlers({
   ipcMain.handle(PLAYBACK_OVERLAY_COMMAND_CHANNELS.metric, (_event, metric: SessionOverlayMetric) => {
     overlayController.sendMetric(metric);
   });
-  ipcMain.handle(PLAYBACK_OVERLAY_COMMAND_CHANNELS.finishPlayback, (_event, sessionId: number) => {
-    overlayController.finish(sessionId);
-  });
   ipcMain.handle(PLAYBACK_OVERLAY_COMMAND_CHANNELS.ready, () => {
     overlayController.markReady();
   });

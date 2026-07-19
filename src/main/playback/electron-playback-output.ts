@@ -4,7 +4,10 @@ import {
   type PlaybackFeedbackSurface,
   type PlaybackAudioSession
 } from "../../shared/app-contracts.js";
-import { RENDERER_AUDIO_CHANNELS } from "../../shared/bridge-contracts.js";
+import {
+  PLAYBACK_FEEDBACK_CHANNELS,
+  RENDERER_AUDIO_CHANNELS
+} from "../../shared/bridge-contracts.js";
 import type { PlaybackAudioSink } from "./playback-service.js";
 import type { PlaybackOverlayController } from "./playback-overlay-controller.js";
 
@@ -69,30 +72,28 @@ export class ElectronPlaybackOutput implements PlaybackAudioSink {
   }
 
   finishGeneration(sessionId: number): void {
-    this.sendToPlaybackRenderer(RENDERER_AUDIO_CHANNELS.finishSession, { sessionId });
+    this.sendToPlaybackRenderer(RENDERER_AUDIO_CHANNELS.endSessionAudio, { sessionId });
   }
 
   completeSession(sessionId: number): void {
-    this.sendTerminalFeedback(RENDERER_AUDIO_CHANNELS.finishSession, sessionId, () => {
+    this.sendTerminalFeedback(PLAYBACK_FEEDBACK_CHANNELS.finishSession, sessionId, () => {
       this.overlay.finish(sessionId);
     });
   }
 
   failSession(sessionId: number): void {
-    this.sendTerminalFeedback(RENDERER_AUDIO_CHANNELS.failSession, sessionId, () => {
+    this.sendTerminalFeedback(PLAYBACK_FEEDBACK_CHANNELS.failSession, sessionId, () => {
       this.overlay.fail(sessionId);
     });
     this.sendToPlaybackRenderer(RENDERER_AUDIO_CHANNELS.failSession, { sessionId });
   }
 
   stopSession(sessionId: number): void {
-    this.sendTerminalFeedback(RENDERER_AUDIO_CHANNELS.stopSession, sessionId, () => {
+    this.sendTerminalFeedback(PLAYBACK_FEEDBACK_CHANNELS.stopSession, sessionId, () => {
       this.overlay.stop(sessionId);
     });
     this.sendToPlaybackRenderer(RENDERER_AUDIO_CHANNELS.stopSession, { sessionId });
   }
-
-  handleRendererIdle(_sessionId: number): void {}
 
   destroy(): void {
     this.activeFeedback = undefined;

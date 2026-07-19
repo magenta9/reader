@@ -8,10 +8,18 @@ const shouldBuild = !process.argv.includes("--no-build");
 if (shouldBuild) await run("scripts/build.mjs", []);
 
 const { ElectronPlaybackOutput } = await import("../dist/main/playback/electron-playback-output.js");
+const { PlaybackService } = await import("../dist/main/playback/playback-service.js");
+const { PlaybackCommandController } = await import(
+  "../dist/main/playback/playback-command-controller.js"
+);
+const { registerPlaybackControlHandlers } = await import(
+  "../dist/main/app-bridge-handlers/playback-control.js"
+);
 const { PLAYBACK_FEEDBACK_SURFACES } = await import("../dist/shared/app-contracts.js");
 const {
   APP_DATA_CHANNELS,
   APP_SHELL_CHANNELS,
+  PLAYBACK_FEEDBACK_CHANNELS,
   PLAYBACK_CONTROL_CHANNELS,
   PLAYBACK_OVERLAY_COMMAND_CHANNELS,
   PLAYBACK_OVERLAY_EVENT_CHANNELS,
@@ -267,13 +275,7 @@ assertIncludes(mainBundle, [
   "setPosition",
   APP_SHELL_CHANNELS.navigate,
   PLAYBACK_OVERLAY_EVENT_CHANNELS.metric,
-  PLAYBACK_OVERLAY_COMMAND_CHANNELS.finishPlayback,
   PLAYBACK_OVERLAY_COMMAND_CHANNELS.ready,
-  PLAYBACK_CONTROL_CHANNELS.rendererOutcome,
-  PLAYBACK_CONTROL_CHANNELS.rendererIdle,
-  "PlaybackCommandController",
-  "ElectronPlaybackOutput",
-  "stopSession",
   APP_DATA_CHANNELS.setActivationShortcut,
   APP_DATA_CHANNELS.createFavoriteFromHistoryRecord,
   APP_DATA_CHANNELS.listFavorites,
@@ -482,13 +484,14 @@ assert.equal(typeof readerRuntimeBridge.onOverlayShow, "undefined");
 assert.equal(typeof playbackRendererRuntimeBridge.onPlaybackStart, "function");
 assert.equal(typeof playbackRendererRuntimeBridge.onAudioChunk, "function");
 assert.equal(typeof playbackRendererRuntimeBridge.onSegmentEnd, "function");
-assert.equal(typeof playbackRendererRuntimeBridge.onPlaybackFinish, "function");
+assert.equal(typeof playbackRendererRuntimeBridge.onAudioInputEnd, "function");
+assert.equal(typeof playbackRendererRuntimeBridge.onPlaybackFinish, "undefined");
 assert.equal(typeof playbackRendererRuntimeBridge.onPlaybackFail, "function");
 assert.equal(typeof playbackRendererRuntimeBridge.onPlaybackStop, "function");
-assert.equal(typeof playbackRendererRuntimeBridge.notifyPlaybackIdle, "function");
+assert.equal(typeof playbackRendererRuntimeBridge.notifyPlaybackIdle, "undefined");
 assert.equal(typeof playbackRendererRuntimeBridge.reportAudioOutcome, "function");
 assert.equal(typeof playbackRendererRuntimeBridge.sendOverlayMetric, "function");
-assert.equal(typeof playbackRendererRuntimeBridge.finishOverlayPlayback, "function");
+assert.equal(typeof playbackRendererRuntimeBridge.finishOverlayPlayback, "undefined");
 assert.equal(typeof playbackRendererRuntimeBridge.getSettings, "undefined");
 assert.equal(typeof playbackRendererRuntimeBridge.updateSettings, "undefined");
 assert.equal(typeof playbackRendererRuntimeBridge.listReadingHistory, "undefined");
@@ -519,13 +522,6 @@ for (const { name, source, expected } of [
 ]) {
   assert.equal(source.includes(expected), true, `${name} should use a role-specific data interface`);
 }
-for (const expected of ["PlaybackSessionPort", "handleRendererIdle"]) {
-  assert.equal(
-    playbackCommandSource.includes(expected),
-    true,
-    `PlaybackCommandController should own playback session command lifecycle: ${expected}`
-  );
-}
 for (const { name, source } of [
   { name: "MiniMaxAccountService", source: minimaxAccountSource },
   { name: "PlaybackService", source: playbackServiceSource },
@@ -553,13 +549,7 @@ assertIncludes(playbackRendererBundle, [
   "sendOverlayMetric",
   "reportAudioOutcome"
 ]);
-assertMissing(rendererBundle, [
-  "getByteTimeDomainData",
-  "sendOverlayMetric",
-  "finishOverlayPlayback",
-  RENDERER_AUDIO_CHANNELS.startSession,
-  RENDERER_AUDIO_CHANNELS.audioChunk
-]);
+assertMissing(rendererBundle, ["getByteTimeDomainData", "sendOverlayMetric"]);
 assertIncludes(appIconSource, 'rect width="1024" height="1024"');
 assertMissing(appIconSource, 'x="64" y="64"');
 assertIncludes(mainSource, [
@@ -705,7 +695,7 @@ assert.deepEqual(completeDeliveryScenario.playbackRenderer.messages, [
   [RENDERER_AUDIO_CHANNELS.startSession, completeSession],
   [RENDERER_AUDIO_CHANNELS.audioChunk, { sessionId: 101, bytes: new Uint8Array([1, 2, 3]) }],
   [RENDERER_AUDIO_CHANNELS.endSegment, { sessionId: 101 }],
-  [RENDERER_AUDIO_CHANNELS.finishSession, { sessionId: 101 }]
+  [RENDERER_AUDIO_CHANNELS.endSessionAudio, { sessionId: 101 }]
 ]);
 assert.deepEqual(completeDeliveryScenario.overlayActions, ["show:101", "finish:101"]);
 
@@ -722,8 +712,8 @@ terminalFeedbackScenario.output.failSession(202);
 terminalFeedbackScenario.output.startSession(createOverlayPlaybackSessionForTest(203));
 terminalFeedbackScenario.output.stopSession(203);
 assert.deepEqual(readerWindow.messages, [
-  [RENDERER_AUDIO_CHANNELS.finishSession, { sessionId: 201 }],
-  [RENDERER_AUDIO_CHANNELS.failSession, { sessionId: 202 }]
+  [PLAYBACK_FEEDBACK_CHANNELS.finishSession, { sessionId: 201 }],
+  [PLAYBACK_FEEDBACK_CHANNELS.failSession, { sessionId: 202 }]
 ]);
 assert.deepEqual(
   terminalFeedbackScenario.playbackRenderer.messages.map(([channel]) => channel),
@@ -731,7 +721,7 @@ assert.deepEqual(
     RENDERER_AUDIO_CHANNELS.startSession,
     RENDERER_AUDIO_CHANNELS.audioChunk,
     RENDERER_AUDIO_CHANNELS.endSegment,
-    RENDERER_AUDIO_CHANNELS.finishSession,
+    RENDERER_AUDIO_CHANNELS.endSessionAudio,
     RENDERER_AUDIO_CHANNELS.startSession,
     RENDERER_AUDIO_CHANNELS.failSession,
     RENDERER_AUDIO_CHANNELS.startSession,
@@ -742,12 +732,58 @@ assert.deepEqual(terminalFeedbackScenario.overlayActions, ["show:203", "stop:203
 
 const overlayOwnershipScenario = await createElectronPlaybackOutputScenario();
 overlayOwnershipScenario.output.startSession(createOverlayPlaybackSessionForTest(301));
-overlayOwnershipScenario.output.handleRendererIdle(999);
 overlayOwnershipScenario.output.startSession(createOverlayPlaybackSessionForTest(302));
 overlayOwnershipScenario.output.stopSession(301);
-overlayOwnershipScenario.output.handleRendererIdle(302);
 overlayOwnershipScenario.output.stopSession(302);
 assert.deepEqual(overlayOwnershipScenario.overlayActions, ["show:301", "show:302", "stop:302"]);
+
+const builtLifecycleScenario = await createBuiltPlaybackLifecycleScenario();
+const builtHistoryResult = await builtLifecycleScenario.invoke(
+  PLAYBACK_CONTROL_CHANNELS.playHistoryRecord,
+  "built-history"
+);
+await builtLifecycleScenario.playback.waitForCurrentGeneration();
+assert.equal(builtLifecycleScenario.shortcuts.has("Escape"), true);
+await builtLifecycleScenario.invoke(PLAYBACK_CONTROL_CHANNELS.rendererOutcome, {
+  sessionId: builtHistoryResult.sessionId,
+  status: "completed"
+});
+assert.equal(builtLifecycleScenario.shortcuts.has("Escape"), false);
+assert.deepEqual(builtLifecycleScenario.readerWindow.messages, [
+  [PLAYBACK_FEEDBACK_CHANNELS.finishSession, { sessionId: builtHistoryResult.sessionId }]
+]);
+builtLifecycleScenario.output.destroy();
+
+const builtFailureScenario = await createBuiltPlaybackLifecycleScenario({
+  streamTts: async () => {
+    throw new Error("MiniMax TTS failed with HTTP 500");
+  }
+});
+const failedHistoryResult = await builtFailureScenario.invoke(
+  PLAYBACK_CONTROL_CHANNELS.playHistoryRecord,
+  "built-failure"
+);
+await builtFailureScenario.playback.waitForCurrentGeneration();
+assert.equal(builtFailureScenario.shortcuts.has("Escape"), false);
+assert.deepEqual(builtFailureScenario.readerWindow.messages, [
+  [PLAYBACK_FEEDBACK_CHANNELS.failSession, { sessionId: failedHistoryResult.sessionId }]
+]);
+builtFailureScenario.output.destroy();
+
+const builtSynchronousTerminalScenario = await createBuiltPlaybackLifecycleScenario({
+  missingVoice: true
+});
+const synchronousTerminalResult = await builtSynchronousTerminalScenario.invoke(
+  PLAYBACK_CONTROL_CHANNELS.playHistoryRecord,
+  "built-missing-voice"
+);
+assert.equal(synchronousTerminalResult.started, true);
+assert.equal(synchronousTerminalResult.stopShortcutAvailable, false);
+assert.equal(builtSynchronousTerminalScenario.shortcuts.has("Escape"), false);
+assert.deepEqual(builtSynchronousTerminalScenario.readerWindow.messages, [
+  [PLAYBACK_FEEDBACK_CHANNELS.failSession, { sessionId: synchronousTerminalResult.sessionId }]
+]);
+builtSynchronousTerminalScenario.output.destroy();
 
 completeDeliveryScenario.output.destroy();
 assert.throws(
@@ -892,6 +928,89 @@ async function createElectronPlaybackOutputScenario({
     playbackRendererEntry: "/app/playback-renderer/index.html"
   });
   return { output, overlayActions, playbackRenderer, readerWindow };
+}
+
+async function createBuiltPlaybackLifecycleScenario({
+  streamTts = async (request) => request.onAudioHex("0102"),
+  missingVoice = false
+} = {}) {
+  const readerWindow = createPlaybackWindowForTest();
+  const outputScenario = await createElectronPlaybackOutputScenario({ readerWindow });
+  const errors = [];
+  const store = {
+    addErrorLog(error) {
+      errors.push(error);
+    },
+    getSettings() {
+      return { activationShortcut: "Command+J" };
+    },
+    updateSettings(settings) {
+      return { activationShortcut: "Command+J", ...settings };
+    }
+  };
+  const createPlan = (feedbackSurface) => ({
+    ok: true,
+    plan: {
+      audioSession: { speechRate: 1, feedbackSurface, segmentWeights: [1] },
+      segments: missingVoice
+        ? [{ missingVoiceLanguage: "zh" }]
+        : [
+            {
+              stream: async (stream, request) =>
+                stream({
+                  ...request,
+                  apiKey: "built-key",
+                  model: "speech-2.8-turbo",
+                  voiceId: "built-voice",
+                  text: "built playback lifecycle"
+                })
+            }
+          ]
+    }
+  });
+  const resolver = {
+    resolveReadingTarget: () => createPlan(PLAYBACK_FEEDBACK_SURFACES.playbackOverlay),
+    resolveHistoryReplay: () => createPlan(PLAYBACK_FEEDBACK_SURFACES.historyDetail),
+    resolveFavoriteReplay: () => createPlan(PLAYBACK_FEEDBACK_SURFACES.favoriteDetail)
+  };
+  const playback = new PlaybackService(store, outputScenario.output, streamTts, resolver);
+  const shortcuts = new Map();
+  const commands = new PlaybackCommandController(
+    store,
+    playback,
+    {
+      register(shortcut, callback) {
+        shortcuts.set(shortcut, callback);
+        return true;
+      },
+      unregister(shortcut) {
+        shortcuts.delete(shortcut);
+      }
+    },
+    async () => ({ text: "built playback lifecycle", source: "selected_text" })
+  );
+  const handlers = new Map();
+  registerPlaybackControlHandlers({
+    ipcMain: {
+      handle(channel, handler) {
+        handlers.set(channel, handler);
+      }
+    },
+    playbackCommands: commands,
+    readingTargetAcquirer: { revealPreviousAppBeforeCapture: async () => undefined },
+    shouldRevealPreviousAppBeforeSelectionCapture: () => false
+  });
+  return {
+    ...outputScenario,
+    errors,
+    playback,
+    shortcuts,
+    async invoke(channel, ...args) {
+      const handler = handlers.get(channel);
+      assert.equal(typeof handler, "function", `missing built IPC handler for ${channel}`);
+      return handler({ sender: { id: 1 } }, ...args);
+    }
+  };
 }
 
 function createPlaybackWindowForTest({ loadFile = async () => undefined } = {}) {

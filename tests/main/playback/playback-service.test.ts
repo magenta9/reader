@@ -87,9 +87,11 @@ describe("PlaybackService", () => {
   it("logs runtime MiniMax failures and fails the active session", async () => {
     const store = await createVerifiedStore();
     const events: PlaybackEvent[] = [];
+    const terminalSessions: number[] = [];
     const playback = new PlaybackService(store, createSink(events), async () => {
       throw new Error("MiniMax TTS failed with HTTP 500");
     });
+    playback.onSessionTerminal((sessionId) => terminalSessions.push(sessionId));
 
     const result = await playback.playReadingTarget(clipboardTargetInput("这是一段会失败的文本。"));
 
@@ -101,6 +103,7 @@ describe("PlaybackService", () => {
       message: "MiniMax TTS failed with HTTP 500"
     });
     expect(store.listReadingHistoryRecords().some((record) => record.text === "这是一段会失败的文本。")).toBe(true);
+    expect(terminalSessions).toEqual([result.sessionId]);
   });
 
   it("does not report a Playback Session as started when its output is unavailable", async () => {

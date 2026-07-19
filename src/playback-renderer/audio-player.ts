@@ -15,8 +15,8 @@ export function mountPlaybackAudio(bridge: PlaybackRendererBridge): () => void {
     bridge.onPlaybackStart((session) => queue.startSession(session)),
     bridge.onAudioChunk((payload) => queue.pushChunk(payload.sessionId, payload.bytes)),
     bridge.onSegmentEnd((payload) => queue.endSegment(payload.sessionId)),
-    bridge.onPlaybackFinish((payload) => queue.finishSession(payload.sessionId)),
-    bridge.onPlaybackFail((payload) => queue.failSession(payload.sessionId)),
+    bridge.onAudioInputEnd((payload) => queue.endAudioInput(payload.sessionId)),
+    bridge.onPlaybackFail((payload) => queue.stopSession(payload.sessionId)),
     bridge.onPlaybackStop((payload) => queue.stopSession(payload.sessionId))
   ];
   let disposed = false;
@@ -69,13 +69,13 @@ class PlaybackAudioQueue {
     this.flush();
   }
 
-  finishSession(sessionId: number): void {
+  endAudioInput(sessionId: number): void {
     if (sessionId !== this.sessionId) return;
     this.flush();
-    const shouldFinishOverlay = this.overlayMetricsEnabled;
+    const shouldSendFinalOverlayMetric = this.overlayMetricsEnabled;
     void this.playbackTail.then((status) => {
       if (sessionId !== this.sessionId) return;
-      if (status === PLAYBACK_AUDIO_OUTCOMES.completed && shouldFinishOverlay) {
+      if (status === PLAYBACK_AUDIO_OUTCOMES.completed && shouldSendFinalOverlayMetric) {
         void this.bridge.sendOverlayMetric({
           sessionId,
           amplitude: 0,
@@ -88,19 +88,8 @@ class PlaybackAudioQueue {
     });
   }
 
-  failSession(sessionId: number): void {
-    this.stopAndNotifyIdle(sessionId);
-  }
-
   stopSession(sessionId: number): void {
-    this.stopAndNotifyIdle(sessionId);
-  }
-
-  private stopAndNotifyIdle(sessionId: number): void {
-    if (sessionId === this.sessionId) {
-      this.stop();
-      void this.bridge.notifyPlaybackIdle(sessionId);
-    }
+    if (sessionId === this.sessionId) this.stop();
   }
 
   stop(): void {

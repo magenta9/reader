@@ -53,7 +53,7 @@ The user-configured keyboard shortcut that explicitly asks VoiceReader to start 
 _Avoid_: Hotkey, keyboard command, trigger key
 
 **Stop Shortcut**:
-The Escape key while a Playback Session is active; it is globally active only during playback and explicitly asks VoiceReader to stop current playback without starting a new Reading Target.
+The Escape key while a Playback Session is active; it is globally active only during playback and explicitly asks VoiceReader to stop current playback without starting a new Reading Target. The main-owned Playback Session terminal notification releases it after completion, user stop, generation failure, output failure, or replacement.
 _Avoid_: Toggle key, cancel key, pause key
 
 **Reader Window**:
@@ -89,7 +89,7 @@ The coarse language classification assigned to a Reading Segment for Voice selec
 _Avoid_: Locale, translation language, browser language
 
 **Playback Session**:
-A single active attempt to turn a Reading Target into spoken audio. It remains active while MiniMax generates audio and while the hidden Playback Renderer outputs the sealed audio queue; generation completion alone is not a terminal state. VoiceReader only has one Playback Session at a time; starting a new one replaces the current one. The main process accepts an Audio Outcome only for the current, generation-finished session, then routes completion or failure to its Feedback Surface. Playback Sessions can be started or stopped, but not paused or resumed; replaying starts from the beginning.
+A single active attempt to turn a Reading Target into spoken audio. It remains active while MiniMax generates audio and while the hidden Playback Renderer outputs the sealed audio queue; generation completion alone is not a terminal state. VoiceReader only has one Playback Session at a time; starting a new one replaces the current one. The main process accepts an Audio Outcome only for the current, generation-finished session, then routes completion or failure to its Feedback Surface. Every accepted terminal path also emits one main-owned session terminal notification so command adapters such as the Stop Shortcut cannot outlive the session. Playback Sessions can be started or stopped, but not paused or resumed; replaying starts from the beginning.
 _Avoid_: Audio job, task, stream
 
 **Speech Rate**:

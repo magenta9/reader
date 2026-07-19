@@ -28,9 +28,6 @@ export function registerPlaybackControlHandlers({
   ipcMain.handle(PLAYBACK_CONTROL_CHANNELS.stop, () => {
     playbackCommands.stopPlayback();
   });
-  ipcMain.handle(PLAYBACK_CONTROL_CHANNELS.rendererIdle, (_event, sessionId: number) => {
-    playbackCommands.handleRendererIdle(sessionId);
-  });
   ipcMain.handle(PLAYBACK_CONTROL_CHANNELS.rendererOutcome, (_event, outcome: PlaybackAudioOutcome) => {
     playbackCommands.handleAudioOutcome(outcome);
   });

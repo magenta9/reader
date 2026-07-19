@@ -10,7 +10,6 @@ export const PLAYBACK_OVERLAY_EVENT_CHANNELS = {
 
 export const PLAYBACK_OVERLAY_COMMAND_CHANNELS = {
   metric: "overlay:metric",
-  finishPlayback: "overlay:finish-playback",
   ready: "overlay:ready"
 } as const;
 

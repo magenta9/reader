@@ -6,7 +6,10 @@ import {
   PLAYBACK_FEEDBACK_SURFACES,
   type PlaybackAudioSession
 } from "../../../src/shared/app-contracts.js";
-import { RENDERER_AUDIO_CHANNELS } from "../../../src/shared/bridge-contracts.js";
+import {
+  PLAYBACK_FEEDBACK_CHANNELS,
+  RENDERER_AUDIO_CHANNELS
+} from "../../../src/shared/bridge-contracts.js";
 
 describe("ElectronPlaybackOutput", () => {
   it("becomes available only after its owned Playback Renderer is ready", async () => {
@@ -47,7 +50,7 @@ describe("ElectronPlaybackOutput", () => {
       [RENDERER_AUDIO_CHANNELS.startSession, session],
       [RENDERER_AUDIO_CHANNELS.audioChunk, { sessionId: 101, bytes: new Uint8Array([1, 2, 3]) }],
       [RENDERER_AUDIO_CHANNELS.endSegment, { sessionId: 101 }],
-      [RENDERER_AUDIO_CHANNELS.finishSession, { sessionId: 101 }]
+      [RENDERER_AUDIO_CHANNELS.endSessionAudio, { sessionId: 101 }]
     ]);
     expect(overlayActions).toEqual(["show:101", "finish:101"]);
   });
@@ -67,7 +70,7 @@ describe("ElectronPlaybackOutput", () => {
     expect(overlayActions).toEqual([]);
     expect(renderer.messages.map(([channel]) => channel)).toEqual([
       RENDERER_AUDIO_CHANNELS.startSession,
-      RENDERER_AUDIO_CHANNELS.finishSession
+      RENDERER_AUDIO_CHANNELS.endSessionAudio
     ]);
   });
 
@@ -89,14 +92,14 @@ describe("ElectronPlaybackOutput", () => {
     output.stopSession(303);
 
     expect(reader.messages).toEqual([
-      [RENDERER_AUDIO_CHANNELS.finishSession, { sessionId: 301 }],
-      [RENDERER_AUDIO_CHANNELS.failSession, { sessionId: 302 }]
+      [PLAYBACK_FEEDBACK_CHANNELS.finishSession, { sessionId: 301 }],
+      [PLAYBACK_FEEDBACK_CHANNELS.failSession, { sessionId: 302 }]
     ]);
     expect(renderer.messages.map(([channel]) => channel)).toEqual([
       RENDERER_AUDIO_CHANNELS.startSession,
       RENDERER_AUDIO_CHANNELS.audioChunk,
       RENDERER_AUDIO_CHANNELS.endSegment,
-      RENDERER_AUDIO_CHANNELS.finishSession,
+      RENDERER_AUDIO_CHANNELS.endSessionAudio,
       RENDERER_AUDIO_CHANNELS.startSession,
       RENDERER_AUDIO_CHANNELS.failSession,
       RENDERER_AUDIO_CHANNELS.startSession,
@@ -111,10 +114,8 @@ describe("ElectronPlaybackOutput", () => {
     const output = await createOutput({ playbackRenderer: renderer, overlayActions });
 
     output.startSession(createSession(401, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay));
-    output.handleRendererIdle(999);
     output.startSession(createSession(402, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay));
     output.stopSession(401);
-    output.handleRendererIdle(402);
     output.stopSession(402);
 
     expect(overlayActions).toEqual(["show:401", "show:402", "stop:402"]);

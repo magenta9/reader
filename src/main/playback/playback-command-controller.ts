@@ -17,7 +17,7 @@ export interface PlaybackSessionPort {
   playFavoriteRecord(recordId: string): Promise<PlaybackStartResult>;
   stopSession(sessionId: number | undefined): void;
   handleAudioOutcome(outcome: PlaybackAudioOutcome): boolean;
-  handleRendererIdle(sessionId: number): void;
+  onSessionTerminal(listener: (sessionId: number) => void): () => void;
 }
 
 const SHORTCUT_REGISTRATION_ERROR = "快捷键注册失败，可能已被其他应用占用。";
@@ -28,13 +28,16 @@ export class PlaybackCommandController {
   private pendingReadingTargetPlayback: Promise<PlaybackStartResult> | undefined;
   private pendingShortcutPlaybackTimer: ReturnType<typeof setTimeout> | undefined;
   private stopShortcutSessionId: number | undefined;
+  private readonly terminalSessionsAwaitingStart = new Set<number>();
 
   constructor(
     private readonly store: PlaybackCommandDataStore,
     private readonly playback: PlaybackSessionPort,
     private readonly shortcuts: PlaybackShortcutRegistry,
     private readonly readReadingTargetInput: () => Promise<ReadingTargetInput>
-  ) {}
+  ) {
+    this.playback.onSessionTerminal(this.handleSessionTerminal);
+  }
 
   async startReadingTargetPlayback(): Promise<PlaybackStartResult> {
     if (this.pendingReadingTargetPlayback) return this.pendingReadingTargetPlayback;
@@ -59,14 +62,8 @@ export class PlaybackCommandController {
     this.unregisterStopShortcut();
   }
 
-  handleRendererIdle(sessionId: number): void {
-    this.playback.handleRendererIdle(sessionId);
-    if (this.stopShortcutSessionId === sessionId) this.unregisterStopShortcut();
-  }
-
   handleAudioOutcome(outcome: PlaybackAudioOutcome): void {
-    const accepted = this.playback.handleAudioOutcome(outcome);
-    if (accepted && this.stopShortcutSessionId === outcome.sessionId) this.unregisterStopShortcut();
+    this.playback.handleAudioOutcome(outcome);
   }
 
   registerActivationShortcut(): void {
@@ -124,6 +121,9 @@ export class PlaybackCommandController {
   ): Promise<PlaybackStartResult> {
     const result = await play();
     if (!result.started) return result;
+    if (result.sessionId && this.terminalSessionsAwaitingStart.delete(result.sessionId)) {
+      return { ...result, stopShortcutAvailable: false };
+    }
     return {
       ...result,
       stopShortcutAvailable: this.registerStopShortcut(result.sessionId)
@@ -143,6 +143,14 @@ export class PlaybackCommandController {
 
   private readonly stopPlaybackFromShortcut = (): void => {
     this.stopPlayback();
+  };
+
+  private readonly handleSessionTerminal = (sessionId: number): void => {
+    if (this.stopShortcutSessionId === sessionId) {
+      this.unregisterStopShortcut();
+      return;
+    }
+    this.terminalSessionsAwaitingStart.add(sessionId);
   };
 }
 

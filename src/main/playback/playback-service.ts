@@ -21,11 +21,11 @@ export interface PlaybackAudioSink {
   completeSession: (sessionId: number) => void;
   failSession: (sessionId: number) => void;
   stopSession: (sessionId: number) => void;
-  handleRendererIdle?: (sessionId: number) => void;
 }
 
 export class PlaybackService {
   private sessionCounter = 0;
+  private readonly terminalListeners = new Set<(sessionId: number) => void>();
   private active:
     | {
         sessionId: number;
@@ -58,8 +58,11 @@ export class PlaybackService {
     if (!this.active) return;
     const { sessionId, abortController } = this.active;
     abortController.abort();
-    this.stopAudioSession(sessionId);
-    this.active = undefined;
+    try {
+      this.endActiveSession(sessionId, () => this.sink.stopSession(sessionId));
+    } catch (error) {
+      this.recordPlaybackError(error);
+    }
   }
 
   stopSession(sessionId: number | undefined): void {
@@ -71,20 +74,19 @@ export class PlaybackService {
       this.stop();
       return;
     }
-    this.stopAudioSession(sessionId);
-  }
-
-  handleRendererIdle(sessionId: number): void {
-    this.sink.handleRendererIdle?.(sessionId);
+    try {
+      this.sink.stopSession(sessionId);
+    } catch (error) {
+      this.recordPlaybackError(error);
+    }
   }
 
   handleAudioOutcome(outcome: PlaybackAudioOutcome): boolean {
     const active = this.active;
     if (!active || active.sessionId !== outcome.sessionId || !active.generationFinished) return false;
-    this.active = undefined;
     if (outcome.status === "completed") {
       try {
-        this.sink.completeSession(outcome.sessionId);
+        this.endActiveSession(outcome.sessionId, () => this.sink.completeSession(outcome.sessionId));
       } catch (error) {
         this.recordPlaybackError(error);
       }
@@ -92,7 +94,7 @@ export class PlaybackService {
     }
     this.recordPlaybackError(new Error("Browser audio output failed."));
     try {
-      this.sink.failSession(outcome.sessionId);
+      this.endActiveSession(outcome.sessionId, () => this.sink.failSession(outcome.sessionId));
     } catch {
       // The audio output failure is already recorded; do not throw while presenting it.
     }
@@ -101,6 +103,11 @@ export class PlaybackService {
 
   waitForCurrentGeneration(): Promise<void> {
     return this.active?.generationDone ?? Promise.resolve();
+  }
+
+  onSessionTerminal(listener: (sessionId: number) => void): () => void {
+    this.terminalListeners.add(listener);
+    return () => this.terminalListeners.delete(listener);
   }
 
   private startResolvedPlaybackRequest(resolved: ResolvePlaybackRequestResult): PlaybackStartResult {
@@ -145,8 +152,7 @@ export class PlaybackService {
             category: "playback_runtime",
             message: `No Voice is available for ${segment.missingVoiceLanguage}.`
           });
-          this.sink.failSession(sessionId);
-          if (this.active?.sessionId === sessionId) this.active = undefined;
+          this.endActiveSession(sessionId, () => this.sink.failSession(sessionId));
           return;
         }
 
@@ -168,19 +174,20 @@ export class PlaybackService {
       if (abortController.signal.aborted) return;
       this.recordPlaybackError(error);
       try {
-        this.sink.failSession(sessionId);
+        this.endActiveSession(sessionId, () => this.sink.failSession(sessionId));
       } catch {
         // The original output failure is already recorded; do not reject the session while reporting it.
       }
-      if (this.active?.sessionId === sessionId) this.active = undefined;
     }
   }
 
-  private stopAudioSession(sessionId: number): void {
+  private endActiveSession(sessionId: number, deliver: () => void): void {
+    if (this.active?.sessionId !== sessionId) return;
+    this.active = undefined;
     try {
-      this.sink.stopSession(sessionId);
-    } catch (error) {
-      this.recordPlaybackError(error);
+      deliver();
+    } finally {
+      for (const listener of this.terminalListeners) listener(sessionId);
     }
   }
 

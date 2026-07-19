@@ -50,6 +50,11 @@ describe("PlaybackCommandController", () => {
     ]);
     expect(shortcuts.handlers.has("Escape")).toBe(false);
 
+    const failed = await commands.startReadingTargetPlayback();
+    expect(shortcuts.handlers.has("Escape")).toBe(true);
+    playback.emitTerminal(failed.sessionId ?? 0);
+    expect(shortcuts.handlers.has("Escape")).toBe(false);
+
     const stopped = await commands.startReadingTargetPlayback();
     commands.stopPlayback();
     expect(playback.events.at(-1)).toEqual(["stop", stopped.sessionId]);
@@ -109,6 +114,24 @@ describe("PlaybackCommandController", () => {
     expect(shortcuts.handlers.has("Escape")).toBe(false);
     commands.stopPlayback();
     expect(playback.events.at(-1)).toEqual(["stop", result.sessionId]);
+  });
+
+  it("does not register the Stop Shortcut when a session terminates before start returns", async () => {
+    const store = createCommandStore();
+    const playback = createPlaybackPort();
+    const shortcuts = createShortcutRegistry();
+    playback.terminateBeforeStartReturns = true;
+    const commands = new PlaybackCommandController(
+      store,
+      playback.port,
+      shortcuts,
+      async () => selectedTextTargetInput("同步终态。")
+    );
+
+    const result = await commands.startReadingTargetPlayback();
+
+    expect(result).toMatchObject({ started: true, stopShortcutAvailable: false });
+    expect(shortcuts.handlers.has("Escape")).toBe(false);
   });
 
   it("normalizes Activation Shortcut updates and preserves the previous shortcut on registration failure", () => {
@@ -175,8 +198,7 @@ type PlaybackPortEvent =
   | ["play-history", string]
   | ["play-favorite", string]
   | ["stop", number | undefined]
-  | ["audio-outcome", number, "completed" | "failed"]
-  | ["renderer-idle", number];
+  | ["audio-outcome", number, "completed" | "failed"];
 
 function createCommandStore(): CommandStore {
   let settings: AppSettings = {
@@ -221,15 +243,26 @@ interface PlaybackPortHarness {
   port: PlaybackSessionPort;
   events: PlaybackPortEvent[];
   acceptAudioOutcomes: boolean;
+  emitTerminal: (sessionId: number) => void;
+  terminateBeforeStartReturns: boolean;
 }
 
 function createPlaybackPort(): PlaybackPortHarness {
   let nextSessionId = 0;
+  const terminalListeners = new Set<(sessionId: number) => void>();
   const events: PlaybackPortEvent[] = [];
-  const startResult = (): PlaybackStartResult => ({ started: true, sessionId: ++nextSessionId });
+  const startResult = (): PlaybackStartResult => {
+    const resultValue = { started: true as const, sessionId: ++nextSessionId };
+    if (result.terminateBeforeStartReturns) result.emitTerminal(resultValue.sessionId);
+    return resultValue;
+  };
   const result: PlaybackPortHarness = {
     events,
     acceptAudioOutcomes: true,
+    terminateBeforeStartReturns: false,
+    emitTerminal: (sessionId) => {
+      for (const listener of terminalListeners) listener(sessionId);
+    },
     port: {
       playReadingTarget: async (input) => {
         events.push(["play-reading-target", input]);
@@ -248,10 +281,12 @@ function createPlaybackPort(): PlaybackPortHarness {
       },
       handleAudioOutcome: (outcome) => {
         events.push(["audio-outcome", outcome.sessionId, outcome.status]);
+        if (result.acceptAudioOutcomes) result.emitTerminal(outcome.sessionId);
         return result.acceptAudioOutcomes;
       },
-      handleRendererIdle: (sessionId) => {
-        events.push(["renderer-idle", sessionId]);
+      onSessionTerminal: (listener) => {
+        terminalListeners.add(listener);
+        return () => terminalListeners.delete(listener);
       }
     }
   };
