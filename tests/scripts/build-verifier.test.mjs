@@ -109,6 +109,112 @@ describe("VoiceReader Build Verifier", () => {
     );
   });
 
+  it("reports missing and over-privileged production role bridges", async () => {
+    const root = createBuildProductFixture();
+    writeFixture(root, "preload/reader-window.cjs", preloadBundle("reader-window", { extra: ["onAudioChunk"] }));
+    writeFixture(
+      root,
+      "preload/playback-renderer.cjs",
+      preloadBundle("playback-renderer", { extra: ["setMiniMaxApiKey"] })
+    );
+    writeFixture(root, "preload/playback-overlay.cjs", preloadBundle("playback-overlay", { expose: false }));
+
+    const report = await verifyBuiltVoiceReader(root, { platform: "darwin" });
+
+    expect(report.findings).toEqual(
+      expect.arrayContaining([
+        {
+          category: "role",
+          artifact: "preload/reader-window.cjs",
+          reason: "unexpected capability onAudioChunk"
+        },
+        {
+          category: "role",
+          artifact: "preload/playback-overlay.cjs",
+          reason: "preload did not expose a bridge"
+        },
+        {
+          category: "role",
+          artifact: "preload/playback-renderer.cjs",
+          reason: "unexpected capability setMiniMaxApiKey"
+        }
+      ])
+    );
+  });
+
+  it("rejects the wrong global name and any additional preload exposure", async () => {
+    const wrongNameRoot = createBuildProductFixture();
+    writeFixture(
+      wrongNameRoot,
+      "preload/playback-renderer.cjs",
+      preloadBundle("playback-renderer", { globalName: "notVoiceReader" })
+    );
+    const wrongNameReport = await verifyBuiltVoiceReader(wrongNameRoot, { platform: "darwin" });
+    expect(wrongNameReport.findings).toContainEqual({
+      category: "role",
+      artifact: "preload/playback-renderer.cjs",
+      reason: "preload must expose exactly one voiceReader bridge"
+    });
+
+    const extraExposureRoot = createBuildProductFixture();
+    writeFixture(
+      extraExposureRoot,
+      "preload/playback-overlay.cjs",
+      preloadBundle("playback-overlay", { extraExposure: true })
+    );
+    const extraExposureReport = await verifyBuiltVoiceReader(extraExposureRoot, { platform: "darwin" });
+    expect(extraExposureReport.findings).toContainEqual({
+      category: "role",
+      artifact: "preload/playback-overlay.cjs",
+      reason: "preload must expose exactly one voiceReader bridge"
+    });
+  });
+
+  it("reports broken compiled Settings and route behavior", async () => {
+    const root = createBuildProductFixture();
+    writeFixture(
+      root,
+      "preload/reader-window.cjs",
+      preloadBundle("reader-window", {
+        brokenRoutes: true,
+        brokenUnsubscribe: true,
+        wrongChannels: true
+      })
+    );
+
+    const report = await verifyBuiltVoiceReader(root, { platform: "darwin" });
+
+    expect(report.findings).toEqual(
+      expect.arrayContaining([
+        {
+          category: "behavior",
+          artifact: "preload/reader-window.cjs",
+          reason: "compiled Settings commands used unexpected channels"
+        },
+        {
+          category: "behavior",
+          artifact: "preload/reader-window.cjs",
+          reason: "compiled route event used an unexpected channel"
+        },
+        {
+          category: "behavior",
+          artifact: "preload/reader-window.cjs",
+          reason: "compiled route event did not preserve snapshot or unsubscribe behavior"
+        },
+        {
+          category: "behavior",
+          artifact: "preload/reader-window.cjs",
+          reason: "compiled route commands used unexpected channels"
+        },
+        {
+          category: "behavior",
+          artifact: "preload/reader-window.cjs",
+          reason: "compiled route commands did not preserve revisioned snapshots"
+        }
+      ])
+    );
+  });
+
 });
 
 function createBuildProductFixture() {
@@ -116,9 +222,9 @@ function createBuildProductFixture() {
   temporaryRoots.push(root);
   const files = {
     "main/main.js": "main",
-    "preload/reader-window.cjs": "reader preload",
-    "preload/playback-renderer.cjs": "playback preload",
-    "preload/playback-overlay.cjs": "overlay preload",
+    "preload/reader-window.cjs": preloadBundle("reader-window"),
+    "preload/playback-renderer.cjs": preloadBundle("playback-renderer"),
+    "preload/playback-overlay.cjs": preloadBundle("playback-overlay"),
     "renderer/index.html": html("VoiceReader", "renderer.js", "renderer.css"),
     "renderer/renderer.js": "renderer",
     "renderer/renderer.css": "renderer css",
@@ -144,4 +250,77 @@ function writeFixture(root, path, content) {
   const absolutePath = join(root, path);
   mkdirSync(dirname(absolutePath), { recursive: true });
   writeFileSync(absolutePath, content);
+}
+
+const roleCapabilities = {
+  "reader-window": {
+    invoke: [
+      "getBootstrapState", "setOnboardingComplete", "setRoute", "getSettings", "setSpeechRate", "setModel",
+      "setLaunchAtLogin", "setActivationShortcut", "setMiniMaxApiKey", "clearMiniMaxApiKey", "hasMiniMaxApiKey",
+      "verifyMiniMaxKey", "refreshVoices", "setPreferredVoice", "getErrorLogCount", "clearErrorLog",
+      "getReadingHistoryCount", "previewReadingHistoryRetention", "applyReadingHistoryRetention", "listReadingHistory",
+      "deleteReadingHistoryRecord", "undoReadingHistoryDeletion", "clearReadingHistory", "createFavoriteFromHistoryRecord",
+      "listFavorites", "deleteFavoriteRecord", "undoFavoriteDeletion", "playReadingTarget", "playHistoryRecord",
+      "playFavoriteRecord", "stopPlayback", "copyText"
+    ],
+    event: ["onNavigate", "onPlaybackFinish", "onPlaybackFail", "onPlaybackStop"]
+  },
+  "playback-renderer": {
+    invoke: ["reportAudioOutcome", "sendOverlayMetric"],
+    event: ["onPlaybackStart", "onAudioChunk", "onSegmentEnd", "onAudioInputEnd", "onPlaybackFail", "onPlaybackStop"]
+  },
+  "playback-overlay": {
+    invoke: ["notifyOverlayReady"],
+    event: ["onOverlayShow", "onOverlayMetric", "onOverlayFinish", "onOverlayFail", "onOverlayStop"]
+  }
+};
+
+const productionChannels = {
+  getBootstrapState: "app-shell:get-bootstrap-state",
+  setRoute: "app-shell:set-route",
+  onNavigate: "app-shell:navigate",
+  setSpeechRate: "app-data:set-speech-rate",
+  setModel: "app-data:set-model"
+};
+
+function preloadBundle(
+  role,
+  {
+    brokenRoutes = false,
+    brokenUnsubscribe = false,
+    expose = true,
+    extra = [],
+    extraExposure = false,
+    globalName = "voiceReader",
+    wrongChannels = false
+  } = {}
+) {
+  if (!expose) return "module.exports = {};";
+  const capabilities = roleCapabilities[role];
+  return `
+const { contextBridge, ipcRenderer } = require("electron");
+const bridge = {};
+for (const method of ${JSON.stringify([...capabilities.invoke, ...extra])}) {
+  bridge[method] = (...args) => {
+    if (${JSON.stringify(brokenRoutes)} && method === "setRoute") return { route: "broken", revision: -1 };
+    const channel = ${JSON.stringify(wrongChannels)}
+      ? "wrong:" + method
+      : (${JSON.stringify(productionChannels)}[method] ?? "fixture:" + method);
+    return ipcRenderer.invoke(channel, ...args);
+  };
+}
+for (const method of ${JSON.stringify(capabilities.event)}) {
+  bridge[method] = (callback) => {
+    const listener = (_event, ...args) => callback(...args);
+    const channel = ${JSON.stringify(wrongChannels)}
+      ? "wrong:" + method
+      : (${JSON.stringify(productionChannels)}[method] ?? "fixture:" + method);
+    ipcRenderer.on(channel, listener);
+    return () => { if (!${JSON.stringify(brokenUnsubscribe)}) ipcRenderer.off(channel, listener); };
+  };
+}
+
+contextBridge.exposeInMainWorld(${JSON.stringify(globalName)}, bridge);
+${extraExposure ? 'contextBridge.exposeInMainWorld("privileged", { dangerous() {} });' : ""}
+`;
 }
