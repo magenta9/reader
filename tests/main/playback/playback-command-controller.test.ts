@@ -32,6 +32,13 @@ describe("PlaybackCommandController", () => {
 
     expect(result.started).toBe(true);
     expect(shortcuts.handlers.has("Escape")).toBe(true);
+    playback.acceptAudioOutcomes = false;
+    commands.handleAudioOutcome({
+      sessionId: result.sessionId ?? 0,
+      status: PLAYBACK_AUDIO_OUTCOMES.completed
+    });
+    expect(shortcuts.handlers.has("Escape")).toBe(true);
+    playback.acceptAudioOutcomes = true;
     commands.handleAudioOutcome({
       sessionId: result.sessionId ?? 0,
       status: PLAYBACK_AUDIO_OUTCOMES.completed
@@ -210,12 +217,19 @@ function createShortcutRegistry(): ShortcutRegistryForTest {
   };
 }
 
-function createPlaybackPort(): { port: PlaybackSessionPort; events: PlaybackPortEvent[] } {
+interface PlaybackPortHarness {
+  port: PlaybackSessionPort;
+  events: PlaybackPortEvent[];
+  acceptAudioOutcomes: boolean;
+}
+
+function createPlaybackPort(): PlaybackPortHarness {
   let nextSessionId = 0;
   const events: PlaybackPortEvent[] = [];
   const startResult = (): PlaybackStartResult => ({ started: true, sessionId: ++nextSessionId });
-  return {
+  const result: PlaybackPortHarness = {
     events,
+    acceptAudioOutcomes: true,
     port: {
       playReadingTarget: async (input) => {
         events.push(["play-reading-target", input]);
@@ -234,12 +248,14 @@ function createPlaybackPort(): { port: PlaybackSessionPort; events: PlaybackPort
       },
       handleAudioOutcome: (outcome) => {
         events.push(["audio-outcome", outcome.sessionId, outcome.status]);
+        return result.acceptAudioOutcomes;
       },
       handleRendererIdle: (sessionId) => {
         events.push(["renderer-idle", sessionId]);
       }
     }
   };
+  return result;
 }
 
 function selectedTextTargetInput(text: string): ReadingTargetInput {

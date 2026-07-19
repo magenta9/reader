@@ -40,7 +40,8 @@ describe("ElectronPlaybackOutput", () => {
     output.startSession(session);
     output.audioChunk(101, new Uint8Array([1, 2, 3]));
     output.endSegment(101);
-    output.finishSession(101);
+    output.finishGeneration(101);
+    output.completeSession(101);
 
     expect(renderer.messages).toEqual([
       [RENDERER_AUDIO_CHANNELS.startSession, session],
@@ -48,7 +49,7 @@ describe("ElectronPlaybackOutput", () => {
       [RENDERER_AUDIO_CHANNELS.endSegment, { sessionId: 101 }],
       [RENDERER_AUDIO_CHANNELS.finishSession, { sessionId: 101 }]
     ]);
-    expect(overlayActions).toEqual(["show:101"]);
+    expect(overlayActions).toEqual(["show:101", "finish:101"]);
   });
 
   it.each([
@@ -60,7 +61,8 @@ describe("ElectronPlaybackOutput", () => {
     const output = await createOutput({ playbackRenderer: renderer, overlayActions });
 
     output.startSession(createSession(202, feedbackSurface));
-    output.finishSession(202);
+    output.finishGeneration(202);
+    output.completeSession(202);
 
     expect(overlayActions).toEqual([]);
     expect(renderer.messages.map(([channel]) => channel)).toEqual([
@@ -78,7 +80,9 @@ describe("ElectronPlaybackOutput", () => {
     output.startSession(createSession(301, PLAYBACK_FEEDBACK_SURFACES.historyDetail));
     output.audioChunk(301, new Uint8Array([9]));
     output.endSegment(301);
-    output.finishSession(301);
+    output.finishGeneration(301);
+    expect(reader.messages).toEqual([]);
+    output.completeSession(301);
     output.startSession(createSession(302, PLAYBACK_FEEDBACK_SURFACES.favoriteDetail));
     output.failSession(302);
     output.startSession(createSession(303, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay));
@@ -113,7 +117,7 @@ describe("ElectronPlaybackOutput", () => {
     output.handleRendererIdle(402);
     output.stopSession(402);
 
-    expect(overlayActions).toEqual(["show:401", "show:402"]);
+    expect(overlayActions).toEqual(["show:401", "show:402", "stop:402"]);
   });
 
   it("silently dismisses an active status capsule when the next session uses Reader feedback", async () => {
@@ -204,6 +208,7 @@ async function createOutput({
     overlay: {
       dismiss: () => overlayActions.push("dismiss"),
       fail: (sessionId) => overlayActions.push(`fail:${sessionId}`),
+      finish: (sessionId) => overlayActions.push(`finish:${sessionId}`),
       show: (sessionId) => overlayActions.push(`show:${sessionId}`),
       stop: (sessionId) => overlayActions.push(`stop:${sessionId}`)
     },

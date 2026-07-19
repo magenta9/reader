@@ -29,7 +29,6 @@ describe("Playback Audio renderer", () => {
 
     expect(events).toEqual([
       ["metric", 101, 0, 1],
-      ["finish-overlay", 101],
       ["outcome", 101, "completed"]
     ]);
 
@@ -40,12 +39,11 @@ describe("Playback Audio renderer", () => {
 
     expect(events).toEqual([
       ["metric", 101, 0, 1],
-      ["finish-overlay", 101],
       ["outcome", 101, "completed"]
     ]);
   });
 
-  it("starts and finishes a current Reading Target session with overlay completion and a completed outcome", async () => {
+  it("finishes a current Reading Target audio queue with a final metric and completed outcome", async () => {
     const { events, playback } = createScenario();
 
     playback.start(createOverlaySession(201));
@@ -54,7 +52,6 @@ describe("Playback Audio renderer", () => {
 
     expect(events).toEqual([
       ["metric", 201, 0, 1],
-      ["finish-overlay", 201],
       ["outcome", 201, "completed"]
     ]);
   });
@@ -80,7 +77,7 @@ describe("Playback Audio renderer", () => {
     await flushPlaybackMicrotasks();
     await flushPlaybackMicrotasks();
 
-    expect(events.some((event) => event[0] === "finish-overlay")).toBe(true);
+    expect(events.some((event) => event[0] === "finish-overlay")).toBe(false);
     expect(events).toContainEqual(["outcome", 203, "completed"]);
   });
 

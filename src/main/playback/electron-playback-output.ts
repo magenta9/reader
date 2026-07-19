@@ -1,14 +1,17 @@
 import type { BrowserWindow } from "electron";
 import {
   usesPlaybackOverlayFeedback,
-  type PlaybackAudioOutcome,
+  type PlaybackFeedbackSurface,
   type PlaybackAudioSession
 } from "../../shared/app-contracts.js";
 import { RENDERER_AUDIO_CHANNELS } from "../../shared/bridge-contracts.js";
 import type { PlaybackAudioSink } from "./playback-service.js";
 import type { PlaybackOverlayController } from "./playback-overlay-controller.js";
 
-type PlaybackOverlayOutput = Pick<PlaybackOverlayController, "dismiss" | "fail" | "show" | "stop">;
+type PlaybackOverlayOutput = Pick<
+  PlaybackOverlayController,
+  "dismiss" | "fail" | "finish" | "show" | "stop"
+>;
 
 export interface ElectronPlaybackOutputOptions {
   createPlaybackRenderer: () => BrowserWindow;
@@ -18,8 +21,9 @@ export interface ElectronPlaybackOutputOptions {
 }
 
 export class ElectronPlaybackOutput implements PlaybackAudioSink {
-  private activeOverlaySessionId: number | undefined;
-  private activeReaderFeedbackSessionId: number | undefined;
+  private activeFeedback:
+    | { sessionId: number; feedbackSurface: PlaybackFeedbackSurface }
+    | undefined;
 
   static async create(options: ElectronPlaybackOutputOptions): Promise<ElectronPlaybackOutput> {
     const playbackRenderer = options.createPlaybackRenderer();
@@ -49,13 +53,11 @@ export class ElectronPlaybackOutput implements PlaybackAudioSink {
     const usesOverlay = usesPlaybackOverlayFeedback(session.feedbackSurface);
     this.dismissActiveOverlayBeforeNextSession(session.sessionId, usesOverlay);
     this.sendToPlaybackRenderer(RENDERER_AUDIO_CHANNELS.startSession, session);
-    if (!usesOverlay) {
-      this.activeReaderFeedbackSessionId = session.sessionId;
-      return;
-    }
-    this.activeReaderFeedbackSessionId = undefined;
-    this.activeOverlaySessionId = session.sessionId;
-    this.overlay.show(session.sessionId);
+    this.activeFeedback = {
+      sessionId: session.sessionId,
+      feedbackSurface: session.feedbackSurface
+    };
+    if (usesOverlay) this.overlay.show(session.sessionId);
   }
 
   audioChunk(sessionId: number, bytes: Uint8Array): void {
@@ -66,52 +68,51 @@ export class ElectronPlaybackOutput implements PlaybackAudioSink {
     this.sendToPlaybackRenderer(RENDERER_AUDIO_CHANNELS.endSegment, { sessionId });
   }
 
-  finishSession(sessionId: number): void {
+  finishGeneration(sessionId: number): void {
     this.sendToPlaybackRenderer(RENDERER_AUDIO_CHANNELS.finishSession, { sessionId });
-    this.sendTerminalFeedback(RENDERER_AUDIO_CHANNELS.finishSession, sessionId);
+  }
+
+  completeSession(sessionId: number): void {
+    this.sendTerminalFeedback(RENDERER_AUDIO_CHANNELS.finishSession, sessionId, () => {
+      this.overlay.finish(sessionId);
+    });
   }
 
   failSession(sessionId: number): void {
-    if (this.consumeActiveOverlaySession(sessionId)) this.overlay.fail(sessionId);
-    this.sendTerminalFeedback(RENDERER_AUDIO_CHANNELS.failSession, sessionId);
+    this.sendTerminalFeedback(RENDERER_AUDIO_CHANNELS.failSession, sessionId, () => {
+      this.overlay.fail(sessionId);
+    });
     this.sendToPlaybackRenderer(RENDERER_AUDIO_CHANNELS.failSession, { sessionId });
   }
 
   stopSession(sessionId: number): void {
-    if (this.consumeActiveOverlaySession(sessionId)) this.overlay.stop(sessionId);
-    this.sendTerminalFeedback(RENDERER_AUDIO_CHANNELS.stopSession, sessionId);
+    this.sendTerminalFeedback(RENDERER_AUDIO_CHANNELS.stopSession, sessionId, () => {
+      this.overlay.stop(sessionId);
+    });
     this.sendToPlaybackRenderer(RENDERER_AUDIO_CHANNELS.stopSession, { sessionId });
   }
 
-  handleRendererIdle(sessionId: number): void {
-    this.consumeActiveOverlaySession(sessionId);
-  }
-
-  handleAudioOutcome(outcome: PlaybackAudioOutcome): void {
-    this.handleRendererIdle(outcome.sessionId);
-  }
+  handleRendererIdle(_sessionId: number): void {}
 
   destroy(): void {
-    this.activeOverlaySessionId = undefined;
-    this.activeReaderFeedbackSessionId = undefined;
+    this.activeFeedback = undefined;
     if (!this.playbackRenderer.isDestroyed()) this.playbackRenderer.destroy();
   }
 
   private dismissActiveOverlayBeforeNextSession(nextSessionId: number, nextUsesOverlay: boolean): void {
-    if (this.activeOverlaySessionId === undefined || this.activeOverlaySessionId === nextSessionId) return;
-    this.activeOverlaySessionId = undefined;
-    if (!nextUsesOverlay) this.overlay.dismiss();
+    const active = this.activeFeedback;
+    if (!active || active.sessionId === nextSessionId) return;
+    if (usesPlaybackOverlayFeedback(active.feedbackSurface) && !nextUsesOverlay) this.overlay.dismiss();
   }
 
-  private consumeActiveOverlaySession(sessionId: number): boolean {
-    if (this.activeOverlaySessionId !== sessionId) return false;
-    this.activeOverlaySessionId = undefined;
-    return true;
-  }
-
-  private sendTerminalFeedback(channel: string, sessionId: number): void {
-    if (this.activeReaderFeedbackSessionId !== sessionId) return;
-    this.activeReaderFeedbackSessionId = undefined;
+  private sendTerminalFeedback(channel: string, sessionId: number, sendOverlay: () => void): void {
+    const active = this.activeFeedback;
+    if (!active || active.sessionId !== sessionId) return;
+    this.activeFeedback = undefined;
+    if (usesPlaybackOverlayFeedback(active.feedbackSurface)) {
+      sendOverlay();
+      return;
+    }
     const readerWindow = this.getReaderWindow();
     if (!readerWindow || readerWindow.isDestroyed()) return;
     readerWindow.webContents.send(channel, { sessionId });

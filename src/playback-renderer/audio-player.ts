@@ -82,7 +82,6 @@ class PlaybackAudioQueue {
           levels: Array.from({ length: OVERLAY_LEVEL_COUNT }, () => 0),
           progress: 1
         });
-        void this.bridge.finishOverlayPlayback(sessionId);
       }
       void this.bridge.reportAudioOutcome({ sessionId, status });
       this.stop();

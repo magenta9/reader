@@ -17,11 +17,11 @@ export interface PlaybackAudioSink {
   startSession: (session: PlaybackAudioSession) => void;
   audioChunk: (sessionId: number, bytes: Uint8Array) => void;
   endSegment: (sessionId: number) => void;
-  finishSession: (sessionId: number) => void;
+  finishGeneration: (sessionId: number) => void;
+  completeSession: (sessionId: number) => void;
   failSession: (sessionId: number) => void;
   stopSession: (sessionId: number) => void;
   handleRendererIdle?: (sessionId: number) => void;
-  handleAudioOutcome?: (outcome: PlaybackAudioOutcome) => void;
 }
 
 export class PlaybackService {
@@ -30,7 +30,8 @@ export class PlaybackService {
     | {
         sessionId: number;
         abortController: AbortController;
-        done: Promise<void>;
+        generationDone: Promise<void>;
+        generationFinished: boolean;
       }
     | undefined;
 
@@ -77,12 +78,29 @@ export class PlaybackService {
     this.sink.handleRendererIdle?.(sessionId);
   }
 
-  handleAudioOutcome(outcome: PlaybackAudioOutcome): void {
-    this.sink.handleAudioOutcome?.(outcome);
+  handleAudioOutcome(outcome: PlaybackAudioOutcome): boolean {
+    const active = this.active;
+    if (!active || active.sessionId !== outcome.sessionId || !active.generationFinished) return false;
+    this.active = undefined;
+    if (outcome.status === "completed") {
+      try {
+        this.sink.completeSession(outcome.sessionId);
+      } catch (error) {
+        this.recordPlaybackError(error);
+      }
+      return true;
+    }
+    this.recordPlaybackError(new Error("Browser audio output failed."));
+    try {
+      this.sink.failSession(outcome.sessionId);
+    } catch {
+      // The audio output failure is already recorded; do not throw while presenting it.
+    }
+    return true;
   }
 
-  waitForCurrentSession(): Promise<void> {
-    return this.active?.done ?? Promise.resolve();
+  waitForCurrentGeneration(): Promise<void> {
+    return this.active?.generationDone ?? Promise.resolve();
   }
 
   private startResolvedPlaybackRequest(resolved: ResolvePlaybackRequestResult): PlaybackStartResult {
@@ -103,8 +121,14 @@ export class PlaybackService {
       this.recordPlaybackError(error);
       return { started: false };
     }
-    const done = this.runSession(sessionId, plan, abortController);
-    this.active = { sessionId, abortController, done };
+    const active = {
+      sessionId,
+      abortController,
+      generationDone: Promise.resolve(),
+      generationFinished: false
+    };
+    this.active = active;
+    active.generationDone = this.runSession(sessionId, plan, abortController);
     return { started: true, sessionId };
   }
 
@@ -122,6 +146,7 @@ export class PlaybackService {
             message: `No Voice is available for ${segment.missingVoiceLanguage}.`
           });
           this.sink.failSession(sessionId);
+          if (this.active?.sessionId === sessionId) this.active = undefined;
           return;
         }
 
@@ -137,7 +162,8 @@ export class PlaybackService {
         this.sink.endSegment(sessionId);
       }
 
-      this.sink.finishSession(sessionId);
+      this.sink.finishGeneration(sessionId);
+      if (this.active?.sessionId === sessionId) this.active.generationFinished = true;
     } catch (error) {
       if (abortController.signal.aborted) return;
       this.recordPlaybackError(error);
@@ -146,7 +172,6 @@ export class PlaybackService {
       } catch {
         // The original output failure is already recorded; do not reject the session while reporting it.
       }
-    } finally {
       if (this.active?.sessionId === sessionId) this.active = undefined;
     }
   }

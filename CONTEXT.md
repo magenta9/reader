@@ -41,7 +41,7 @@ A Playback Session started from a Reading History Record. History Replay plays t
 _Avoid_: History playback, replay item, restored session
 
 **Feedback Surface**:
-The named UI surface that receives playback activity, approximate progress, and completion feedback for a Playback Session. Current Reading Target playback uses the Playback Overlay feedback surface; History Replay uses the history detail feedback surface; Favorite Replay uses the favorite detail feedback surface.
+The named UI surface that receives playback activity, approximate progress, and terminal feedback for a Playback Session. The main process routes the accepted terminal state by the session's Feedback Surface identity: current Reading Target playback uses the Playback Overlay; History Replay uses the history detail surface; Favorite Replay uses the favorite detail surface.
 _Avoid_: Output target, display mode, status destination
 
 **Audio Outcome**:
@@ -73,7 +73,7 @@ The menu opened from VoiceReader's macOS menu bar icon. It contains high-frequen
 _Avoid_: Tray menu, popup, dropdown
 
 **Playback Overlay**:
-A passive, non-activating status window that appears while the current Reading Target is preparing or playing. It stays outside the Reader Window, anchors near the bottom center of the display containing the mouse when the session starts, ignores mouse input, shows only a weak preparing waveform, an active waveform with read-only approximate progress, and brief completion, failure, or stopped marks. It never acts as a player control: users stop with the global Stop Shortcut or the Menu Bar Menu. History Replay and Favorite Replay do not use the Playback Overlay.
+A passive, non-activating status window that appears while the current Reading Target is preparing or playing. It stays outside the Reader Window, anchors near the bottom center of the display containing the mouse when the session starts, ignores mouse input, shows only a weak preparing waveform, an active waveform with read-only approximate progress, and brief completion, failure, or stopped marks routed from the main process's accepted Playback Session terminal state. It never acts as a player control: users stop with the global Stop Shortcut or the Menu Bar Menu. History Replay and Favorite Replay do not use the Playback Overlay.
 _Avoid_: Notification, toast, in-window capsule
 
 **Error Log**:
@@ -89,7 +89,7 @@ The coarse language classification assigned to a Reading Segment for Voice selec
 _Avoid_: Locale, translation language, browser language
 
 **Playback Session**:
-A single active attempt to turn a Reading Target into spoken audio. VoiceReader only has one Playback Session at a time; starting a new one replaces the current one. Playback Sessions can be started or stopped, but not paused or resumed; replaying starts from the beginning.
+A single active attempt to turn a Reading Target into spoken audio. It remains active while MiniMax generates audio and while the hidden Playback Renderer outputs the sealed audio queue; generation completion alone is not a terminal state. VoiceReader only has one Playback Session at a time; starting a new one replaces the current one. The main process accepts an Audio Outcome only for the current, generation-finished session, then routes completion or failure to its Feedback Surface. Playback Sessions can be started or stopped, but not paused or resumed; replaying starts from the beginning.
 _Avoid_: Audio job, task, stream
 
 **Speech Rate**:

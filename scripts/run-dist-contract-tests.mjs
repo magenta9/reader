@@ -551,7 +551,6 @@ assertIncludes(playbackRendererBundle, [
   "getByteTimeDomainData",
   "requestAnimationFrame",
   "sendOverlayMetric",
-  "finishOverlayPlayback",
   "reportAudioOutcome"
 ]);
 assertMissing(rendererBundle, [
@@ -700,21 +699,24 @@ const completeSession = createOverlayPlaybackSessionForTest(101);
 completeDeliveryScenario.output.startSession(completeSession);
 completeDeliveryScenario.output.audioChunk(101, new Uint8Array([1, 2, 3]));
 completeDeliveryScenario.output.endSegment(101);
-completeDeliveryScenario.output.finishSession(101);
+completeDeliveryScenario.output.finishGeneration(101);
+completeDeliveryScenario.output.completeSession(101);
 assert.deepEqual(completeDeliveryScenario.playbackRenderer.messages, [
   [RENDERER_AUDIO_CHANNELS.startSession, completeSession],
   [RENDERER_AUDIO_CHANNELS.audioChunk, { sessionId: 101, bytes: new Uint8Array([1, 2, 3]) }],
   [RENDERER_AUDIO_CHANNELS.endSegment, { sessionId: 101 }],
   [RENDERER_AUDIO_CHANNELS.finishSession, { sessionId: 101 }]
 ]);
-assert.deepEqual(completeDeliveryScenario.overlayActions, ["show:101"]);
+assert.deepEqual(completeDeliveryScenario.overlayActions, ["show:101", "finish:101"]);
 
 const readerWindow = createPlaybackWindowForTest();
 const terminalFeedbackScenario = await createElectronPlaybackOutputScenario({ readerWindow });
 terminalFeedbackScenario.output.startSession(createHistoryReplaySessionForTest(201));
 terminalFeedbackScenario.output.audioChunk(201, new Uint8Array([9]));
 terminalFeedbackScenario.output.endSegment(201);
-terminalFeedbackScenario.output.finishSession(201);
+terminalFeedbackScenario.output.finishGeneration(201);
+assert.deepEqual(readerWindow.messages, []);
+terminalFeedbackScenario.output.completeSession(201);
 terminalFeedbackScenario.output.startSession(createFavoriteReplaySessionForTest(202));
 terminalFeedbackScenario.output.failSession(202);
 terminalFeedbackScenario.output.startSession(createOverlayPlaybackSessionForTest(203));
@@ -745,7 +747,7 @@ overlayOwnershipScenario.output.startSession(createOverlayPlaybackSessionForTest
 overlayOwnershipScenario.output.stopSession(301);
 overlayOwnershipScenario.output.handleRendererIdle(302);
 overlayOwnershipScenario.output.stopSession(302);
-assert.deepEqual(overlayOwnershipScenario.overlayActions, ["show:301", "show:302"]);
+assert.deepEqual(overlayOwnershipScenario.overlayActions, ["show:301", "show:302", "stop:302"]);
 
 completeDeliveryScenario.output.destroy();
 assert.throws(
@@ -868,6 +870,9 @@ function createOverlayControllerForTest(actions) {
     },
     fail(sessionId) {
       actions.push(`fail:${sessionId}`);
+    },
+    finish(sessionId) {
+      actions.push(`finish:${sessionId}`);
     },
     stop(sessionId) {
       actions.push(`stop:${sessionId}`);

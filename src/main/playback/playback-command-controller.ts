@@ -16,7 +16,7 @@ export interface PlaybackSessionPort {
   playHistoryRecord(recordId: string): Promise<PlaybackStartResult>;
   playFavoriteRecord(recordId: string): Promise<PlaybackStartResult>;
   stopSession(sessionId: number | undefined): void;
-  handleAudioOutcome(outcome: PlaybackAudioOutcome): void;
+  handleAudioOutcome(outcome: PlaybackAudioOutcome): boolean;
   handleRendererIdle(sessionId: number): void;
 }
 
@@ -65,8 +65,8 @@ export class PlaybackCommandController {
   }
 
   handleAudioOutcome(outcome: PlaybackAudioOutcome): void {
-    this.playback.handleAudioOutcome(outcome);
-    if (this.stopShortcutSessionId === outcome.sessionId) this.unregisterStopShortcut();
+    const accepted = this.playback.handleAudioOutcome(outcome);
+    if (accepted && this.stopShortcutSessionId === outcome.sessionId) this.unregisterStopShortcut();
   }
 
   registerActivationShortcut(): void {

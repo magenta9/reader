@@ -6,7 +6,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { AppDataStore } from "../../../src/main/data/app-data-store.js";
 import { PlaybackService, type PlaybackAudioSink } from "../../../src/main/playback/playback-service.js";
-import { PLAYBACK_FEEDBACK_SURFACES, type PlaybackAudioSession } from "../../../src/shared/app-contracts.js";
+import type { PlaybackRequestResolver } from "../../../src/main/playback/playback-request-resolver.js";
+import {
+  PLAYBACK_AUDIO_OUTCOMES,
+  PLAYBACK_FEEDBACK_SURFACES,
+  type PlaybackAudioSession
+} from "../../../src/shared/app-contracts.js";
 import type { MiniMaxTtsRequest } from "../../../src/shared/minimax.js";
 import { createReadingSegments } from "../../../src/shared/segments.js";
 import type { MiniMaxVoice, ReadingTargetInput } from "../../../src/shared/types.js";
@@ -37,7 +42,13 @@ describe("PlaybackService", () => {
     const result = await playback.playReadingTarget(clipboardTargetInput("  这是一段剪切板文本。  "));
 
     expect(result.started).toBe(true);
-    await playback.waitForCurrentSession();
+    await playback.waitForCurrentGeneration();
+    expect(events.at(-1)).toEqual(["generation-finished", result.sessionId]);
+    expect(events).not.toContainEqual(["finish", result.sessionId]);
+    playback.handleAudioOutcome({
+      sessionId: result.sessionId ?? 0,
+      status: PLAYBACK_AUDIO_OUTCOMES.completed
+    });
     expect(store.listReadingHistoryRecords()).toMatchObject([
       { text: "这是一段剪切板文本。", source: "clipboard" }
     ]);
@@ -45,6 +56,7 @@ describe("PlaybackService", () => {
       ["start", result.sessionId, 1.5, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay, [10]],
       ["chunk", result.sessionId, [171, 205]],
       ["segment-end", result.sessionId],
+      ["generation-finished", result.sessionId],
       ["finish", result.sessionId]
     ]);
   });
@@ -82,7 +94,7 @@ describe("PlaybackService", () => {
     const result = await playback.playReadingTarget(clipboardTargetInput("这是一段会失败的文本。"));
 
     expect(result.started).toBe(true);
-    await playback.waitForCurrentSession();
+    await playback.waitForCurrentGeneration();
     expect(events.at(-1)).toEqual(["fail", result.sessionId]);
     expect(store.listErrorLogs()[0]).toMatchObject({
       category: "minimax_runtime",
@@ -133,14 +145,19 @@ describe("PlaybackService", () => {
     expect(first.started).toBe(true);
     expect(second.started).toBe(true);
     expect(requests[0]?.signal.aborted).toBe(true);
-    await playback.waitForCurrentSession();
+    await playback.waitForCurrentGeneration();
     expect(events).toContainEqual(["stop", first.sessionId]);
     expect(events.slice(-4)).toEqual([
       ["start", second.sessionId, 1.5, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay, [8]],
       ["chunk", second.sessionId, [171, 205]],
       ["segment-end", second.sessionId],
-      ["finish", second.sessionId]
+      ["generation-finished", second.sessionId]
     ]);
+    playback.handleAudioOutcome({
+      sessionId: second.sessionId ?? 0,
+      status: PLAYBACK_AUDIO_OUTCOMES.completed
+    });
+    expect(events.at(-1)).toEqual(["finish", second.sessionId]);
   });
 
   it("replays History and Favorite records without mutating source records", async () => {
@@ -168,9 +185,17 @@ describe("PlaybackService", () => {
     });
 
     const historyResult = await playback.playHistoryRecord(history.id);
-    await playback.waitForCurrentSession();
+    await playback.waitForCurrentGeneration();
+    playback.handleAudioOutcome({
+      sessionId: historyResult.sessionId ?? 0,
+      status: PLAYBACK_AUDIO_OUTCOMES.completed
+    });
     const favoriteResult = await playback.playFavoriteRecord(favorite?.id ?? "");
-    await playback.waitForCurrentSession();
+    await playback.waitForCurrentGeneration();
+    playback.handleAudioOutcome({
+      sessionId: favoriteResult.sessionId ?? 0,
+      status: PLAYBACK_AUDIO_OUTCOMES.completed
+    });
 
     expect(historyResult.started).toBe(true);
     expect(favoriteResult.started).toBe(true);
@@ -184,12 +209,138 @@ describe("PlaybackService", () => {
     expect(events).toContainEqual(["start", historyResult.sessionId, 1.5, PLAYBACK_FEEDBACK_SURFACES.historyDetail, [11]]);
     expect(events).toContainEqual(["start", favoriteResult.sessionId, 1.5, PLAYBACK_FEEDBACK_SURFACES.favoriteDetail, [11]]);
   });
+
+  it("accepts only the active Audio Outcome and records browser audio failure without content", async () => {
+    const store = await createVerifiedStore();
+    const events: PlaybackEvent[] = [];
+    const playback = new PlaybackService(store, createSink(events), async (request) => {
+      await request.onAudioHex("abcd");
+    });
+
+    const result = await playback.playReadingTarget(selectedTextTargetInput("音频输出失败测试。"));
+    await playback.waitForCurrentGeneration();
+    playback.handleAudioOutcome({
+      sessionId: (result.sessionId ?? 0) + 100,
+      status: PLAYBACK_AUDIO_OUTCOMES.completed
+    });
+    expect(events).not.toContainEqual(["finish", result.sessionId]);
+
+    playback.handleAudioOutcome({
+      sessionId: result.sessionId ?? 0,
+      status: PLAYBACK_AUDIO_OUTCOMES.failed
+    });
+
+    expect(events.at(-1)).toEqual(["fail", result.sessionId]);
+    expect(store.listErrorLogs()[0]).toMatchObject({
+      category: "playback_runtime",
+      message: "Browser audio output failed."
+    });
+    expect(store.listErrorLogs()[0]?.message).not.toContain("音频输出失败测试");
+  });
+
+  it("clears the active session when a planned Reading Segment has no Voice", async () => {
+    const store = await createVerifiedStore();
+    const events: PlaybackEvent[] = [];
+    const missingVoiceResult = {
+      ok: true as const,
+      plan: {
+        audioSession: {
+          speechRate: 1,
+          feedbackSurface: PLAYBACK_FEEDBACK_SURFACES.playbackOverlay,
+          segmentWeights: [8]
+        },
+        segments: [{ missingVoiceLanguage: "zh" as const }]
+      }
+    };
+    const resolver = {
+      resolveReadingTarget: () => missingVoiceResult,
+      resolveHistoryReplay: () => missingVoiceResult,
+      resolveFavoriteReplay: () => missingVoiceResult
+    } as unknown as PlaybackRequestResolver;
+    const playback = new PlaybackService(
+      store,
+      createSink(events),
+      async () => undefined,
+      resolver
+    );
+
+    const result = await playback.playReadingTarget(selectedTextTargetInput("缺少中文语音。"));
+    expect(result.started).toBe(true);
+    await playback.waitForCurrentGeneration();
+    expect(events.at(-1)).toEqual(["fail", result.sessionId]);
+
+    const eventCount = events.length;
+    playback.stop();
+    expect(
+      playback.handleAudioOutcome({
+        sessionId: result.sessionId ?? 0,
+        status: PLAYBACK_AUDIO_OUTCOMES.completed
+      })
+    ).toBe(false);
+    expect(events).toHaveLength(eventCount);
+  });
+
+  it("ignores early and replaced Audio Outcomes while preserving the current session", async () => {
+    const store = await createVerifiedStore();
+    const events: PlaybackEvent[] = [];
+    let releaseGeneration: (() => void) | undefined;
+    const playback = new PlaybackService(store, createSink(events), async (request) => {
+      await new Promise<void>((resolve) => {
+        releaseGeneration = resolve;
+      });
+      await request.onAudioHex("abcd");
+    });
+
+    const first = await playback.playReadingTarget(selectedTextTargetInput("第一条终态竞态。"));
+    expect(
+      playback.handleAudioOutcome({
+        sessionId: first.sessionId ?? 0,
+        status: PLAYBACK_AUDIO_OUTCOMES.completed
+      })
+    ).toBe(false);
+    releaseGeneration?.();
+    await playback.waitForCurrentGeneration();
+
+    const second = await playback.playReadingTarget(selectedTextTargetInput("第二条终态竞态。"));
+    expect(events).toContainEqual(["stop", first.sessionId]);
+    expect(
+      playback.handleAudioOutcome({
+        sessionId: first.sessionId ?? 0,
+        status: PLAYBACK_AUDIO_OUTCOMES.completed
+      })
+    ).toBe(false);
+    releaseGeneration?.();
+    await playback.waitForCurrentGeneration();
+    expect(
+      playback.handleAudioOutcome({
+        sessionId: second.sessionId ?? 0,
+        status: PLAYBACK_AUDIO_OUTCOMES.completed
+      })
+    ).toBe(true);
+
+    expect(events).not.toContainEqual(["finish", first.sessionId]);
+    expect(events.at(-1)).toEqual(["finish", second.sessionId]);
+
+    const stopped = await playback.playReadingTarget(selectedTextTargetInput("停止后的延迟终态。"));
+    releaseGeneration?.();
+    await playback.waitForCurrentGeneration();
+    playback.stopSession(stopped.sessionId);
+    expect(events.at(-1)).toEqual(["stop", stopped.sessionId]);
+    expect(
+      playback.handleAudioOutcome({
+        sessionId: stopped.sessionId ?? 0,
+        status: PLAYBACK_AUDIO_OUTCOMES.completed
+      })
+    ).toBe(false);
+    expect(events).not.toContainEqual(["finish", stopped.sessionId]);
+  });
 });
 
 type PlaybackEvent =
   | ["start", number | undefined, number, string, number[]]
   | ["chunk", number | undefined, number[]]
   | ["segment-end", number | undefined]
+  | ["generation-finished", number | undefined]
   | ["finish", number | undefined]
   | ["fail", number | undefined]
   | ["stop", number | undefined];
@@ -211,7 +362,10 @@ function createSink(events: PlaybackEvent[]): PlaybackAudioSink {
     endSegment: (sessionId) => {
       events.push(["segment-end", sessionId]);
     },
-    finishSession: (sessionId) => {
+    finishGeneration: (sessionId) => {
+      events.push(["generation-finished", sessionId]);
+    },
+    completeSession: (sessionId) => {
       events.push(["finish", sessionId]);
     },
     failSession: (sessionId) => {
