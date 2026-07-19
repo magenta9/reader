@@ -1,22 +1,31 @@
 import { constants, existsSync } from "node:fs";
-import { access, lstat, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { access, lstat, readFile, readdir } from "node:fs/promises";
+import { join, relative } from "node:path";
 import vm from "node:vm";
 
 const requiredBuildArtifacts = [
   "main/main.js",
+  "main/main.js.map",
   "preload/reader-window.cjs",
+  "preload/reader-window.cjs.map",
   "preload/playback-renderer.cjs",
+  "preload/playback-renderer.cjs.map",
   "preload/playback-overlay.cjs",
+  "preload/playback-overlay.cjs.map",
   "renderer/index.html",
   "renderer/renderer.js",
+  "renderer/renderer.js.map",
   "renderer/renderer.css",
+  "renderer/renderer.css.map",
   "renderer/assets/voicereader-icon.svg",
   "playback-renderer/index.html",
   "playback-renderer/playback-renderer.js",
+  "playback-renderer/playback-renderer.js.map",
   "overlay/index.html",
   "overlay/overlay.js",
+  "overlay/overlay.js.map",
   "overlay/overlay.css",
+  "overlay/overlay.css.map",
   "assets/voicereader-icon.svg",
   "assets/voicereader-template-icon.svg"
 ];
@@ -122,6 +131,13 @@ export async function verifyBuiltVoiceReader(distRoot, { platform = process.plat
   for (const artifact of legacyBuildArtifacts) {
     if (existsSync(join(distRoot, artifact))) {
       findings.push(finding("artifact", artifact, "legacy build artifact must be absent"));
+    }
+  }
+  const allowedArtifacts = new Set(requiredArtifacts);
+  const legacyArtifacts = new Set(legacyBuildArtifacts);
+  for (const artifact of await listBuildArtifacts(distRoot)) {
+    if (!allowedArtifacts.has(artifact) && !legacyArtifacts.has(artifact)) {
+      findings.push(finding("artifact", artifact, "unexpected build artifact"));
     }
   }
 
@@ -341,4 +357,18 @@ async function readOptionalText(distRoot, artifact, unreadableArtifacts, finding
     findings.push(finding("artifact", artifact, "build artifact must be a readable file"));
     return undefined;
   }
+}
+
+async function listBuildArtifacts(distRoot) {
+  if (!existsSync(distRoot)) return [];
+  const artifacts = [];
+  const visit = async (directory) => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await visit(path);
+      else artifacts.push(relative(distRoot, path));
+    }
+  };
+  await visit(distRoot);
+  return artifacts.sort();
 }

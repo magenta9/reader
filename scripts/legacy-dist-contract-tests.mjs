@@ -2,23 +2,23 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
-const { ElectronPlaybackOutput } = await import("../dist/main/playback/electron-playback-output.js");
-const { PlaybackService } = await import("../dist/main/playback/playback-service.js");
+const { ElectronPlaybackOutput } = await import("../.tmp/legacy-dist/main/playback/electron-playback-output.js");
+const { PlaybackService } = await import("../.tmp/legacy-dist/main/playback/playback-service.js");
 const { PlaybackCommandController } = await import(
-  "../dist/main/playback/playback-command-controller.js"
+  "../.tmp/legacy-dist/main/playback/playback-command-controller.js"
 );
 const { createPlaybackControlImplementation } = await import(
-  "../dist/main/app-bridge-handlers/playback-control.js"
+  "../.tmp/legacy-dist/main/app-bridge-handlers/playback-control.js"
 );
 const { createPlaybackRendererImplementation } = await import(
-  "../dist/main/app-bridge-handlers/playback-renderer.js"
+  "../.tmp/legacy-dist/main/app-bridge-handlers/playback-renderer.js"
 );
-const { registerRoleHandlers } = await import("../dist/shared/role-bridge-registry.js");
+const { registerRoleHandlers } = await import("../.tmp/legacy-dist/shared/role-bridge-registry.js");
 const { playbackControlRoleContract, playbackRendererRoleContract } = await import(
-  "../dist/shared/role-bridge-contracts.js"
+  "../.tmp/legacy-dist/shared/role-bridge-contracts.js"
 );
-const { streamMiniMaxSpeechAudio } = await import("../dist/shared/minimax.js");
-const { PLAYBACK_FEEDBACK_SURFACES } = await import("../dist/shared/app-contracts.js");
+const { streamMiniMaxSpeechAudio } = await import("../.tmp/legacy-dist/shared/minimax.js");
+const { PLAYBACK_FEEDBACK_SURFACES } = await import("../.tmp/legacy-dist/shared/app-contracts.js");
 const {
   APP_DATA_CHANNELS,
   APP_SHELL_CHANNELS,
@@ -27,23 +27,23 @@ const {
   PLAYBACK_OVERLAY_COMMAND_CHANNELS,
   PLAYBACK_OVERLAY_EVENT_CHANNELS,
   RENDERER_AUDIO_CHANNELS
-} = await import("../dist/shared/bridge-contracts.js");
+} = await import("../.tmp/legacy-dist/shared/bridge-contracts.js");
 
 for (const path of [
-  "../dist/main/electron-reader-app-shell.js",
-  "../dist/main/app-role-bridges.js",
-  "../dist/main/app-presence-controller.js",
-  "../dist/main/playback/playback-request-resolver.js",
-  "../dist/main/reading-target/reading-target-acquirer.js",
-  "../dist/shared/app-contracts.js",
-  "../dist/shared/bridge-contracts.js",
-  "../dist/renderer/record-view-model.js"
+  "../.tmp/legacy-dist/main/electron-reader-app-shell.js",
+  "../.tmp/legacy-dist/main/app-role-bridges.js",
+  "../.tmp/legacy-dist/main/app-presence-controller.js",
+  "../.tmp/legacy-dist/main/playback/playback-request-resolver.js",
+  "../.tmp/legacy-dist/main/reading-target/reading-target-acquirer.js",
+  "../.tmp/legacy-dist/shared/app-contracts.js",
+  "../.tmp/legacy-dist/shared/bridge-contracts.js",
+  "../.tmp/legacy-dist/renderer/record-view-model.js"
 ]) {
   assertFileExists(path);
 }
 
 const mainBundle = await readFile(new URL("../dist/main/main.js", import.meta.url), "utf8");
-const appContractsBundle = await readFile(new URL("../dist/shared/app-contracts.js", import.meta.url), "utf8");
+const appContractsBundle = await readFile(new URL("../.tmp/legacy-dist/shared/app-contracts.js", import.meta.url), "utf8");
 const rendererBundle = await readFile(new URL("../dist/renderer/renderer.js", import.meta.url), "utf8");
 const playbackRendererBundle = await readFile(
   new URL("../dist/playback-renderer/playback-renderer.js", import.meta.url),

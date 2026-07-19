@@ -154,7 +154,9 @@ async function runPackagedSmokeScenario(executable, scenario, timeoutMs) {
         throw new Error(`Packaged app did not stop cleanly (code=${outcome.code}, signal=${outcome.signal}).`);
       }
       if (!isValidReadiness(outcome.readiness, userData, scenario)) {
-        throw new Error("Packaged smoke readiness did not prove isolated versioned storage and addon loading.");
+        throw new Error(
+          "Packaged smoke readiness did not prove isolated versioned storage, addon loading, and hidden Overlay loading."
+        );
       }
     }
     return { ...verifyPackagedSmokeScenario(databasePath, scenario), readiness: outcome.readiness };
@@ -244,6 +246,7 @@ function isValidReadiness(readiness, userData, scenario) {
     existsSync(readiness.databasePath) &&
     readiness.schemaVersion === CURRENT_SCHEMA_VERSION &&
     readiness.migratedTables === 4 &&
+    readiness.overlayLoaded === true &&
     Array.isArray(readiness.addonExports) &&
     readiness.addonExports.includes("copySelection") &&
     readiness.addonExports.includes("readSelectedText") &&

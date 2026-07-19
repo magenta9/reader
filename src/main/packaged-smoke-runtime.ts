@@ -62,6 +62,7 @@ export function enterPackagedSmokeMode({
       migratedTables,
       schemaVersion: CURRENT_APP_DATA_SCHEMA_VERSION,
       scenario,
+      overlayLoaded: true,
       addonExports: Object.keys(addon).sort()
     })}\n`
   );

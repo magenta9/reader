@@ -12,6 +12,7 @@ import { createElectronMainRoleEventTransport } from "../electron-main-role-tran
 
 export class PlaybackOverlayController {
   private overlayWindow: BrowserWindow | undefined;
+  private overlayLoad: Promise<void> | undefined;
   private overlayEvents: EventEmitterFromContract<typeof playbackOverlayRoleContract> | undefined;
   private visibilityGeneration = 0;
   private overlayReady = false;
@@ -37,6 +38,11 @@ export class PlaybackOverlayController {
     window.moveTop();
     this.startMaintainingPosition();
     this.flushPendingState();
+  }
+
+  async prepare(): Promise<void> {
+    this.getOrCreateWindow();
+    await this.overlayLoad;
   }
 
   sendMetric(metric: SessionOverlayMetric): void {
@@ -87,6 +93,7 @@ export class PlaybackOverlayController {
       this.overlayWindow.destroy();
     }
     this.overlayWindow = undefined;
+    this.overlayLoad = undefined;
     this.overlayEvents = undefined;
     this.overlayReady = false;
     this.activeSessionId = undefined;
@@ -134,7 +141,8 @@ export class PlaybackOverlayController {
     this.overlayWindow.webContents.on("did-start-loading", () => {
       this.overlayReady = false;
     });
-    void this.overlayWindow.loadFile(join(mainBundleDir, "../overlay/index.html"));
+    this.overlayLoad = this.overlayWindow.loadFile(join(mainBundleDir, "../overlay/index.html"));
+    void this.overlayLoad.catch(() => undefined);
     return this.overlayWindow;
   }
 

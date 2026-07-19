@@ -8,4 +8,6 @@ Source behavior remains owned by Vitest at each public module seam. The Build Ve
 
 During expand–migrate–contract, the old dist script may run beside the structured verifier. Once built evidence has moved, TypeScript will stop emitting the internal source tree into `dist/`; esbuild bundles、HTML/CSS/assets and the macOS native addon will form the exact Build Product. Rollback is source-only and proceeds in reverse migration order; no IPC、schema or user-data migration is involved.
 
+The migration keeps the remaining legacy dist checks executable by placing TypeScript's temporary internal emit under `.tmp/legacy-dist`; packaging never copies that directory. The structured verifier fails closed on every file outside the explicit runtime product manifest, including internal `main`、`shared` and component modules. The temporary emit disappears when the legacy verifier is contracted and is not part of the Build Product interface.
+
 This decision deepens ADR-0021's source/dist split and preserves ADR-0023's source-built addon、ADR-0024's verified local release chain、ADR-0025's custom packager、ADR-0030's executable role contracts and ADR-0031's production Reader App Shell smoke seam.

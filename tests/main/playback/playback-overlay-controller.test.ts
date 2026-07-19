@@ -27,7 +27,7 @@ const electronFakes = vi.hoisted(() => {
     readonly hide = vi.fn(() => {
       this.visible = false;
     });
-    readonly loadFile = vi.fn(async () => undefined);
+    readonly loadFile = vi.fn(async (_path: string) => undefined);
     readonly moveTop = vi.fn();
     readonly setAlwaysOnTop = vi.fn();
     readonly setIgnoreMouseEvents = vi.fn();
@@ -100,6 +100,15 @@ afterEach(() => {
 });
 
 describe("PlaybackOverlayController", () => {
+  it("prepares the hidden overlay without showing it", async () => {
+    await controller.prepare();
+    const window = latestWindow();
+
+    expect(window.loadFile).toHaveBeenCalledOnce();
+    expect(window.loadFile.mock.calls[0]?.[0]).toMatch(/overlay\/index\.html$/);
+    expect(window.showInactive).not.toHaveBeenCalled();
+  });
+
   it("creates a non-activating, mouse-transparent status window and waits for renderer readiness", () => {
     controller.show(101);
     const window = latestWindow();

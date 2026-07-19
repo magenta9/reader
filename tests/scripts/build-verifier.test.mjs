@@ -44,6 +44,19 @@ describe("VoiceReader Build Verifier", () => {
     );
   });
 
+  it("rejects any internal compiler output outside the exact Build Product manifest", async () => {
+    const root = createBuildProductFixture();
+    writeFixture(root, "shared/internal-contract.js", "not a runtime entrypoint");
+
+    const report = await verifyBuiltVoiceReader(root, { platform: "darwin" });
+
+    expect(report.findings).toContainEqual({
+      category: "artifact",
+      artifact: "shared/internal-contract.js",
+      reason: "unexpected build artifact"
+    });
+  });
+
   it("returns a structured finding when an artifact path is not a readable file", async () => {
     const root = createBuildProductFixture();
     rmSync(join(root, "main/main.js"));
@@ -222,18 +235,27 @@ function createBuildProductFixture() {
   temporaryRoots.push(root);
   const files = {
     "main/main.js": "main",
+    "main/main.js.map": "{}",
     "preload/reader-window.cjs": preloadBundle("reader-window"),
+    "preload/reader-window.cjs.map": "{}",
     "preload/playback-renderer.cjs": preloadBundle("playback-renderer"),
+    "preload/playback-renderer.cjs.map": "{}",
     "preload/playback-overlay.cjs": preloadBundle("playback-overlay"),
+    "preload/playback-overlay.cjs.map": "{}",
     "renderer/index.html": html("VoiceReader", "renderer.js", "renderer.css"),
     "renderer/renderer.js": "renderer",
+    "renderer/renderer.js.map": "{}",
     "renderer/renderer.css": "renderer css",
+    "renderer/renderer.css.map": "{}",
     "renderer/assets/voicereader-icon.svg": "app icon",
     "playback-renderer/index.html": html("VoiceReader Playback Renderer", "playback-renderer.js"),
     "playback-renderer/playback-renderer.js": "playback renderer",
+    "playback-renderer/playback-renderer.js.map": "{}",
     "overlay/index.html": html("VoiceReader Overlay", "overlay.js", "overlay.css"),
     "overlay/overlay.js": "overlay",
+    "overlay/overlay.js.map": "{}",
     "overlay/overlay.css": "overlay css",
+    "overlay/overlay.css.map": "{}",
     "assets/voicereader-icon.svg": "app icon",
     "assets/voicereader-template-icon.svg": "tray icon",
     "native/selection-copy-macos.node": "native"

@@ -6,8 +6,10 @@ import { assertCommand, spawnCommand } from "./spawn-command.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = resolve(root, "dist");
+const legacyDist = resolve(root, ".tmp/legacy-dist");
 
 await rm(dist, { recursive: true, force: true });
+await rm(legacyDist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 await mkdir(resolve(dist, "assets"), { recursive: true });
 await mkdir(resolve(dist, "renderer/assets"), { recursive: true });

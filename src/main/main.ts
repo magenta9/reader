@@ -116,7 +116,7 @@ async function bootstrap(): Promise<void> {
   playbackCommands.registerActivationShortcut();
   const readerAppShellInitialization = readerAppShell.start();
   if (packagedSmoke.enabled) {
-    await readerAppShellInitialization;
+    await Promise.all([readerAppShellInitialization, overlayController.prepare()]);
     enterPackagedSmokeMode({
       app,
       appDataStore,

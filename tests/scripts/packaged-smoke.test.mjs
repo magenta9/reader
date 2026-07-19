@@ -82,6 +82,7 @@ process.stdout.write("VOICEREADER_SMOKE_READY " + JSON.stringify({
   migratedTables: 4,
   schemaVersion: 1,
   scenario: process.env.VOICEREADER_PACKAGED_SMOKE_SCENARIO,
+  overlayLoaded: true,
   addonExports: ["copySelection", "readSelectedText"]
 }) + "\\n");
 setInterval(() => {}, 1000);
@@ -110,7 +111,7 @@ describe("packaged VoiceReader smoke command", () => {
     });
   });
 
-  it("accepts readiness only after isolated storage and addon loading are proven", () => {
+  it("accepts readiness only after isolated storage, addon, and overlay loading are proven", () => {
     const { root, application } = createFakeMigratingApplication();
     const capture = join(root, "captured-user-data");
     const result = spawnSync(process.execPath, [smokeScript, "--application", application, "--scenario", "legacy"], {

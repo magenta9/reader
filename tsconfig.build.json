@@ -2,8 +2,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
-    "outDir": "dist",
-    "sourceMap": true
+    "outDir": ".tmp/legacy-dist",
+    "sourceMap": false
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"]
 }
