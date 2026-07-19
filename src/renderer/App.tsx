@@ -1,10 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactElement } from "react";
+import type { CSSProperties, ReactElement } from "react";
 import type { AppRoute, AppSettings, ReaderWindowRuntimeBridge } from "./bridge.js";
 import { DEFAULT_ACTIVATION_SHORTCUT } from "../shared/app-contracts.js";
 import type { HistoryRetention, HistoryRetentionImpact } from "../shared/app-contracts.js";
 import type { DetectedLanguage, MiniMaxVoice } from "../shared/types.js";
 import { MODEL_OPTIONS } from "../shared/models.js";
+import { historyRetentionLabel } from "./history-retention.js";
 import { RecordBrowser, type RecordUndoRequest } from "./record-browser.js";
 
 export interface ReaderWindowAppProps {
@@ -17,11 +18,16 @@ interface UndoAction extends RecordUndoRequest {
   id: number;
 }
 
-const NAV_ITEMS: Array<{ route: AppRoute; label: string; mark: string }> = [
-  { route: "home", label: "主页", mark: "⌂" },
-  { route: "history", label: "历史记录", mark: "◷" },
-  { route: "favorites", label: "收藏", mark: "★" },
-  { route: "settings", label: "设置", mark: "⚙" }
+const NAV_ITEMS: Array<{ route: AppRoute; label: string; description: string; mark: string }> = [
+  { route: "home", label: "主页", description: "", mark: "⌂" },
+  {
+    route: "history",
+    label: "历史记录",
+    description: "查看、重播与管理仅保存在本机的朗读内容。",
+    mark: "◷"
+  },
+  { route: "favorites", label: "收藏", description: "保存重要的朗读内容，随时重新播放。", mark: "★" },
+  { route: "settings", label: "设置", description: "管理连接、朗读偏好与本机数据。", mark: "⚙" }
 ];
 
 const LANGUAGE_GROUPS: Array<{ language: DetectedLanguage; label: string }> = [
@@ -91,7 +97,7 @@ function AppContent(): ReactElement {
     };
   }, []);
 
-  const title = useMemo(() => NAV_ITEMS.find((item) => item.route === route)?.label ?? "主页", [route]);
+  const activeNavigationItem = useMemo(() => NAV_ITEMS.find((item) => item.route === route) ?? NAV_ITEMS[0], [route]);
 
   const navigate = (nextRoute: AppRoute): void => {
     setRoute(nextRoute);
@@ -161,14 +167,25 @@ function AppContent(): ReactElement {
         >
           {route === "home" ? null : (
             <header className="workspace-header">
-              <p className="eyebrow">VoiceReader</p>
-              <h1>{title}</h1>
+              <h1>{activeNavigationItem.label}</h1>
+              <p className="workspace-description">{activeNavigationItem.description}</p>
             </header>
           )}
           {route === "home" && <Home onNavigate={navigate} />}
-          {route === "history" && <RecordBrowser kind="history" offerUndo={offerUndo} readerBridge={readerBridge} />}
+          {route === "history" && (
+            <RecordBrowser
+              kind="history"
+              onManageHistory={() => navigate("settings")}
+              offerUndo={offerUndo}
+              readerBridge={readerBridge}
+            />
+          )}
           {route === "favorites" && (
-            <RecordBrowser kind="favorites" offerUndo={offerUndo} readerBridge={readerBridge} />
+            <RecordBrowser
+              kind="favorites"
+              offerUndo={offerUndo}
+              readerBridge={readerBridge}
+            />
           )}
           {route === "settings" && <Settings />}
         </main>
@@ -644,11 +661,6 @@ function Settings(): ReactElement {
     setSettings(next);
   };
 
-  const completeOnboarding = async (): Promise<void> => {
-    await readerBridge.setOnboardingComplete(true);
-    await refreshSettings();
-  };
-
   const clearErrorLog = async (): Promise<void> => {
     await readerBridge.clearErrorLog();
     setErrorLogCount(0);
@@ -754,6 +766,7 @@ function Settings(): ReactElement {
   };
 
   const currentSpeechRate = settings?.speechRate ?? 1;
+  const speechRateProgress = ((currentSpeechRate - 0.5) / 2.5) * 100;
   const modelSelectValue = !settings
     ? MODEL_OPTIONS[0]?.id ?? "speech-2.8-turbo"
     : isBuiltInModel(settings.model)
@@ -877,6 +890,7 @@ function Settings(): ReactElement {
                     min="0.5"
                     onChange={(event) => void updateSpeechRate(Number(event.target.value))}
                     step="0.1"
+                    style={{ "--range-progress": `${speechRateProgress}%` } as CSSProperties}
                     type="range"
                     value={currentSpeechRate}
                   />
@@ -1069,9 +1083,6 @@ function Settings(): ReactElement {
                 <button className="secondary-action" disabled={!settings} onClick={toggleLaunchAtLogin} type="button">
                   {settings?.launchAtLogin ? "关闭登录时启动" : "开启登录时启动"}
                 </button>
-                <button className="secondary-action" disabled={!settings} onClick={completeOnboarding} type="button">
-                  标记首次配置完成
-                </button>
               </div>
               <div className="log-count">
                 <span>错误记录：{errorLogCount}</span>
@@ -1106,13 +1117,6 @@ function playbackSkippedLabel(skipped: string | undefined): string {
   if (skipped === "unverified_api_key") return "需要验证连接";
   if (skipped === "missing_voice") return "需要选择 Voice";
   return "未开始播放";
-}
-
-function historyRetentionLabel(retention: AppSettings["historyRetention"]): string {
-  if (retention === "7d") return "7 天";
-  if (retention === "3m") return "3 个月";
-  if (retention === "forever") return "永久";
-  return "1 个月";
 }
 
 function isBuiltInModel(model: string): boolean {

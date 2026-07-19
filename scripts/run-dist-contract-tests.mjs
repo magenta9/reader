@@ -623,9 +623,16 @@ assert.equal(rendererCssSource.includes(".brand-mark"), true);
 assert.equal(rendererCssSource.includes("background: transparent"), true);
 assertIncludes(rendererCssSource, [
   "container-type: inline-size",
-  "grid-template-columns: 176px minmax(0, 1fr)",
+  "grid-template-columns: 146px minmax(0, 1fr)",
+  "min-height: 36px",
+  "--control-border",
   ".settings-section + .settings-section",
   "@container (max-width: 620px)"
+]);
+assertIncludes(rendererCssSource, [
+  ".history-storage-summary",
+  "grid-template-columns: 68px minmax(0, 1fr) auto",
+  ".history-record + .history-record"
 ]);
 assertMissing(rendererCssSource, ["grid-template-columns: repeat(2"]);
 assert.equal(rendererCssSource.includes(".shortcut-recorder"), true);

@@ -56,6 +56,10 @@ _Avoid_: Toggle key, cancel key, pause key
 The main macOS window for VoiceReader. It contains Home, History, Favorites, and Settings surfaces for Reading Target playback status, Reading History, saved Favorite Records, and user configuration.
 _Avoid_: Main screen, dashboard, control panel
 
+**Settings**:
+The Reader Window surface where the user manages the MiniMax connection, the Activation Shortcut, reading behavior, launch behavior, Reading History retention, and safe local maintenance actions. It presents user-controlled configuration and recovery states, not internal completion state.
+_Avoid_: Preferences, configuration panel, admin settings
+
 **Menu Bar Icon**:
 The persistent VoiceReader icon in the macOS menu bar. It confirms that VoiceReader is running and opens the Menu Bar Menu for high-frequency actions.
 _Avoid_: Top button, tray button, status button

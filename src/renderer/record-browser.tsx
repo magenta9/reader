@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import type { FavoriteRecord, ReaderWindowRuntimeBridge, ReadingHistoryRecord } from "./bridge.js";
+import type { HistoryRetention } from "../shared/app-contracts.js";
+import { historyRetentionLabel } from "./history-retention.js";
 import {
   groupFavoriteRecords,
   groupHistoryRecords,
@@ -15,17 +17,20 @@ export interface RecordUndoRequest {
   onRestored: () => Promise<void>;
 }
 
-export interface RecordBrowserProps {
-  kind: "history" | "favorites";
+interface CommonRecordBrowserProps {
   offerUndo: (action: RecordUndoRequest) => void;
   readerBridge: ReaderWindowRuntimeBridge;
 }
+
+export type RecordBrowserProps = CommonRecordBrowserProps &
+  ({ kind: "history"; onManageHistory: () => void } | { kind: "favorites"; onManageHistory?: never });
 
 interface BrowserRecord {
   id: string;
   durationEstimateSeconds: number;
   languageSummary: string;
   preview: string;
+  source: ReadingHistoryRecord["source"];
   text: string;
 }
 
@@ -36,7 +41,10 @@ interface RecordBrowserAdapter<TRecord extends BrowserRecord> {
   deletionError: string;
   emptyDescription: string;
   emptyListLabel: string;
-  emptyTitle: string;
+  listErrorDescription: string;
+  listErrorTitle: string;
+  loadingLabel: string;
+  replayError: string;
   replayWaveformLabel: string;
   undoMessage: string;
   clearCopyFeedbackOnDelete: boolean;
@@ -44,6 +52,7 @@ interface RecordBrowserAdapter<TRecord extends BrowserRecord> {
   deleteRecord: (readerBridge: ReaderWindowRuntimeBridge, id: string) => Promise<string | undefined>;
   extraAction?: {
     completedLabel: string;
+    errorLabel: string;
     idleLabel: string;
     run: (readerBridge: ReaderWindowRuntimeBridge, id: string) => Promise<boolean>;
   };
@@ -62,7 +71,10 @@ const HISTORY_ADAPTER: RecordBrowserAdapter<ReadingHistoryRecord> = {
   deletionError: "删除失败，历史记录仍然保留。请稍后重试。",
   emptyDescription: "朗读选中文本或剪切板后，历史记录会显示在这里。",
   emptyListLabel: "暂无历史记录",
-  emptyTitle: "选择一条历史记录",
+  listErrorDescription: "请确认本机数据可用后重试。",
+  listErrorTitle: "无法载入历史记录",
+  loadingLabel: "正在载入历史记录",
+  replayError: "重播失败，当前历史记录仍保留。请稍后重试。",
   replayWaveformLabel: "历史重播中",
   undoMessage: "已删除 1 条历史记录",
   clearCopyFeedbackOnDelete: false,
@@ -70,6 +82,7 @@ const HISTORY_ADAPTER: RecordBrowserAdapter<ReadingHistoryRecord> = {
   deleteRecord: (readerBridge, id) => readerBridge.deleteReadingHistoryRecord(id),
   extraAction: {
     completedLabel: "已添加",
+    errorLabel: "添加收藏失败，历史记录仍然保留。请稍后重试。",
     idleLabel: "添加收藏",
     run: async (readerBridge, id) => Boolean(await readerBridge.createFavoriteFromHistoryRecord(id))
   },
@@ -81,6 +94,7 @@ const HISTORY_ADAPTER: RecordBrowserAdapter<ReadingHistoryRecord> = {
       <span>{formatHistoryDateTime(record.createdAt)}</span>
       <span>{formatDuration(record.durationEstimateSeconds)}</span>
       <span>{record.languageSummary}</span>
+      <span>{readingSourceLabel(record.source)}</span>
     </>
   ),
   replayRecord: (readerBridge, id) => readerBridge.playHistoryRecord(id),
@@ -94,7 +108,10 @@ const FAVORITES_ADAPTER: RecordBrowserAdapter<FavoriteRecord> = {
   deletionError: "移除失败，收藏仍然保留。请稍后重试。",
   emptyDescription: "在历史记录详情中添加收藏后，会显示在这里。",
   emptyListLabel: "暂无收藏",
-  emptyTitle: "暂无收藏",
+  listErrorDescription: "请确认本机数据可用后重试。",
+  listErrorTitle: "无法载入收藏",
+  loadingLabel: "正在载入收藏",
+  replayError: "重播失败，当前收藏仍保留。请稍后重试。",
   replayWaveformLabel: "收藏重播中",
   undoMessage: "已移除 1 条收藏",
   clearCopyFeedbackOnDelete: true,
@@ -116,20 +133,35 @@ const FAVORITES_ADAPTER: RecordBrowserAdapter<FavoriteRecord> = {
   undoDeletion: (readerBridge, undoToken) => readerBridge.undoFavoriteDeletion(undoToken)
 };
 
-export function RecordBrowser({ kind, offerUndo, readerBridge }: RecordBrowserProps): ReactElement {
-  return kind === "history" ? (
-    <RecordBrowserView adapter={HISTORY_ADAPTER} offerUndo={offerUndo} readerBridge={readerBridge} />
+export function RecordBrowser(props: RecordBrowserProps): ReactElement {
+  return props.kind === "history" ? (
+    <RecordBrowserView
+      adapter={HISTORY_ADAPTER}
+      kind={props.kind}
+      onManageHistory={props.onManageHistory}
+      offerUndo={props.offerUndo}
+      readerBridge={props.readerBridge}
+    />
   ) : (
-    <RecordBrowserView adapter={FAVORITES_ADAPTER} offerUndo={offerUndo} readerBridge={readerBridge} />
+    <RecordBrowserView
+      adapter={FAVORITES_ADAPTER}
+      kind={props.kind}
+      offerUndo={props.offerUndo}
+      readerBridge={props.readerBridge}
+    />
   );
 }
 
 function RecordBrowserView<TRecord extends BrowserRecord>({
   adapter,
+  kind,
+  onManageHistory,
   offerUndo,
   readerBridge
 }: {
   adapter: RecordBrowserAdapter<TRecord>;
+  kind: "history" | "favorites";
+  onManageHistory?: () => void;
   offerUndo: (action: RecordUndoRequest) => void;
   readerBridge: ReaderWindowRuntimeBridge;
 }): ReactElement {
@@ -139,17 +171,25 @@ function RecordBrowserView<TRecord extends BrowserRecord>({
   const [extraActionFeedbackId, setExtraActionFeedbackId] = useState<string | undefined>();
   const [actionError, setActionError] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
+  const [listState, setListState] = useState<"error" | "loading" | "ready">("loading");
+  const [historyRetention, setHistoryRetention] = useState<HistoryRetention | "loading" | "unavailable">("loading");
   const [replaySessionId, setReplaySessionId] = useReplaySessionId(readerBridge);
   const isMounted = useRef(true);
   const sectionRef = useRef<HTMLElement>(null);
 
   const refreshRecords = useCallback(
     async (preferredSelectedId?: string): Promise<boolean> => {
-      const nextRecords = await adapter.listRecords(readerBridge);
-      if (!isMounted.current) return false;
-      setRecords(nextRecords);
-      setSelectedId((current) => resolveSelectedRecordId(nextRecords, current, preferredSelectedId));
-      return true;
+      try {
+        const nextRecords = await adapter.listRecords(readerBridge);
+        if (!isMounted.current) return false;
+        setRecords(nextRecords);
+        setSelectedId((current) => resolveSelectedRecordId(nextRecords, current, preferredSelectedId));
+        setListState("ready");
+        return true;
+      } catch {
+        if (isMounted.current) setListState("error");
+        return false;
+      }
     },
     [adapter, readerBridge]
   );
@@ -162,14 +202,43 @@ function RecordBrowserView<TRecord extends BrowserRecord>({
     };
   }, [refreshRecords]);
 
+  useEffect(() => {
+    if (kind !== "history") return;
+    void readerBridge
+      .getSettings()
+      .then((settings) => {
+        if (isMounted.current) setHistoryRetention(settings.historyRetention);
+      })
+      .catch(() => {
+        if (isMounted.current) setHistoryRetention("unavailable");
+      });
+  }, [kind, readerBridge]);
+
   const selected = records.find((record) => record.id === selectedId);
   const groups = adapter.groupRecords(records);
 
   const copySelected = async (): Promise<void> => {
     if (!selected) return;
-    await readerBridge.copyText(selected.text);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1300);
+    try {
+      await readerBridge.copyText(selected.text);
+      setActionError("");
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1300);
+    } catch {
+      setActionError("复制失败，未写入剪切板。请稍后重试。");
+    }
+  };
+
+  const stopReplay = async (): Promise<boolean> => {
+    try {
+      await readerBridge.stopPlayback();
+      setReplaySessionId(undefined);
+      setActionError("");
+      return true;
+    } catch {
+      setActionError("停止重播失败，请稍后重试。");
+      return false;
+    }
   };
 
   const deleteSelected = async (): Promise<void> => {
@@ -178,10 +247,7 @@ function RecordBrowserView<TRecord extends BrowserRecord>({
     const nextSelection = resolveAdjacentSelectionAfterDelete(records, record.id);
     setIsDeleting(true);
     try {
-      if (replaySessionId) {
-        await readerBridge.stopPlayback();
-        setReplaySessionId(undefined);
-      }
+      if (replaySessionId && !(await stopReplay())) return;
       const undoToken = await adapter.deleteRecord(readerBridge, record.id);
       if (!undoToken) throw new Error("Record was not deleted.");
       if (adapter.clearCopyFeedbackOnDelete) setCopied(false);
@@ -206,111 +272,191 @@ function RecordBrowserView<TRecord extends BrowserRecord>({
 
   const replaySelected = async (): Promise<void> => {
     if (!selected) return;
-    const result = await adapter.replayRecord(readerBridge, selected.id);
-    if (result.started) setReplaySessionId(result.sessionId);
+    try {
+      const result = await adapter.replayRecord(readerBridge, selected.id);
+      if (!result.started) {
+        setActionError(adapter.replayError);
+        return;
+      }
+      setActionError("");
+      setReplaySessionId(result.sessionId);
+    } catch {
+      setActionError(adapter.replayError);
+    }
   };
 
   const runExtraAction = async (): Promise<void> => {
     if (!selected || !adapter.extraAction) return;
-    const completed = await adapter.extraAction.run(readerBridge, selected.id);
-    if (!completed) return;
-    setExtraActionFeedbackId(selected.id);
-    window.setTimeout(() => {
-      setExtraActionFeedbackId((current) => (current === selected.id ? undefined : current));
-    }, 1300);
+    try {
+      const completed = await adapter.extraAction.run(readerBridge, selected.id);
+      if (!completed) {
+        setActionError(adapter.extraAction.errorLabel);
+        return;
+      }
+      setActionError("");
+      setExtraActionFeedbackId(selected.id);
+      window.setTimeout(() => {
+        setExtraActionFeedbackId((current) => (current === selected.id ? undefined : current));
+      }, 1300);
+    } catch {
+      setActionError(adapter.extraAction.errorLabel);
+    }
+  };
+
+  const selectRecord = async (record: TRecord): Promise<void> => {
+    if (replaySessionId && !(await stopReplay())) return;
+    setSelectedId((current) => (current === record.id ? undefined : record.id));
+    if (adapter.clearCopyFeedbackOnSelect) setCopied(false);
+    setActionError("");
   };
 
   return (
     <section className="history-layout" aria-label={adapter.ariaLabel} ref={sectionRef}>
+      {kind === "history" ? (
+        <div className="history-storage-summary">
+          <div>
+            <strong>仅存本机</strong>
+            <span>
+              {historyRetention === "loading"
+                ? "正在读取保留期限"
+                : historyRetention === "unavailable"
+                  ? "保留期限暂不可用"
+                  : `保留 ${historyRetentionLabel(historyRetention)}`}
+            </span>
+          </div>
+          <button className="text-action" onClick={onManageHistory} type="button">
+            管理
+          </button>
+        </div>
+      ) : null}
       <GroupedRecordList
+        emptyDescription={adapter.emptyDescription}
         emptyLabel={adapter.emptyListLabel}
         getTime={adapter.getTime}
         groups={groups}
-        onSelect={(record) => {
-          setSelectedId(record.id);
-          if (adapter.clearCopyFeedbackOnSelect) setCopied(false);
-          setActionError("");
+        listErrorDescription={adapter.listErrorDescription}
+        listErrorTitle={adapter.listErrorTitle}
+        listState={listState}
+        loadingLabel={adapter.loadingLabel}
+        onSelect={selectRecord}
+        onRetry={() => {
+          setListState("loading");
+          void refreshRecords();
         }}
+        selectedDetail={
+          selected ? (
+            <RecordDetailPanel id={`record-detail-${selected.id}`}>
+              <h2>{selected.preview}</h2>
+              <div className="detail-meta">{adapter.renderMetadata(selected)}</div>
+              {replaySessionId ? <DetailWaveform label={adapter.replayWaveformLabel} /> : null}
+              <ReplayDetailActions
+                onReplay={replaySelected}
+                onStop={() => void stopReplay()}
+                replaySessionId={replaySessionId}
+              >
+                <CopyTextButton copied={copied} onCopy={copySelected} />
+                {adapter.extraAction ? (
+                  <button className="text-action" onClick={runExtraAction} type="button">
+                    {extraActionFeedbackId === selected.id
+                      ? adapter.extraAction.completedLabel
+                      : adapter.extraAction.idleLabel}
+                  </button>
+                ) : null}
+                <button className="text-action" disabled={isDeleting} onClick={deleteSelected} type="button">
+                  {isDeleting ? adapter.deletingButtonLabel : adapter.deleteButtonLabel}
+                </button>
+              </ReplayDetailActions>
+              <article className="history-full-text">{selected.text}</article>
+              {actionError ? (
+                <p className="inline-error record-action-message" role="alert">
+                  {actionError}
+                </p>
+              ) : null}
+            </RecordDetailPanel>
+          ) : null
+        }
         selectedId={selectedId}
       />
-      <RecordDetailPanel
-        emptyDescription={adapter.emptyDescription}
-        emptyTitle={adapter.emptyTitle}
-        hasSelection={Boolean(selected)}
-      >
-        {selected && (
-          <>
-            <p className="section-kicker">详情</p>
-            <h2>{selected.preview}</h2>
-            <div className="detail-meta">{adapter.renderMetadata(selected)}</div>
-            {replaySessionId ? <DetailWaveform label={adapter.replayWaveformLabel} /> : null}
-            <ReplayDetailActions onReplay={replaySelected} replaySessionId={replaySessionId} readerBridge={readerBridge}>
-              <CopyTextButton copied={copied} onCopy={copySelected} />
-              {adapter.extraAction ? (
-                <button className="text-action" onClick={runExtraAction} type="button">
-                  {extraActionFeedbackId === selected.id
-                    ? adapter.extraAction.completedLabel
-                    : adapter.extraAction.idleLabel}
-                </button>
-              ) : null}
-              <button className="text-action" disabled={isDeleting} onClick={deleteSelected} type="button">
-                {isDeleting ? adapter.deletingButtonLabel : adapter.deleteButtonLabel}
-              </button>
-            </ReplayDetailActions>
-            <article className="history-full-text">{selected.text}</article>
-          </>
-        )}
-      </RecordDetailPanel>
-      {actionError ? (
-        <p className="inline-error record-action-message" role="alert">
-          {actionError}
-        </p>
-      ) : null}
     </section>
   );
 }
 
 function GroupedRecordList<TRecord extends BrowserRecord>({
+  emptyDescription,
   emptyLabel,
   getTime,
   groups,
+  listErrorDescription,
+  listErrorTitle,
+  listState,
+  loadingLabel,
   onSelect,
+  onRetry,
+  selectedDetail,
   selectedId
 }: {
+  emptyDescription: string;
   emptyLabel: string;
   getTime: (record: TRecord) => number;
   groups: RecordGroup<TRecord>[];
-  onSelect: (record: TRecord) => void;
+  listErrorDescription: string;
+  listErrorTitle: string;
+  listState: "error" | "loading" | "ready";
+  loadingLabel: string;
+  onSelect: (record: TRecord) => Promise<void>;
+  onRetry: () => void;
+  selectedDetail: ReactNode;
   selectedId: string | undefined;
 }): ReactElement {
   return (
     <div className="history-list">
-      {groups.length ? (
+      {listState === "loading" ? (
+        <div aria-live="polite" className="empty-list record-list-status" role="status">
+          <strong>{loadingLabel}</strong>
+        </div>
+      ) : listState === "error" ? (
+        <div className="empty-list record-list-status" role="alert">
+          <strong>{listErrorTitle}</strong>
+          <span>{listErrorDescription}</span>
+          <button className="secondary-action" onClick={onRetry} type="button">
+            重试
+          </button>
+        </div>
+      ) : groups.length ? (
         groups.map((group) => (
           <div className="history-group" key={group.label}>
             <p className="section-kicker">{group.label}</p>
             <div className="history-items">
-              {group.records.map((record) => (
-                <button
-                  className={`history-item${record.id === selectedId ? " is-active" : ""}`}
-                  data-record-id={record.id}
-                  key={record.id}
-                  onClick={() => onSelect(record)}
-                  type="button"
-                >
-                  <span className="history-time">{formatHistoryTime(getTime(record))}</span>
-                  <span className="history-preview">{record.preview}</span>
-                  <span className="history-meta">
-                    {formatDuration(record.durationEstimateSeconds)} · {record.languageSummary}
-                  </span>
-                </button>
-              ))}
+              {group.records.map((record) => {
+                const isExpanded = record.id === selectedId;
+                return (
+                  <div className="history-record" key={record.id}>
+                    <button
+                      aria-controls={`record-detail-${record.id}`}
+                      aria-expanded={isExpanded}
+                      className={`history-item${isExpanded ? " is-active" : ""}`}
+                      data-record-id={record.id}
+                      onClick={() => void onSelect(record)}
+                      type="button"
+                    >
+                      <span className="history-time">{formatHistoryTime(getTime(record))}</span>
+                      <span className="history-preview">{record.preview}</span>
+                      <span className="history-meta">
+                        {formatDuration(record.durationEstimateSeconds)} · {record.languageSummary} ·{" "}
+                        {readingSourceLabel(record.source)}
+                      </span>
+                    </button>
+                    {isExpanded ? selectedDetail : null}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))
       ) : (
         <div className="empty-list" data-record-empty tabIndex={-1}>
-          {emptyLabel}
+          <strong>{emptyLabel}</strong>
+          <span>{emptyDescription}</span>
         </div>
       )}
     </div>
@@ -320,12 +466,12 @@ function GroupedRecordList<TRecord extends BrowserRecord>({
 function ReplayDetailActions({
   children,
   onReplay,
-  readerBridge,
+  onStop,
   replaySessionId
 }: {
   children: ReactNode;
   onReplay: () => void;
-  readerBridge: ReaderWindowRuntimeBridge;
+  onStop: () => void;
   replaySessionId: number | undefined;
 }): ReactElement {
   return (
@@ -334,7 +480,7 @@ function ReplayDetailActions({
         重新播放
       </button>
       {replaySessionId ? (
-        <button className="text-action" onClick={() => void readerBridge.stopPlayback()} type="button">
+        <button className="text-action" onClick={onStop} type="button">
           停止
         </button>
       ) : null}
@@ -353,26 +499,14 @@ function CopyTextButton({ copied, onCopy }: { copied: boolean; onCopy: () => voi
 
 function RecordDetailPanel({
   children,
-  emptyDescription,
-  emptyTitle,
-  hasSelection
+  id
 }: {
   children: ReactNode;
-  emptyDescription: string;
-  emptyTitle: string;
-  hasSelection: boolean;
+  id: string;
 }): ReactElement {
   return (
-    <div className="history-detail">
-      {hasSelection ? (
-        <>{children}</>
-      ) : (
-        <>
-          <p className="section-kicker">详情</p>
-          <h2>{emptyTitle}</h2>
-          <p className="muted">{emptyDescription}</p>
-        </>
-      )}
+    <div className="history-detail" id={id}>
+      {children}
     </div>
   );
 }

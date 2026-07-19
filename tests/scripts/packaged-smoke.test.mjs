@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const smokeScript = resolve("scripts/packaged-smoke.mjs");
 const temporaryRoots = [];
+const fixtureTimeoutMs = "2000";
 
 function createFakeApplication(script) {
   const root = mkdtempSync(join(tmpdir(), "voicereader-smoke-verifier-"));
@@ -60,7 +61,7 @@ describe("packaged VoiceReader smoke command", () => {
     const { application } = createFakeApplication('echo "startup exploded" >&2\nexit 7');
     const result = spawnSync(
       process.execPath,
-      [smokeScript, "--application", application, "--timeout-ms", "500"],
+      [smokeScript, "--application", application, "--timeout-ms", fixtureTimeoutMs],
       { encoding: "utf8" }
     );
     expect(result.status).toBe(1);
@@ -76,11 +77,11 @@ describe("packaged VoiceReader smoke command", () => {
     const capture = join(root, "captured-user-data");
     const result = spawnSync(
       process.execPath,
-      [smokeScript, "--application", application, "--timeout-ms", "100"],
+      [smokeScript, "--application", application, "--timeout-ms", fixtureTimeoutMs],
       { encoding: "utf8", env: { ...process.env, SMOKE_PATH_CAPTURE: capture } }
     );
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("timed out after 100ms");
+    expect(result.stderr).toContain(`timed out after ${fixtureTimeoutMs}ms`);
     expect(existsSync(readFileSync(capture, "utf8"))).toBe(false);
   });
 
@@ -92,7 +93,7 @@ describe("packaged VoiceReader smoke command", () => {
     const capture = join(root, "captured-invalid-data");
     const result = spawnSync(
       process.execPath,
-      [smokeScript, "--application", application, "--timeout-ms", "500"],
+      [smokeScript, "--application", application, "--timeout-ms", fixtureTimeoutMs],
       { encoding: "utf8", env: { ...process.env, SMOKE_PATH_CAPTURE: capture } }
     );
     expect(result.status).toBe(1);
