@@ -55,7 +55,7 @@ bun run start
 - `bun run start`：从当前 `dist/` 启动 Electron app；首次运行前需要先 `bun run build`。
 - `bun run test:electron`：在真实 Electron 41 中加载 Selected Text addon 并读写临时 `node:sqlite` 数据库。
 - `make package-mac`：用自有 packager 构建并验证 ARM64 `VoiceReader.app` 与 DMG，不安装应用。
-- `make smoke-packaged`：用隔离 userData 启动最终 `.app`，验证 SQLite migration 和 packaged addon。
+- `make smoke-packaged`：用四个隔离 userData 启动最终 `.app`，验证 fresh、历史三表、无版本四表到精确 SQLite v1 的迁移与数据保留、future-version fail-closed，以及 packaged addon。
 - `make deploy`：执行完整门禁，安全替换并验证 `/Applications/VoiceReader.app`；VoiceReader 正在运行时会拒绝部署且不会自动结束进程。
 - `make verify`：从 frozen install 开始，完成依赖脚本审计、两轮 clean build、typecheck、Vitest 和 dist contract checks。
 

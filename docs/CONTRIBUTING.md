@@ -42,7 +42,7 @@ open release/mac/VoiceReader.app
 make deploy
 ```
 
-`make package-mac` 只生成并验证 ARM64 `.app` 与 DMG，不修改 `/Applications`。`make deploy` 会先执行完整验证和 candidate smoke；如果 `/Applications/VoiceReader.app` 正在运行，它会要求开发者正常退出应用并拒绝继续，不会自动结束进程。替换采用 staging/backup 流程，installed smoke 失败时恢复旧应用；所有 smoke 都使用临时 userData，不接触正常的本机数据。
+`make package-mac` 只生成并验证 ARM64 `.app` 与 DMG，不修改 `/Applications`。`make smoke-packaged` 会对最终 `.app` 运行 fresh、历史三表、无版本四表和 future negative 数据库矩阵，验证 exact v1 schema、数据保留与 fail-closed。`make deploy` 会先执行完整验证和 candidate smoke；如果 `/Applications/VoiceReader.app` 正在运行，它会要求开发者正常退出应用并拒绝继续，不会自动结束进程。替换采用 staging/backup 流程，installed smoke 失败时恢复旧应用；所有 smoke 都使用临时 userData，不接触正常的本机数据。
 
 ## 选择任务
 
@@ -85,6 +85,6 @@ feat: add language-scoped voice preference
 - 改动和 issue/PRD 对齐。
 - 用户可见行为、文案、隐私边界已经写清楚。
 - 新增跨进程能力已更新 shared contract、preload bridge 和调用方。
-- 本地数据结构变更有兼容旧数据的处理。
+- 本地数据结构变更通过 `AppDataStore.open(path)` 的版本化 lifecycle，有真实历史 SQLite fixture、原子 rollback 与 packaged upgrade smoke。
 - 已运行并记录相关验证命令。
 - 没有提交构建产物、密钥、SQLite 数据库或临时文件。

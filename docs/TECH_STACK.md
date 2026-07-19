@@ -52,14 +52,15 @@ src/
 - `src/shared/speech-audio-stream.ts`：Playback-facing、供应商无关的 Speech Audio Stream port。
 - `src/shared/bridge-contracts/`：跨 renderer/main 的 bridge 与 channel contract。
 - `src/shared/minimax.ts`：MiniMax Voice API 与 production Speech Audio Stream adapter；第三方 wire format 不越过此边界。
-- `src/main/data/app-data-store.ts`：SQLite 本地数据。
+- `src/main/data/app-data-schema.ts`：SQLite App Data v1 精确合同、已知历史分类、原子 migration 与 fail-closed 规则。
+- `src/main/data/app-data-store.ts`：通过唯一的 `AppDataStore.open(path)` seam 打开版本化 SQLite，并在 migration commit 后执行 Reading History retention。
 - `src/main/data/playback-preferences-commands.ts`：main-owned Speech Rate / Model 命令与窄化持久化能力。
 - `scripts/build.mjs`：TypeScript emit、native addon、esbuild bundle、静态资源复制。
 - `vitest.config.ts`：Vitest source-level 测试和 jsdom React UI 测试配置。
 - `scripts/run-dist-contract-tests.mjs`：构建后检查 `dist/` 产物和跨进程边界合同。
 - `scripts/electron-runtime.mjs`：在真实 Electron 中验证 `node:sqlite` 和 Selected Text addon。
 - `scripts/package-mac.mjs`：用自有 packager 生成并验证 ARM64 `VoiceReader.app` 和 DMG。
-- `scripts/packaged-smoke.mjs`：以隔离 userData 启动最终 packaged app 并等待 SQLite/addon readiness。
+- `scripts/packaged-smoke.mjs`：以隔离 userData 对最终 packaged app 执行 fresh、三表 legacy、无版本 current 和 future negative 矩阵，验证精确 SQLite v1、数据保留、兼容规范化与 addon readiness。
 - `scripts/deploy-mac.mjs`：串联验证、打包、candidate smoke、安全替换和 installed smoke。
 
 ## 本地数据
@@ -77,6 +78,8 @@ Electron 启动时把 `userData` 设置到：
 ```
 
 本地会保存 Settings、MiniMax API Key、Voice 缓存、Reading History、Favorites 和 Error Log。Reading History 与 Favorites 会保存完整 Reading Target 文本；不会保存生成音频或 MiniMax 原始响应。
+
+App Data schema 当前版本为 v1，物理结构与引入版本管理前的四表 schema 相同。应用只接受空库、仓库历史中的三表 schema、无版本四表 schema 或精确 v1；未知或未来版本会在数据清理前拒绝启动，不会自动重建、备份或修复数据库。
 
 ## 构建产物
 
@@ -102,4 +105,4 @@ make smoke-packaged
 make deploy
 ```
 
-`bun run test` 是快速 Vitest 命令，直接覆盖 source-level 行为测试和 jsdom React UI 测试；`bun run test:watch` 用于本地迭代。`bun run test:dist` 默认先构建再检查 build-output 合同，范围包括生成文件、bundle/preload bridge shape、HTML/CSS、native addon、资源复制、package-script assumptions 和跨进程边界；已运行 `bun run build` 后可用 `bun run test:dist -- --no-build` 复用当前 `dist/`。`make verify` 从 frozen install 开始执行依赖脚本审计、两轮 clean build、Electron runtime probe、typecheck、Vitest 和 dist contract checks。`make package-mac` 是 artifact-only；`make smoke-packaged` 使用隔离 userData；`make deploy` 拒绝覆盖运行中的 VoiceReader，并通过 staging、backup、rollback 和 installed smoke 保护应用与用户数据。macOS 构建与发布依赖 Xcode Command Line Tools，以及系统自带的 `xcrun`、`clang++`、`sips`、`qlmanage`、`lipo`、`codesign`、`hdiutil` 和 `ditto`。
+`bun run test` 是快速 Vitest 命令，直接覆盖 source-level 行为测试和 jsdom React UI 测试；`bun run test:watch` 用于本地迭代。`bun run test:dist` 默认先构建再检查 build-output 合同，范围包括生成文件、bundle/preload bridge shape、HTML/CSS、native addon、资源复制、package-script assumptions 和跨进程边界；已运行 `bun run build` 后可用 `bun run test:dist -- --no-build` 复用当前 `dist/`。`make verify` 从 frozen install 开始执行依赖脚本审计、两轮 clean build、Electron runtime probe、typecheck、Vitest 和 dist contract checks。`make package-mac` 是 artifact-only；`make smoke-packaged` 使用四个独立临时 userData 运行 fresh/legacy/current/future 数据库矩阵，并在清理前验证 exact v1 contract、sentinel data 与 future fail-closed；`make deploy` 拒绝覆盖运行中的 VoiceReader，并通过 staging、backup、rollback 和 installed smoke 保护应用与用户数据。macOS 构建与发布依赖 Xcode Command Line Tools，以及系统自带的 `xcrun`、`clang++`、`sips`、`qlmanage`、`lipo`、`codesign`、`hdiutil` 和 `ditto`。

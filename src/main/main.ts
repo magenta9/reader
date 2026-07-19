@@ -85,7 +85,7 @@ async function bootstrap(): Promise<void> {
   const databasePath = join(app.getPath("userData"), "voicereader.sqlite");
   appDataStore = AppDataStore.open(databasePath);
   if (packagedSmoke.enabled) {
-    enterPackagedSmokeMode({ app, appDataStore, databasePath });
+    enterPackagedSmokeMode({ app, appDataStore, databasePath, scenario: packagedSmoke.scenario });
     return;
   }
   minimaxAccountService = new MiniMaxAccountService(appDataStore);

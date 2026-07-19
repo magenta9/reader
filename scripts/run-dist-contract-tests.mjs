@@ -211,6 +211,11 @@ const overlaySource = await readFile(new URL("../src/overlay/main.tsx", import.m
 const playbackOverlayAppSource = await readFile(new URL("../src/overlay/App.tsx", import.meta.url), "utf8");
 const voiceReaderBridgeSource = await readFile(new URL("../src/shared/voice-reader-bridge.ts", import.meta.url), "utf8");
 const appDataStoreSource = await readFile(new URL("../src/main/data/app-data-store.ts", import.meta.url), "utf8");
+const appDataSchemaSource = await readFile(new URL("../src/main/data/app-data-schema.ts", import.meta.url), "utf8");
+const packagedSmokeRuntimeSource = await readFile(
+  new URL("../src/main/packaged-smoke-runtime.ts", import.meta.url),
+  "utf8"
+);
 const minimaxAccountSource = await readFile(new URL("../src/main/data/minimax-account-service.ts", import.meta.url), "utf8");
 const playbackServiceSource = await readFile(new URL("../src/main/playback/playback-service.ts", import.meta.url), "utf8");
 const playbackCommandSource = await readFile(new URL("../src/main/playback/playback-command-controller.ts", import.meta.url), "utf8");
@@ -546,6 +551,10 @@ for (const { name, source } of [
 ]) {
   assert.equal(source.includes("AppDataStore"), false, `${name} should not depend on the full data adapter`);
 }
+assertIncludes(mainSource, "AppDataStore.open(databasePath)");
+assertMissing(appDataStoreSource, ["private migrate()", "CREATE TABLE IF NOT EXISTS settings"]);
+assertIncludes(appDataSchemaSource, ["CURRENT_APP_DATA_SCHEMA_VERSION = 1", "BEGIN IMMEDIATE", "PRAGMA user_version"]);
+assertIncludes(packagedSmokeRuntimeSource, ["assertCurrentAppDataSchema", "schemaVersion"]);
 const bootstrapIndex = mainBundle.indexOf("async function bootstrap");
 const whenReadyIndex = mainBundle.indexOf("await app.whenReady()");
 assert.equal(bootstrapIndex >= 0 && whenReadyIndex > bootstrapIndex, true);
