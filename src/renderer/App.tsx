@@ -1,6 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactElement } from "react";
-import type { AppRoute, AppSettings, ReaderWindowRoleBridge } from "./bridge.js";
+import type {
+  AppRoute,
+  AppSettings,
+  ReaderWindowRoleBridge,
+  RouteSnapshot
+} from "./bridge.js";
 import { DEFAULT_ACTIVATION_SHORTCUT } from "../shared/app-contracts.js";
 import type { HistoryRetention, HistoryRetentionImpact } from "../shared/app-contracts.js";
 import type { DetectedLanguage, MiniMaxVoice } from "../shared/types.js";
@@ -82,26 +87,31 @@ function AppContent(): ReactElement {
   const [isUndoing, setIsUndoing] = useState(false);
   const [undoError, setUndoError] = useState("");
   const undoActionId = useRef(0);
+  const routeRevision = useRef(-1);
+  const isMounted = useRef(true);
+
+  const applyRoute = useCallback((snapshot: RouteSnapshot): void => {
+    if (!isMounted.current || snapshot.revision <= routeRevision.current) return;
+    routeRevision.current = snapshot.revision;
+    setRoute(snapshot.route);
+  }, []);
 
   useEffect(() => {
-    let mounted = true;
+    isMounted.current = true;
+    const unsubscribe = readerBridge.onNavigate(applyRoute);
     void readerBridge.getBootstrapState().then((state) => {
-      if (mounted) setRoute(state.lastRoute);
-    });
-    const unsubscribe = readerBridge.onNavigate((nextRoute) => {
-      setRoute(nextRoute);
+      applyRoute(state.route);
     });
     return () => {
-      mounted = false;
+      isMounted.current = false;
       unsubscribe();
     };
-  }, []);
+  }, [applyRoute, readerBridge]);
 
   const activeNavigationItem = useMemo(() => NAV_ITEMS.find((item) => item.route === route) ?? NAV_ITEMS[0], [route]);
 
   const navigate = (nextRoute: AppRoute): void => {
-    setRoute(nextRoute);
-    void readerBridge.setRoute(nextRoute);
+    void readerBridge.setRoute(nextRoute).then(applyRoute);
   };
 
   const offerUndo = (action: RecordUndoRequest): void => {

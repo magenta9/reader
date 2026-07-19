@@ -8,8 +8,10 @@ import { ReaderWindowApp } from "../../src/renderer/App.js";
 import {
   DEFAULT_ACTIVATION_SHORTCUT,
   type AppSettings,
+  type BootstrapState,
   type FavoriteRecord,
-  type ReadingHistoryRecord
+  type ReadingHistoryRecord,
+  type RouteSnapshot
 } from "../../src/shared/app-contracts.js";
 import type { ReaderWindowRoleBridge } from "../../src/shared/role-bridge-contracts.js";
 
@@ -19,6 +21,55 @@ afterEach(() => {
 });
 
 describe("ReaderWindowApp", () => {
+  it("does not let a stale bootstrap response overwrite newer navigation", async () => {
+    let resolveBootstrap: ((state: BootstrapState) => void) | undefined;
+    let navigate: ((snapshot: RouteSnapshot) => void) | undefined;
+    const bootstrap = new Promise<BootstrapState>((resolve) => {
+      resolveBootstrap = resolve;
+    });
+    renderReaderWindow({
+      history: [],
+      readerPatch: {
+        getBootstrapState: () => bootstrap,
+        onNavigate: (listener) => {
+          navigate = listener;
+          return () => {
+            navigate = undefined;
+          };
+        }
+      }
+    });
+
+    act(() => navigate?.({ route: "history", revision: 2 }));
+    await screen.findByRole("heading", { name: "历史记录" });
+    act(() => navigate?.({ route: "settings", revision: 2 }));
+    resolveBootstrap?.({ hasCompletedOnboarding: true, route: { route: "home", revision: 1 } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "历史记录" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "设置" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("does not let bootstrap overwrite navigation started locally while it was loading", async () => {
+    let resolveBootstrap: ((state: BootstrapState) => void) | undefined;
+    const bootstrap = new Promise<BootstrapState>((resolve) => {
+      resolveBootstrap = resolve;
+    });
+    renderReaderWindow({
+      history: [],
+      readerPatch: { getBootstrapState: () => bootstrap }
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "历史记录" }));
+    await screen.findByRole("heading", { name: "历史记录" });
+    resolveBootstrap?.({ hasCompletedOnboarding: true, route: { route: "home", revision: 0 } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "历史记录" })).toBeInTheDocument();
+    });
+  });
+
   it("keeps Home task-first and gives utility routes concise page context", async () => {
     renderReaderWindow({ settings: createVerifiedSettings() });
 
@@ -683,17 +734,18 @@ function createReaderBridge(
   let settings = options.settings;
   let history = [...(options.history ?? [])];
   let favorites = [...(options.favorites ?? [])];
+  let routeRevision = 0;
   const deletedHistory = new Map<string, ReadingHistoryRecord>();
   const deletedFavorites = new Map<string, FavoriteRecord>();
   return {
     getBootstrapState: async () => ({
       hasCompletedOnboarding: settings.hasCompletedOnboarding,
-      lastRoute: options.bootstrapRoute ?? "home"
+      route: { route: options.bootstrapRoute ?? "home", revision: 0 }
     }),
     setOnboardingComplete: async (complete) => {
       settings = { ...settings, hasCompletedOnboarding: complete };
     },
-    setRoute: async () => undefined,
+    setRoute: async (route) => ({ route, revision: ++routeRevision }),
     onNavigate: () => () => undefined,
     getSettings: async () => settings,
     setSpeechRate: async (speechRate) => {

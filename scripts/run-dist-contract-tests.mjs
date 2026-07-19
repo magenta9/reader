@@ -203,14 +203,6 @@ assertIncludes(appPresenceControllerSource, [
   "setDockIconFromSvg",
   "hideForSelectionCapture"
 ]);
-const openReaderWindowIndex = mainSource.indexOf("function openReaderWindow(route: AppRoute): void");
-const openReaderWindowPendingRouteIndex = mainSource.indexOf("pendingRoute = route;", openReaderWindowIndex);
-const openReaderWindowDockIndex = mainSource.indexOf("appPresence.ensureDockVisible();", openReaderWindowIndex);
-assert.equal(openReaderWindowIndex >= 0, true);
-assert.equal(openReaderWindowPendingRouteIndex > openReaderWindowIndex, true);
-assert.equal(openReaderWindowDockIndex > openReaderWindowIndex, true);
-assert.equal(openReaderWindowDockIndex < openReaderWindowPendingRouteIndex, true);
-
 assertIncludes(readingTargetAcquirerSource, [
   "class ReadingTargetAcquirer",
   "revealPreviousAppBeforeCapture",
@@ -309,6 +301,36 @@ await builtPreferenceBridge.setModel("speech-2.8-hd");
 assert.deepEqual(preferenceInvocations, [
   [APP_DATA_CHANNELS.setSpeechRate, 1.6],
   [APP_DATA_CHANNELS.setModel, "speech-2.8-hd"]
+]);
+const routeInvocations = [];
+const builtRouteRuntime = evaluatePreloadRuntime(readerPreloadBundle, async (channel, ...args) => {
+  routeInvocations.push([channel, ...args]);
+  if (channel === APP_SHELL_CHANNELS.getBootstrapState) {
+    return { hasCompletedOnboarding: true, route: { route: "home", revision: 4 } };
+  }
+  if (channel === APP_SHELL_CHANNELS.setRoute) {
+    return { route: args[0], revision: 5 };
+  }
+});
+const builtRouteSnapshots = [];
+const unsubscribeBuiltRoute = builtRouteRuntime.bridge.onNavigate((snapshot) => {
+  builtRouteSnapshots.push({ route: snapshot.route, revision: snapshot.revision });
+});
+builtRouteRuntime.emit(APP_SHELL_CHANNELS.navigate, { route: "history", revision: 5 });
+unsubscribeBuiltRoute();
+builtRouteRuntime.emit(APP_SHELL_CHANNELS.navigate, { route: "settings", revision: 6 });
+assert.deepEqual(builtRouteSnapshots, [{ route: "history", revision: 5 }]);
+assert.deepEqual(await builtRouteRuntime.bridge.getBootstrapState(), {
+  hasCompletedOnboarding: true,
+  route: { route: "home", revision: 4 }
+});
+assert.deepEqual(await builtRouteRuntime.bridge.setRoute("favorites"), {
+  route: "favorites",
+  revision: 5
+});
+assert.deepEqual(routeInvocations, [
+  [APP_SHELL_CHANNELS.getBootstrapState],
+  [APP_SHELL_CHANNELS.setRoute, "favorites"]
 ]);
 for (const { name, source } of [
   { name: "reader window entrypoint", source: rendererSource },
@@ -720,7 +742,12 @@ function assertOverlayPassiveCoverage() {
 }
 
 function evaluatePreloadBridge(preloadBundle, invoke = async () => undefined) {
+  return evaluatePreloadRuntime(preloadBundle, invoke).bridge;
+}
+
+function evaluatePreloadRuntime(preloadBundle, invoke = async () => undefined) {
   let exposed;
+  const listeners = new Map();
   const sandbox = {
     require(specifier) {
       if (specifier !== "electron") throw new Error(`Unexpected preload require: ${specifier}`);
@@ -732,8 +759,14 @@ function evaluatePreloadBridge(preloadBundle, invoke = async () => undefined) {
         },
         ipcRenderer: {
           invoke,
-          on() {},
-          off() {}
+          on(channel, listener) {
+            const channelListeners = listeners.get(channel) ?? new Set();
+            channelListeners.add(listener);
+            listeners.set(channel, channelListeners);
+          },
+          off(channel, listener) {
+            listeners.get(channel)?.delete(listener);
+          }
         }
       };
     },
@@ -741,7 +774,12 @@ function evaluatePreloadBridge(preloadBundle, invoke = async () => undefined) {
     exports: {}
   };
   vm.runInNewContext(preloadBundle, sandbox);
-  return exposed;
+  return {
+    bridge: exposed,
+    emit(channel, ...args) {
+      for (const listener of listeners.get(channel) ?? []) listener({}, ...args);
+    }
+  };
 }
 
 function createOverlayPlaybackSessionForTest(sessionId) {

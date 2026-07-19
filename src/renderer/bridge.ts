@@ -9,6 +9,7 @@ export type {
   PlaybackAudioSession,
   PlaybackStartResult,
   ReadingHistoryRecord,
+  RouteSnapshot,
   SessionPayload,
   ShortcutUpdateResult
 } from "../shared/app-contracts.js";

@@ -5,21 +5,22 @@ import type { AppBridgeHandlerDependencies } from "./dependencies.js";
 export interface AppShellImplementationDependencies {
   appDataStore: Pick<AppBridgeHandlerDependencies["appDataStore"], "updateSettings">;
   readBootstrapState: AppBridgeHandlerDependencies["readBootstrapState"];
-  setPendingRoute: AppBridgeHandlerDependencies["setPendingRoute"];
+  acceptRendererRoute: AppBridgeHandlerDependencies["acceptRendererRoute"];
 }
 
 export function createAppShellImplementation({
   appDataStore,
   readBootstrapState,
-  setPendingRoute
+  acceptRendererRoute
 }: AppShellImplementationDependencies): ImplementationFromContract<
   typeof appShellRoleContract
 > {
   return {
     getBootstrapState: () => readBootstrapState(),
     setRoute: (route) => {
-      setPendingRoute(route);
-      appDataStore.updateSettings({ lastRoute: route });
+      const snapshot = acceptRendererRoute(route);
+      if (!snapshot) throw new Error("Invalid Reader route.");
+      return snapshot;
     },
     setOnboardingComplete: (complete) => {
       appDataStore.updateSettings({ hasCompletedOnboarding: complete });

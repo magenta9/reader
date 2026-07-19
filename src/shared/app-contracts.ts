@@ -1,6 +1,17 @@
 import type { DetectedLanguage, MiniMaxVoice, ReadingSource } from "./types.js";
 
-export type AppRoute = "home" | "history" | "favorites" | "settings";
+export const APP_ROUTES = ["home", "history", "favorites", "settings"] as const;
+
+export type AppRoute = (typeof APP_ROUTES)[number];
+
+export function isAppRoute(value: unknown): value is AppRoute {
+  return APP_ROUTES.includes(value as AppRoute);
+}
+
+export interface RouteSnapshot {
+  route: AppRoute;
+  revision: number;
+}
 
 export type HistoryRetention = "7d" | "1m" | "3m" | "forever";
 
@@ -38,7 +49,7 @@ export interface AppSettings {
 
 export interface BootstrapState {
   hasCompletedOnboarding: boolean;
-  lastRoute: AppRoute;
+  route: RouteSnapshot;
 }
 
 export interface ReadingHistoryRecord {

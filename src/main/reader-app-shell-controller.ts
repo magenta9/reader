@@ -1,16 +1,9 @@
-import type { AppRoute, BootstrapState } from "../shared/app-contracts.js";
-
-const APP_ROUTES: readonly AppRoute[] = ["home", "history", "favorites", "settings"];
-
-export interface ReaderRouteSnapshot {
-  route: AppRoute;
-  revision: number;
-}
-
-export interface ReaderAppShellBootstrapState {
-  hasCompletedOnboarding: boolean;
-  route: ReaderRouteSnapshot;
-}
+import {
+  isAppRoute,
+  type AppRoute,
+  type BootstrapState,
+  type RouteSnapshot
+} from "../shared/app-contracts.js";
 
 export interface ReaderAppShellWindowCloseEvent {
   preventDefault(): void;
@@ -25,7 +18,7 @@ export interface ReaderAppShellWindow {
   show(): void;
   focus(): void;
   hide(): void;
-  sendRoute(snapshot: ReaderRouteSnapshot): void;
+  sendRoute(snapshot: RouteSnapshot): void;
   onClose(listener: (event: ReaderAppShellWindowCloseEvent) => void): () => void;
   onReady(listener: () => void): () => void;
 }
@@ -35,9 +28,14 @@ export interface ReaderAppShellWindowFactory {
 }
 
 export interface ReaderAppShellState {
-  read(): BootstrapState;
+  read(): ReaderAppShellStoredState;
   setLastRoute(route: AppRoute): void;
   setOnboardingComplete(complete: boolean): void;
+}
+
+export interface ReaderAppShellStoredState {
+  hasCompletedOnboarding: boolean;
+  lastRoute: AppRoute;
 }
 
 export interface ReaderAppShellLifecycle {
@@ -80,12 +78,36 @@ export interface ReaderAppShellOptions {
   playback: ReaderAppShellPlaybackCommands;
 }
 
+export class ReaderRouteState {
+  private route: AppRoute;
+  private revision = 0;
+
+  constructor(
+    initialRoute: AppRoute,
+    private readonly state: Pick<ReaderAppShellState, "setLastRoute">
+  ) {
+    this.route = initialRoute;
+  }
+
+  accept(route: unknown): RouteSnapshot | undefined {
+    if (!isAppRoute(route)) return undefined;
+    if (route === this.route) return this.snapshot();
+    this.state.setLastRoute(route);
+    this.route = route;
+    this.revision += 1;
+    return this.snapshot();
+  }
+
+  snapshot(): RouteSnapshot {
+    return { route: this.route, revision: this.revision };
+  }
+}
+
 export class ReaderAppShellController {
   private readonly disposers: Array<() => void> = [];
   private readonly windowDisposers: Array<() => void> = [];
+  private readonly routeState: ReaderRouteState;
   private currentWindow: ReaderAppShellWindow | undefined;
-  private desiredRoute: AppRoute;
-  private routeRevision = 0;
   private deliveredRevision = -1;
   private hasCompletedOnboarding: boolean;
   private isQuitting = false;
@@ -95,7 +117,7 @@ export class ReaderAppShellController {
 
   constructor(private readonly options: ReaderAppShellOptions) {
     const initialState = options.state.read();
-    this.desiredRoute = initialState.lastRoute;
+    this.routeState = new ReaderRouteState(initialState.lastRoute, options.state);
     this.hasCompletedOnboarding = initialState.hasCompletedOnboarding;
   }
 
@@ -105,7 +127,7 @@ export class ReaderAppShellController {
     this.disposers.push(this.options.menu.install(this.createMenuActions()));
     this.disposers.push(
       this.options.lifecycle.onActivate(() => {
-        this.open(this.desiredRoute);
+        this.open(this.currentRouteSnapshot().route);
       })
     );
     this.disposers.push(
@@ -115,13 +137,12 @@ export class ReaderAppShellController {
     );
 
     if (!this.hasCompletedOnboarding || !this.options.lifecycle.wasOpenedAtLogin()) {
-      this.open(this.desiredRoute);
+      this.open(this.currentRouteSnapshot().route);
     }
   }
 
   open(route: unknown): boolean {
-    if (!isAppRoute(route) || this.isDisposed) return false;
-    this.acceptRoute(route);
+    if (this.isDisposed || !this.routeState.accept(route)) return false;
     this.options.presence.ensureVisible();
 
     const window = this.getLiveWindow();
@@ -139,14 +160,15 @@ export class ReaderAppShellController {
     return true;
   }
 
-  acceptRendererRoute(route: unknown): boolean {
-    if (!isAppRoute(route) || this.isDisposed) return false;
-    this.acceptRoute(route);
+  acceptRendererRoute(route: unknown): RouteSnapshot | undefined {
+    if (this.isDisposed) return undefined;
+    const snapshot = this.routeState.accept(route);
+    if (!snapshot) return undefined;
     this.publishRoute();
-    return true;
+    return snapshot;
   }
 
-  getBootstrapState(): ReaderAppShellBootstrapState {
+  getBootstrapState(): BootstrapState {
     return {
       hasCompletedOnboarding: this.hasCompletedOnboarding,
       route: this.currentRouteSnapshot()
@@ -200,13 +222,6 @@ export class ReaderAppShellController {
     };
   }
 
-  private acceptRoute(route: AppRoute): void {
-    if (route === this.desiredRoute) return;
-    this.desiredRoute = route;
-    this.routeRevision += 1;
-    this.options.state.setLastRoute(route);
-  }
-
   private attachWindow(window: ReaderAppShellWindow): void {
     this.disposeWindowListeners();
     this.currentWindow = window;
@@ -237,13 +252,14 @@ export class ReaderAppShellController {
 
   private publishRoute(): void {
     const window = this.getLiveWindow();
-    if (!window || !this.isWindowReady || this.deliveredRevision === this.routeRevision) return;
-    window.sendRoute(this.currentRouteSnapshot());
-    this.deliveredRevision = this.routeRevision;
+    const snapshot = this.currentRouteSnapshot();
+    if (!window || !this.isWindowReady || this.deliveredRevision === snapshot.revision) return;
+    window.sendRoute(snapshot);
+    this.deliveredRevision = snapshot.revision;
   }
 
-  private currentRouteSnapshot(): ReaderRouteSnapshot {
-    return { route: this.desiredRoute, revision: this.routeRevision };
+  private currentRouteSnapshot(): RouteSnapshot {
+    return this.routeState.snapshot();
   }
 
   private getLiveWindow(): ReaderAppShellWindow | undefined {
@@ -260,8 +276,4 @@ export class ReaderAppShellController {
     for (const dispose of this.windowDisposers) dispose();
     this.windowDisposers.splice(0);
   }
-}
-
-function isAppRoute(value: unknown): value is AppRoute {
-  return APP_ROUTES.includes(value as AppRoute);
 }

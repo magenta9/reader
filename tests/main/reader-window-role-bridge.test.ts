@@ -12,6 +12,8 @@ import {
 } from "../../src/main/app-role-bridges.js";
 import { DEFAULT_APP_SETTINGS } from "../../src/main/data/app-data-store.js";
 import { clipboardRoleContract, readerWindowRoleContract } from "../../src/shared/role-bridge-contracts.js";
+import { APP_SHELL_CHANNELS } from "../../src/shared/bridge-contracts.js";
+import type { RouteSnapshot } from "../../src/shared/app-contracts.js";
 import { InMemoryRoleBridgeLoopback } from "../../src/shared/role-bridge-loopback.js";
 import { createRoleBridge, registerRoleHandlers } from "../../src/shared/role-bridge-registry.js";
 
@@ -66,9 +68,12 @@ describe("Reader Window role bridge", () => {
     };
     const readBootstrapState = vi.fn(() => ({
       hasCompletedOnboarding: false,
-      lastRoute: "home" as const
+      route: { route: "home" as const, revision: 0 }
     }));
-    const setPendingRoute = vi.fn();
+    const acceptRendererRoute = vi.fn<(route: unknown) => RouteSnapshot | undefined>(() => ({
+      route: "history",
+      revision: 1
+    }));
     const clipboard = { writeText: vi.fn() };
     const readerWindowDependencies = {
       app,
@@ -78,7 +83,7 @@ describe("Reader Window role bridge", () => {
       playbackCommands,
       playbackPreferences,
       readBootstrapState,
-      setPendingRoute
+      acceptRendererRoute
     } satisfies ReaderWindowImplementationDependencies;
 
     registerRoleHandlers(
@@ -90,13 +95,13 @@ describe("Reader Window role bridge", () => {
 
     await expect(bridge.getBootstrapState()).resolves.toEqual({
       hasCompletedOnboarding: false,
-      lastRoute: "home"
+      route: { route: "home", revision: 0 }
     });
     await bridge.setOnboardingComplete(true);
-    await bridge.setRoute("history");
-    expect(setPendingRoute).toHaveBeenCalledWith("history");
+    await expect(bridge.setRoute("history")).resolves.toEqual({ route: "history", revision: 1 });
+    expect(acceptRendererRoute).toHaveBeenCalledWith("history");
     expect(appDataStore.updateSettings).toHaveBeenCalledWith({ hasCompletedOnboarding: true });
-    expect(appDataStore.updateSettings).toHaveBeenCalledWith({ lastRoute: "history" });
+    expect(appDataStore.updateSettings).not.toHaveBeenCalledWith({ lastRoute: "history" });
 
     await expect(bridge.getSettings()).resolves.toBe(settings);
     await bridge.setSpeechRate(1.4);
@@ -138,6 +143,11 @@ describe("Reader Window role bridge", () => {
     expect(clipboard.writeText).toHaveBeenCalledWith("copied text");
     expect(playbackCommands.startHistoryReplay).toHaveBeenCalledWith("history-1");
     expect(playbackCommands.startFavoriteReplay).toHaveBeenCalledWith("favorite-1");
+
+    acceptRendererRoute.mockReturnValueOnce(undefined);
+    await expect(loopback.invoke(APP_SHELL_CHANNELS.setRoute, ["unknown"])).rejects.toThrow(
+      "Invalid Reader route."
+    );
   });
 
   it("preserves implementation failures as rejected bridge promises", async () => {

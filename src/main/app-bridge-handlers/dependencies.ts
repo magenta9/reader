@@ -1,5 +1,5 @@
 import type { App, Clipboard, IpcMain } from "electron";
-import type { AppRoute, BootstrapState } from "../../shared/app-contracts.js";
+import type { BootstrapState, RouteSnapshot } from "../../shared/app-contracts.js";
 import type { AppDataStore } from "../data/app-data-store.js";
 import type { MiniMaxAccountService } from "../data/minimax-account-service.js";
 import type { PlaybackPreferencesCommands } from "../data/playback-preferences-commands.js";
@@ -18,6 +18,6 @@ export interface AppBridgeHandlerDependencies {
   playbackCommands: PlaybackCommandController;
   readingTargetAcquirer: ReadingTargetAcquirer;
   readBootstrapState: () => BootstrapState;
-  setPendingRoute: (route: AppRoute) => void;
+  acceptRendererRoute: (route: unknown) => RouteSnapshot | undefined;
   shouldRevealPreviousAppBeforeSelectionCapture: (senderWebContentsId: number) => boolean;
 }

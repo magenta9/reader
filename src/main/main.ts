@@ -12,16 +12,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import { createReaderWindowEvents, registerAppRoleBridges } from "./app-role-bridges.js";
+import { ReaderRouteState } from "./reader-app-shell-controller.js";
 import { AppPresenceController } from "./app-presence-controller.js";
 import { AppDataStore } from "./data/app-data-store.js";
 import { MiniMaxAccountService } from "./data/minimax-account-service.js";
 import { PlaybackPreferencesCommands } from "./data/playback-preferences-commands.js";
 import type { EventEmitterFromContract } from "../shared/role-bridge-registry.js";
 import type { readerWindowRoleContract } from "../shared/role-bridge-contracts.js";
-import type {
-  AppRoute,
-  BootstrapState
-} from "../shared/app-contracts.js";
+import type { AppRoute, BootstrapState, RouteSnapshot } from "../shared/app-contracts.js";
 import { PlaybackService } from "./playback/playback-service.js";
 import { ElectronPlaybackOutput } from "./playback/electron-playback-output.js";
 import { PlaybackOverlayController } from "./playback/playback-overlay-controller.js";
@@ -36,7 +34,7 @@ import {
 let readerWindow: BrowserWindow | undefined;
 let readerWindowEvents: EventEmitterFromContract<typeof readerWindowRoleContract> | undefined;
 let tray: Tray | undefined;
-let pendingRoute: AppRoute = "home";
+let readerRouteState: ReaderRouteState;
 let isQuitting = false;
 let appDataStore: AppDataStore;
 let minimaxAccountService: MiniMaxAccountService;
@@ -86,6 +84,11 @@ async function bootstrap(): Promise<void> {
 
   const databasePath = join(app.getPath("userData"), "voicereader.sqlite");
   appDataStore = AppDataStore.open(databasePath);
+  readerRouteState = new ReaderRouteState(appDataStore.getSettings().lastRoute, {
+    setLastRoute: (route) => {
+      appDataStore.updateSettings({ lastRoute: route });
+    }
+  });
   if (packagedSmoke.enabled) {
     enterPackagedSmokeMode({ app, appDataStore, databasePath, scenario: packagedSmoke.scenario });
     return;
@@ -131,9 +134,7 @@ async function bootstrap(): Promise<void> {
     playbackCommands,
     readingTargetAcquirer,
     readBootstrapState,
-    setPendingRoute: (route) => {
-      pendingRoute = route;
-    },
+    acceptRendererRoute: acceptReaderRoute,
     shouldRevealPreviousAppBeforeSelectionCapture
   });
   syncLaunchAtLoginFromSettings();
@@ -144,11 +145,11 @@ async function bootstrap(): Promise<void> {
 
   const bootstrapState = readBootstrapState();
   if (shouldOpenWindowAtStartup(bootstrapState)) {
-    openReaderWindow(bootstrapState.lastRoute);
+    openReaderWindow(bootstrapState.route.route);
   }
 
   app.on("activate", () => {
-    openReaderWindow(readBootstrapState().lastRoute);
+    openReaderWindow(readBootstrapState().route.route);
   });
 
   app.on("before-quit", () => {
@@ -184,7 +185,7 @@ function createPlaybackRendererWindow(): BrowserWindow {
 
 function openReaderWindow(route: AppRoute): void {
   appPresence.ensureDockVisible();
-  pendingRoute = route;
+  acceptReaderRoute(route);
 
   if (!readerWindow || readerWindow.isDestroyed()) {
     readerWindow = new BrowserWindow({
@@ -215,11 +216,10 @@ function openReaderWindow(route: AppRoute): void {
     readerWindow.once("ready-to-show", () => {
       readerWindow?.show();
       readerWindow?.focus();
-      sendRoute(pendingRoute);
     });
 
     readerWindow.webContents.on("did-finish-load", () => {
-      sendRoute(pendingRoute);
+      sendRoute();
     });
 
     void readerWindow.loadFile(rendererEntry);
@@ -229,13 +229,19 @@ function openReaderWindow(route: AppRoute): void {
   if (readerWindow.isMinimized()) readerWindow.restore();
   readerWindow.show();
   readerWindow.focus();
-  sendRoute(route);
 }
 
-function sendRoute(route: AppRoute): void {
+function acceptReaderRoute(route: unknown): RouteSnapshot | undefined {
+  const previousRevision = readerRouteState.snapshot().revision;
+  const snapshot = readerRouteState.accept(route);
+  if (!snapshot) return undefined;
+  if (snapshot.revision !== previousRevision) sendRoute();
+  return snapshot;
+}
+
+function sendRoute(): void {
   if (!readerWindow || readerWindow.isDestroyed() || !readerWindowEvents) return;
-  appDataStore.updateSettings({ lastRoute: route });
-  readerWindowEvents.emitNavigate(route);
+  readerWindowEvents.emitNavigate(readerRouteState.snapshot());
 }
 
 function createMenuBarMenu(): void {
@@ -409,7 +415,7 @@ function readBootstrapState(): BootstrapState {
   const settings = appDataStore.getSettings();
   return {
     hasCompletedOnboarding: settings.hasCompletedOnboarding,
-    lastRoute: settings.lastRoute
+    route: readerRouteState.snapshot()
   };
 }
 

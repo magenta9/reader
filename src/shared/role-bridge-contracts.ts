@@ -13,6 +13,7 @@ import type {
   PlaybackAudioSession,
   PlaybackStartResult,
   ReadingHistoryRecord,
+  RouteSnapshot,
   SessionOverlayMetric,
   SessionPayload,
   ShortcutUpdateResult
@@ -42,8 +43,12 @@ const appShellEndpoints = [
     "setOnboardingComplete",
     APP_SHELL_CHANNELS.setOnboardingComplete
   ),
-  invokeEndpoint<[route: AppRoute], void>()("setRoute", APP_SHELL_CHANNELS.setRoute),
-  eventEndpoint<[route: AppRoute]>()("onNavigate", "emitNavigate", APP_SHELL_CHANNELS.navigate)
+  invokeEndpoint<[route: AppRoute], RouteSnapshot>()("setRoute", APP_SHELL_CHANNELS.setRoute),
+  eventEndpoint<[snapshot: RouteSnapshot]>()(
+    "onNavigate",
+    "emitNavigate",
+    APP_SHELL_CHANNELS.navigate
+  )
 ] as const;
 
 const appDataEndpoints = [

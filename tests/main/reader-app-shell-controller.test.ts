@@ -2,11 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   ReaderAppShellController,
+  ReaderRouteState,
   type ReaderAppShellLifecycle,
   type ReaderAppShellMenuActions,
-  type ReaderAppShellWindow,
-  type ReaderRouteSnapshot
+  type ReaderAppShellWindow
 } from "../../src/main/reader-app-shell-controller.js";
+import type { RouteSnapshot } from "../../src/shared/app-contracts.js";
 
 describe("ReaderAppShellController", () => {
   it("starts the Reader Window for onboarding but keeps a login launch in the menu bar", () => {
@@ -126,16 +127,32 @@ describe("ReaderAppShellController", () => {
 
     expect(harness.shell.isFocusedReaderSender(17)).toBe(true);
     expect(harness.shell.isFocusedReaderSender(18)).toBe(false);
-    expect(harness.shell.acceptRendererRoute("unknown")).toBe(false);
+    expect(harness.shell.acceptRendererRoute("unknown")).toBeUndefined();
     expect(harness.shell.getBootstrapState().route).toEqual({ route: "home", revision: 0 });
     expect(harness.persistedRoutes).toEqual([]);
+  });
+
+  it("does not advance the route snapshot when persistence fails and can retry", () => {
+    const setLastRoute = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error("database busy");
+      })
+      .mockImplementation(() => undefined);
+    const routeState = new ReaderRouteState("home", { setLastRoute });
+
+    expect(() => routeState.accept("history")).toThrow("database busy");
+    expect(routeState.snapshot()).toEqual({ route: "home", revision: 0 });
+
+    expect(routeState.accept("history")).toEqual({ route: "history", revision: 1 });
+    expect(setLastRoute).toHaveBeenCalledTimes(2);
   });
 });
 
 class FakeReaderWindow implements ReaderAppShellWindow {
   readonly senderId = 17;
   readonly actions: string[] = [];
-  readonly routes: ReaderRouteSnapshot[] = [];
+  readonly routes: RouteSnapshot[] = [];
   destroyed = false;
   focused = false;
   minimized = false;
@@ -171,7 +188,7 @@ class FakeReaderWindow implements ReaderAppShellWindow {
     this.actions.push("hide");
   }
 
-  sendRoute(snapshot: ReaderRouteSnapshot): void {
+  sendRoute(snapshot: RouteSnapshot): void {
     this.routes.push(snapshot);
   }
 
