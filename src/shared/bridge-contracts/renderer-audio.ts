@@ -1,5 +1,6 @@
 import type {
   AudioChunkPayload,
+  PlaybackAudioOutcome,
   PlaybackAudioSession,
   SessionOverlayMetric,
   SessionPayload
@@ -24,6 +25,7 @@ export interface PlaybackRendererBridge extends PlaybackFeedbackBridge {
   onPlaybackStart: (listener: (session: PlaybackAudioSession) => void) => () => void;
   onAudioChunk: (listener: (payload: AudioChunkPayload) => void) => () => void;
   onSegmentEnd: (listener: (payload: SessionPayload) => void) => () => void;
+  reportAudioOutcome: (outcome: PlaybackAudioOutcome) => Promise<void>;
   notifyPlaybackIdle: (sessionId: number) => Promise<void>;
   sendOverlayMetric: (metric: SessionOverlayMetric) => Promise<void>;
   finishOverlayPlayback: (sessionId: number) => Promise<void>;

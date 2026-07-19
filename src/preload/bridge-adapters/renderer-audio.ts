@@ -1,5 +1,6 @@
 import type {
   AudioChunkPayload,
+  PlaybackAudioOutcome,
   PlaybackAudioSession,
   SessionOverlayMetric,
   SessionPayload
@@ -35,6 +36,8 @@ export function createPlaybackRendererBridge(ipc: PreloadIpc): PlaybackRendererB
       subscribe(ipc, RENDERER_AUDIO_CHANNELS.audioChunk, listener),
     onSegmentEnd: (listener: (payload: SessionPayload) => void) =>
       subscribe(ipc, RENDERER_AUDIO_CHANNELS.endSegment, listener),
+    reportAudioOutcome: (outcome: PlaybackAudioOutcome) =>
+      invoke<void>(ipc, PLAYBACK_CONTROL_CHANNELS.rendererOutcome, outcome),
     sendOverlayMetric: (metric: SessionOverlayMetric) =>
       invoke<void>(ipc, PLAYBACK_OVERLAY_COMMAND_CHANNELS.metric, metric),
     finishOverlayPlayback: (sessionId: number) =>

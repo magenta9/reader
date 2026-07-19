@@ -1,6 +1,7 @@
 import { streamMiniMaxTts } from "../../shared/minimax.js";
 import {
   type PlaybackAudioSession,
+  type PlaybackAudioOutcome,
   type PlaybackStartResult
 } from "../../shared/app-contracts.js";
 import type { ReadingTargetInput } from "../../shared/types.js";
@@ -20,6 +21,7 @@ export interface PlaybackAudioSink {
   failSession: (sessionId: number) => void;
   stopSession: (sessionId: number) => void;
   handleRendererIdle?: (sessionId: number) => void;
+  handleAudioOutcome?: (outcome: PlaybackAudioOutcome) => void;
 }
 
 export class PlaybackService {
@@ -73,6 +75,10 @@ export class PlaybackService {
 
   handleRendererIdle(sessionId: number): void {
     this.sink.handleRendererIdle?.(sessionId);
+  }
+
+  handleAudioOutcome(outcome: PlaybackAudioOutcome): void {
+    this.sink.handleAudioOutcome?.(outcome);
   }
 
   waitForCurrentSession(): Promise<void> {

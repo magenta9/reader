@@ -1,5 +1,9 @@
 import type { BrowserWindow } from "electron";
-import { usesPlaybackOverlayFeedback, type PlaybackAudioSession } from "../../shared/app-contracts.js";
+import {
+  usesPlaybackOverlayFeedback,
+  type PlaybackAudioOutcome,
+  type PlaybackAudioSession
+} from "../../shared/app-contracts.js";
 import { RENDERER_AUDIO_CHANNELS } from "../../shared/bridge-contracts.js";
 import type { PlaybackAudioSink } from "./playback-service.js";
 import type { PlaybackOverlayController } from "./playback-overlay-controller.js";
@@ -81,6 +85,10 @@ export class ElectronPlaybackOutput implements PlaybackAudioSink {
 
   handleRendererIdle(sessionId: number): void {
     this.consumeActiveOverlaySession(sessionId);
+  }
+
+  handleAudioOutcome(outcome: PlaybackAudioOutcome): void {
+    this.handleRendererIdle(outcome.sessionId);
   }
 
   destroy(): void {

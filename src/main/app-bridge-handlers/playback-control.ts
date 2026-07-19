@@ -1,4 +1,5 @@
 import { PLAYBACK_CONTROL_CHANNELS } from "../../shared/bridge-contracts.js";
+import type { PlaybackAudioOutcome } from "../../shared/app-contracts.js";
 import type { AppBridgeHandlerDependencies } from "./dependencies.js";
 
 type PlaybackControlHandlerDependencies = Pick<
@@ -29,5 +30,8 @@ export function registerPlaybackControlHandlers({
   });
   ipcMain.handle(PLAYBACK_CONTROL_CHANNELS.rendererIdle, (_event, sessionId: number) => {
     playbackCommands.handleRendererIdle(sessionId);
+  });
+  ipcMain.handle(PLAYBACK_CONTROL_CHANNELS.rendererOutcome, (_event, outcome: PlaybackAudioOutcome) => {
+    playbackCommands.handleAudioOutcome(outcome);
   });
 }

@@ -6,7 +6,11 @@ import {
   type PlaybackSessionPort,
   type PlaybackShortcutRegistry
 } from "../../../src/main/playback/playback-command-controller.js";
-import { DEFAULT_ACTIVATION_SHORTCUT, type PlaybackStartResult } from "../../../src/shared/app-contracts.js";
+import {
+  DEFAULT_ACTIVATION_SHORTCUT,
+  PLAYBACK_AUDIO_OUTCOMES,
+  type PlaybackStartResult
+} from "../../../src/shared/app-contracts.js";
 import type { AppSettings, ShortcutUpdateResult } from "../../../src/shared/app-contracts.js";
 import type { ReadingTargetInput } from "../../../src/shared/types.js";
 
@@ -28,7 +32,15 @@ describe("PlaybackCommandController", () => {
 
     expect(result.started).toBe(true);
     expect(shortcuts.handlers.has("Escape")).toBe(true);
-    commands.handleRendererIdle(result.sessionId ?? 0);
+    commands.handleAudioOutcome({
+      sessionId: result.sessionId ?? 0,
+      status: PLAYBACK_AUDIO_OUTCOMES.completed
+    });
+    expect(playback.events.at(-1)).toEqual([
+      "audio-outcome",
+      result.sessionId,
+      PLAYBACK_AUDIO_OUTCOMES.completed
+    ]);
     expect(shortcuts.handlers.has("Escape")).toBe(false);
 
     const stopped = await commands.startReadingTargetPlayback();
@@ -156,6 +168,7 @@ type PlaybackPortEvent =
   | ["play-history", string]
   | ["play-favorite", string]
   | ["stop", number | undefined]
+  | ["audio-outcome", number, "completed" | "failed"]
   | ["renderer-idle", number];
 
 function createCommandStore(): CommandStore {
@@ -218,6 +231,9 @@ function createPlaybackPort(): { port: PlaybackSessionPort; events: PlaybackPort
       },
       stopSession: (sessionId) => {
         events.push(["stop", sessionId]);
+      },
+      handleAudioOutcome: (outcome) => {
+        events.push(["audio-outcome", outcome.sessionId, outcome.status]);
       },
       handleRendererIdle: (sessionId) => {
         events.push(["renderer-idle", sessionId]);

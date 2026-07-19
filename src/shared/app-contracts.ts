@@ -119,6 +119,18 @@ export interface SessionPayload {
   sessionId: number;
 }
 
+export const PLAYBACK_AUDIO_OUTCOMES = {
+  completed: "completed",
+  failed: "failed"
+} as const;
+
+export type PlaybackAudioOutcomeStatus =
+  (typeof PLAYBACK_AUDIO_OUTCOMES)[keyof typeof PLAYBACK_AUDIO_OUTCOMES];
+
+export interface PlaybackAudioOutcome extends SessionPayload {
+  status: PlaybackAudioOutcomeStatus;
+}
+
 export interface OverlayMetric {
   amplitude: number;
   levels?: number[];

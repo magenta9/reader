@@ -44,6 +44,10 @@ _Avoid_: History playback, replay item, restored session
 The named UI surface that receives playback activity, approximate progress, and completion feedback for a Playback Session. Current Reading Target playback uses the Playback Overlay feedback surface; History Replay uses the history detail feedback surface; Favorite Replay uses the favorite detail feedback surface.
 _Avoid_: Output target, display mode, status destination
 
+**Audio Outcome**:
+The session-scoped `completed` or `failed` result reported by the hidden Playback Renderer after browser audio output settles. An Audio Outcome carries the Playback Session identity so the main process can ignore results from stopped, replaced, or stale sessions. It is an adapter result, not an independent user-visible terminal state.
+_Avoid_: Renderer Idle, Generation Complete, Playback Result
+
 **Activation Shortcut**:
 The user-configured keyboard shortcut that explicitly asks VoiceReader to start Reading Target playback from anywhere on macOS. VoiceReader first tries Selected Text from the frontmost app, then falls back to Clipboard Text when no Selected Text is available. VoiceReader provides a default Activation Shortcut, but the user can change it when it conflicts with another app or system shortcut.
 _Avoid_: Hotkey, keyboard command, trigger key

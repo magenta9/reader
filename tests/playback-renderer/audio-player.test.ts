@@ -4,6 +4,7 @@ import { mountPlaybackAudio } from "../../src/playback-renderer/audio-player.js"
 import {
   PLAYBACK_FEEDBACK_SURFACES,
   type AudioChunkPayload,
+  type PlaybackAudioOutcome,
   type PlaybackAudioSession,
   type SessionOverlayMetric
 } from "../../src/shared/app-contracts.js";
@@ -29,7 +30,7 @@ describe("Playback Audio renderer", () => {
     expect(events).toEqual([
       ["metric", 101, 0, 1],
       ["finish-overlay", 101],
-      ["idle", 101]
+      ["outcome", 101, "completed"]
     ]);
 
     dispose();
@@ -40,11 +41,11 @@ describe("Playback Audio renderer", () => {
     expect(events).toEqual([
       ["metric", 101, 0, 1],
       ["finish-overlay", 101],
-      ["idle", 101]
+      ["outcome", 101, "completed"]
     ]);
   });
 
-  it("starts and finishes a current Reading Target session with overlay completion and renderer idle", async () => {
+  it("starts and finishes a current Reading Target session with overlay completion and a completed outcome", async () => {
     const { events, playback } = createScenario();
 
     playback.start(createOverlaySession(201));
@@ -54,7 +55,7 @@ describe("Playback Audio renderer", () => {
     expect(events).toEqual([
       ["metric", 201, 0, 1],
       ["finish-overlay", 201],
-      ["idle", 201]
+      ["outcome", 201, "completed"]
     ]);
   });
 
@@ -80,7 +81,7 @@ describe("Playback Audio renderer", () => {
     await flushPlaybackMicrotasks();
 
     expect(events.some((event) => event[0] === "finish-overlay")).toBe(true);
-    expect(events).toContainEqual(["idle", 203]);
+    expect(events).toContainEqual(["outcome", 203, "completed"]);
   });
 
   it("tracks weighted progress across multiple current Reading Target segments", async () => {
@@ -136,8 +137,25 @@ describe("Playback Audio renderer", () => {
       await flushPlaybackMicrotasks();
       playedAudios.at(-1)?.listeners.ended?.();
       await flushPlaybackMicrotasks();
-      expect(events).toEqual([["idle", session.sessionId]]);
+      expect(events).toEqual([["outcome", session.sessionId, "completed"]]);
     }
+  });
+
+  it("reports a failed Audio Outcome instead of completion when browser audio playback fails", async () => {
+    const { events, playback, playedAudios } = createScenario();
+
+    playback.start(createOverlaySession(207));
+    playback.audioChunk({ sessionId: 207, bytes: new Uint8Array([1, 2, 3]) });
+    playback.segmentEnd({ sessionId: 207 });
+    playback.finish({ sessionId: 207 });
+    await flushPlaybackMicrotasks();
+    playedAudios.at(-1)?.listeners.error?.();
+    await flushPlaybackMicrotasks();
+
+    expect(events.filter((event) => event[0] === "outcome")).toEqual([
+      ["outcome", 207, "failed"]
+    ]);
+    expect(events.some((event) => event[0] === "finish-overlay")).toBe(false);
   });
 
   it("handles fail and stop by stopping playback and notifying renderer idle", () => {
@@ -170,12 +188,42 @@ describe("Playback Audio renderer", () => {
     await flushPlaybackMicrotasks();
 
     expect(playedAudios).toHaveLength(1);
-    expect(events).toContainEqual(["idle", 402]);
-    expect(events).not.toContainEqual(["idle", 401]);
+    expect(events).toContainEqual(["outcome", 402, "completed"]);
+    expect(events).not.toContainEqual(["outcome", 401, "completed"]);
+  });
+
+  it("suppresses outcomes when playing audio is stopped or replaced", async () => {
+    const stopped = createScenario();
+    stopped.playback.start(createOverlaySession(501));
+    stopped.playback.audioChunk({ sessionId: 501, bytes: new Uint8Array([1]) });
+    stopped.playback.segmentEnd({ sessionId: 501 });
+    stopped.playback.finish({ sessionId: 501 });
+    await flushPlaybackMicrotasks();
+    const stoppedAudio = stopped.playedAudios.at(-1);
+    stopped.playback.stop({ sessionId: 501 });
+    stoppedAudio?.listeners.ended?.();
+    await flushPlaybackMicrotasks();
+    expect(stopped.events.filter((event) => event[0] === "outcome")).toEqual([]);
+
+    const replaced = createScenario();
+    replaced.playback.start(createOverlaySession(502));
+    replaced.playback.audioChunk({ sessionId: 502, bytes: new Uint8Array([2]) });
+    replaced.playback.segmentEnd({ sessionId: 502 });
+    replaced.playback.finish({ sessionId: 502 });
+    await flushPlaybackMicrotasks();
+    const replacedAudio = replaced.playedAudios.at(-1);
+    replaced.playback.start(createOverlaySession(503));
+    replacedAudio?.listeners.error?.();
+    await flushPlaybackMicrotasks();
+    expect(replaced.events.filter((event) => event[0] === "outcome")).toEqual([]);
   });
 });
 
-type QueueEvent = ["metric", number, number, number] | ["finish-overlay", number] | ["idle", number];
+type QueueEvent =
+  | ["metric", number, number, number]
+  | ["finish-overlay", number]
+  | ["outcome", number, PlaybackAudioOutcome["status"]]
+  | ["idle", number];
 
 interface BrowserFakes {
   animationFrames: Array<() => void>;
@@ -214,6 +262,9 @@ function createPlaybackRendererBridgeHarness(events: QueueEvent[]): PlaybackRend
     onPlaybackFinish: (listener) => subscribe(finishListeners, listener),
     onPlaybackFail: (listener) => subscribe(failListeners, listener),
     onPlaybackStop: (listener) => subscribe(stopListeners, listener),
+    reportAudioOutcome: async (outcome) => {
+      events.push(["outcome", outcome.sessionId, outcome.status]);
+    },
     notifyPlaybackIdle: async (sessionId) => {
       events.push(["idle", sessionId]);
     },

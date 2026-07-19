@@ -1,4 +1,9 @@
-import { usesPlaybackOverlayFeedback, type PlaybackAudioSession } from "../shared/app-contracts.js";
+import {
+  PLAYBACK_AUDIO_OUTCOMES,
+  usesPlaybackOverlayFeedback,
+  type PlaybackAudioOutcomeStatus,
+  type PlaybackAudioSession
+} from "../shared/app-contracts.js";
 import type { PlaybackRendererBridge } from "../shared/bridge-contracts.js";
 
 const OVERLAY_LEVEL_COUNT = 13;
@@ -26,7 +31,9 @@ export function mountPlaybackAudio(bridge: PlaybackRendererBridge): () => void {
 class PlaybackAudioQueue {
   private sessionId = 0;
   private chunks: Uint8Array[] = [];
-  private playbackTail = Promise.resolve();
+  private playbackTail: Promise<PlaybackAudioOutcomeStatus> = Promise.resolve(
+    PLAYBACK_AUDIO_OUTCOMES.completed
+  );
   private currentAudio: HTMLAudioElement | undefined;
   private objectUrls: string[] = [];
   private speechRate = 1;
@@ -66,9 +73,9 @@ class PlaybackAudioQueue {
     if (sessionId !== this.sessionId) return;
     this.flush();
     const shouldFinishOverlay = this.overlayMetricsEnabled;
-    void this.playbackTail.finally(() => {
+    void this.playbackTail.then((status) => {
       if (sessionId !== this.sessionId) return;
-      if (shouldFinishOverlay) {
+      if (status === PLAYBACK_AUDIO_OUTCOMES.completed && shouldFinishOverlay) {
         void this.bridge.sendOverlayMetric({
           sessionId,
           amplitude: 0,
@@ -77,7 +84,7 @@ class PlaybackAudioQueue {
         });
         void this.bridge.finishOverlayPlayback(sessionId);
       }
-      void this.bridge.notifyPlaybackIdle(sessionId);
+      void this.bridge.reportAudioOutcome({ sessionId, status });
       this.stop();
     });
   }
@@ -108,7 +115,7 @@ class PlaybackAudioQueue {
     }
     for (const url of this.objectUrls) URL.revokeObjectURL(url);
     this.objectUrls = [];
-    this.playbackTail = Promise.resolve();
+    this.playbackTail = Promise.resolve(PLAYBACK_AUDIO_OUTCOMES.completed);
     this.segmentWeights = [];
     this.totalSegmentWeight = 1;
     this.completedSegmentWeight = 0;
@@ -122,7 +129,15 @@ class PlaybackAudioQueue {
     const sessionId = this.sessionId;
     const segmentWeight = this.segmentWeights[this.nextSegmentIndex] ?? 1;
     this.nextSegmentIndex += 1;
-    this.playbackTail = this.playbackTail.then(() => this.playBlob(sessionId, blob, segmentWeight));
+    this.playbackTail = this.playbackTail.then(async (status) => {
+      if (status === PLAYBACK_AUDIO_OUTCOMES.failed) return status;
+      try {
+        await this.playBlob(sessionId, blob, segmentWeight);
+        return PLAYBACK_AUDIO_OUTCOMES.completed;
+      } catch {
+        return PLAYBACK_AUDIO_OUTCOMES.failed;
+      }
+    });
   }
 
   private async playBlob(sessionId: number, blob: Blob, segmentWeight: number): Promise<void> {
@@ -134,20 +149,22 @@ class PlaybackAudioQueue {
     audio.playbackRate = this.speechRate;
     if (this.overlayMetricsEnabled) this.startAnalyser(audio, segmentWeight);
 
-    await new Promise<void>((resolve, reject) => {
-      audio.addEventListener("ended", () => resolve(), { once: true });
-      audio.addEventListener("error", () => reject(new Error("Audio playback failed.")), {
-        once: true
+    try {
+      await new Promise<void>((resolve, reject) => {
+        audio.addEventListener("ended", () => resolve(), { once: true });
+        audio.addEventListener("error", () => reject(new Error("Audio playback failed.")), {
+          once: true
+        });
+        audio.play().catch(reject);
       });
-      audio.play().catch(reject);
-    }).catch(() => undefined);
-
-    if (this.currentAudio === audio) this.currentAudio = undefined;
-    if (sessionId === this.sessionId) {
-      this.completedSegmentWeight = Math.min(this.totalSegmentWeight, this.completedSegmentWeight + segmentWeight);
+      if (sessionId === this.sessionId) {
+        this.completedSegmentWeight = Math.min(this.totalSegmentWeight, this.completedSegmentWeight + segmentWeight);
+      }
+    } finally {
+      if (this.currentAudio === audio) this.currentAudio = undefined;
+      URL.revokeObjectURL(url);
+      this.objectUrls = this.objectUrls.filter((candidate) => candidate !== url);
     }
-    URL.revokeObjectURL(url);
-    this.objectUrls = this.objectUrls.filter((candidate) => candidate !== url);
   }
 
   private startAnalyser(audio: HTMLAudioElement, segmentWeight: number): void {

@@ -269,6 +269,7 @@ assertIncludes(mainBundle, [
   PLAYBACK_OVERLAY_EVENT_CHANNELS.metric,
   PLAYBACK_OVERLAY_COMMAND_CHANNELS.finishPlayback,
   PLAYBACK_OVERLAY_COMMAND_CHANNELS.ready,
+  PLAYBACK_CONTROL_CHANNELS.rendererOutcome,
   PLAYBACK_CONTROL_CHANNELS.rendererIdle,
   "PlaybackCommandController",
   "ElectronPlaybackOutput",
@@ -474,6 +475,7 @@ assert.equal(typeof readerRuntimeBridge.onPlaybackStart, "undefined");
 assert.equal(typeof readerRuntimeBridge.onAudioChunk, "undefined");
 assert.equal(typeof readerRuntimeBridge.onSegmentEnd, "undefined");
 assert.equal(typeof readerRuntimeBridge.notifyPlaybackIdle, "undefined");
+assert.equal(typeof readerRuntimeBridge.reportAudioOutcome, "undefined");
 assert.equal(typeof readerRuntimeBridge.sendOverlayMetric, "undefined");
 assert.equal(typeof readerRuntimeBridge.finishOverlayPlayback, "undefined");
 assert.equal(typeof readerRuntimeBridge.onOverlayShow, "undefined");
@@ -484,6 +486,7 @@ assert.equal(typeof playbackRendererRuntimeBridge.onPlaybackFinish, "function");
 assert.equal(typeof playbackRendererRuntimeBridge.onPlaybackFail, "function");
 assert.equal(typeof playbackRendererRuntimeBridge.onPlaybackStop, "function");
 assert.equal(typeof playbackRendererRuntimeBridge.notifyPlaybackIdle, "function");
+assert.equal(typeof playbackRendererRuntimeBridge.reportAudioOutcome, "function");
 assert.equal(typeof playbackRendererRuntimeBridge.sendOverlayMetric, "function");
 assert.equal(typeof playbackRendererRuntimeBridge.finishOverlayPlayback, "function");
 assert.equal(typeof playbackRendererRuntimeBridge.getSettings, "undefined");
@@ -548,7 +551,8 @@ assertIncludes(playbackRendererBundle, [
   "getByteTimeDomainData",
   "requestAnimationFrame",
   "sendOverlayMetric",
-  "finishOverlayPlayback"
+  "finishOverlayPlayback",
+  "reportAudioOutcome"
 ]);
 assertMissing(rendererBundle, [
   "getByteTimeDomainData",

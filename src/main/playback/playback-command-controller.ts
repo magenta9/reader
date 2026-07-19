@@ -1,5 +1,9 @@
 import type { PlaybackCommandDataStore } from "../data/app-data-store.js";
-import type { PlaybackStartResult, ShortcutUpdateResult } from "../../shared/app-contracts.js";
+import type {
+  PlaybackAudioOutcome,
+  PlaybackStartResult,
+  ShortcutUpdateResult
+} from "../../shared/app-contracts.js";
 import type { ReadingTargetInput } from "../../shared/types.js";
 
 export interface PlaybackShortcutRegistry {
@@ -12,6 +16,7 @@ export interface PlaybackSessionPort {
   playHistoryRecord(recordId: string): Promise<PlaybackStartResult>;
   playFavoriteRecord(recordId: string): Promise<PlaybackStartResult>;
   stopSession(sessionId: number | undefined): void;
+  handleAudioOutcome(outcome: PlaybackAudioOutcome): void;
   handleRendererIdle(sessionId: number): void;
 }
 
@@ -57,6 +62,11 @@ export class PlaybackCommandController {
   handleRendererIdle(sessionId: number): void {
     this.playback.handleRendererIdle(sessionId);
     if (this.stopShortcutSessionId === sessionId) this.unregisterStopShortcut();
+  }
+
+  handleAudioOutcome(outcome: PlaybackAudioOutcome): void {
+    this.playback.handleAudioOutcome(outcome);
+    if (this.stopShortcutSessionId === outcome.sessionId) this.unregisterStopShortcut();
   }
 
   registerActivationShortcut(): void {

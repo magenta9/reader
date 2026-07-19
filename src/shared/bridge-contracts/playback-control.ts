@@ -5,6 +5,7 @@ export const PLAYBACK_CONTROL_CHANNELS = {
   playHistoryRecord: "playback:play-history-record",
   playFavoriteRecord: "playback:play-favorite-record",
   stop: "playback:stop",
+  rendererOutcome: "playback:renderer-outcome",
   rendererIdle: "playback:renderer-idle"
 } as const;
 
