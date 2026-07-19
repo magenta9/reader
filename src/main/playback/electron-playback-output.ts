@@ -5,7 +5,6 @@ import {
   type PlaybackAudioSession
 } from "../../shared/app-contracts.js";
 import {
-  playbackFeedbackRoleContract,
   playbackRendererRoleContract
 } from "../../shared/role-bridge-contracts.js";
 import {
@@ -23,9 +22,15 @@ type PlaybackOverlayOutput = Pick<
 
 export interface ElectronPlaybackOutputOptions {
   createPlaybackRenderer: () => BrowserWindow;
-  getReaderWindow: () => BrowserWindow | undefined;
+  readerFeedback: ReaderPlaybackFeedbackSink;
   overlay: PlaybackOverlayOutput;
   playbackRendererEntry: string;
+}
+
+export interface ReaderPlaybackFeedbackSink {
+  finishPlayback(sessionId: number): void;
+  failPlayback(sessionId: number): void;
+  stopPlayback(sessionId: number): void;
 }
 
 export class ElectronPlaybackOutput implements PlaybackAudioSink {
@@ -45,7 +50,7 @@ export class ElectronPlaybackOutput implements PlaybackAudioSink {
       }
       return new ElectronPlaybackOutput(
         playbackRenderer,
-        options.getReaderWindow,
+        options.readerFeedback,
         options.overlay
       );
     } catch (error) {
@@ -56,7 +61,7 @@ export class ElectronPlaybackOutput implements PlaybackAudioSink {
 
   private constructor(
     private readonly playbackRenderer: BrowserWindow,
-    private readonly getReaderWindow: () => BrowserWindow | undefined,
+    private readonly readerFeedback: ReaderPlaybackFeedbackSink,
     private readonly overlay: PlaybackOverlayOutput
   ) {
     this.playbackRendererEvents = createRoleEventEmitter(
@@ -92,7 +97,7 @@ export class ElectronPlaybackOutput implements PlaybackAudioSink {
     this.sendTerminalFeedback(
       sessionId,
       () => this.overlay.finish(sessionId),
-      (events) => events.emitPlaybackFinish({ sessionId })
+      () => this.readerFeedback.finishPlayback(sessionId)
     );
   }
 
@@ -100,7 +105,7 @@ export class ElectronPlaybackOutput implements PlaybackAudioSink {
     this.sendTerminalFeedback(
       sessionId,
       () => this.overlay.fail(sessionId),
-      (events) => events.emitPlaybackFail({ sessionId })
+      () => this.readerFeedback.failPlayback(sessionId)
     );
     this.getPlaybackRendererEvents().emitPlaybackFail({ sessionId });
   }
@@ -109,7 +114,7 @@ export class ElectronPlaybackOutput implements PlaybackAudioSink {
     this.sendTerminalFeedback(
       sessionId,
       () => this.overlay.stop(sessionId),
-      (events) => events.emitPlaybackStop({ sessionId })
+      () => this.readerFeedback.stopPlayback(sessionId)
     );
     this.getPlaybackRendererEvents().emitPlaybackStop({ sessionId });
   }
@@ -128,9 +133,7 @@ export class ElectronPlaybackOutput implements PlaybackAudioSink {
   private sendTerminalFeedback(
     sessionId: number,
     sendOverlay: () => void,
-    sendReaderFeedback: (
-      events: EventEmitterFromContract<typeof playbackFeedbackRoleContract>
-    ) => void
+    sendReaderFeedback: () => void
   ): void {
     const active = this.activeFeedback;
     if (!active || active.sessionId !== sessionId) return;
@@ -139,14 +142,7 @@ export class ElectronPlaybackOutput implements PlaybackAudioSink {
       sendOverlay();
       return;
     }
-    const readerWindow = this.getReaderWindow();
-    if (!readerWindow || readerWindow.isDestroyed()) return;
-    sendReaderFeedback(
-      createRoleEventEmitter(
-        playbackFeedbackRoleContract,
-        createElectronMainRoleEventTransport(readerWindow.webContents)
-      )
-    );
+    sendReaderFeedback();
   }
 
   private getPlaybackRendererEvents(): EventEmitterFromContract<

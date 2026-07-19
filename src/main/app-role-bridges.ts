@@ -86,12 +86,12 @@ export interface ReaderWindowInvocationDependencies {
     AppBridgeHandlerDependencies["readingTargetAcquirer"],
     "revealPreviousAppBeforeCapture"
   >;
-  shouldRevealPreviousAppBeforeSelectionCapture: AppBridgeHandlerDependencies["shouldRevealPreviousAppBeforeSelectionCapture"];
+  readerAppShell: Pick<AppBridgeHandlerDependencies["readerAppShell"], "isFocusedReaderSender">;
 }
 
 export function createReaderWindowBeforeInvoke({
   readingTargetAcquirer,
-  shouldRevealPreviousAppBeforeSelectionCapture
+  readerAppShell
 }: ReaderWindowInvocationDependencies): BeforeInvokeFromContract<
   typeof readerWindowRoleContract
 > {
@@ -99,7 +99,7 @@ export function createReaderWindowBeforeInvoke({
     playReadingTarget: async ({ senderId }) => {
       if (
         senderId !== undefined &&
-        shouldRevealPreviousAppBeforeSelectionCapture(senderId)
+        readerAppShell.isFocusedReaderSender(senderId)
       ) {
         await readingTargetAcquirer.revealPreviousAppBeforeCapture();
       }

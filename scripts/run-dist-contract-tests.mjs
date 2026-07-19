@@ -36,6 +36,7 @@ const {
 
 for (const path of [
   "../dist/main/main.js",
+  "../dist/main/electron-reader-app-shell.js",
   "../dist/main/app-role-bridges.js",
   "../dist/main/app-presence-controller.js",
   "../dist/main/playback/playback-request-resolver.js",
@@ -140,15 +141,10 @@ assertIncludes(mainBundle, [
   "setPath",
   "userData",
   "AppPresenceController",
-  "shouldOpenWindowAtStartup",
   "wasOpenedAtLogin",
-  'app.on("activate"',
-  'readerWindow.on("close"',
-  "event.preventDefault()",
-  "readerWindow?.hide()",
-  'openReaderWindow("history")',
-  'openReaderWindow("favorites")',
-  'openReaderWindow("settings")',
+  "ready-to-show",
+  "did-finish-load",
+  "window-all-closed",
   "VoiceReader Playback Renderer",
   "playback-renderer/index.html",
   "backgroundThrottling: false",
@@ -178,18 +174,15 @@ assertIncludes(mainBundle, [
 ]);
 assertMissing(mainBundle, ["../preload/preload.js", "safeStorage", "isTrustedAccessibilityClient", "/usr/bin/osascript", "__dirname"]);
 assertIncludes(mainSource, [
-  "shouldRevealPreviousAppBeforeSelectionCapture",
-  "AppPresenceController",
-  "appPresence.ensureDockVisible()",
-  "appPresence.setDockIconFromSvg(appIconAssetPath)",
-  "appPresence.hideForSelectionCapture()",
+  "createElectronReaderAppShell",
+  "readerFeedback: readerAppShell",
+  "readerAppShell.hideForSelectionCapture()",
   "ReadingTargetAcquirer",
   "ElectronPlaybackOutput.create",
   "createPlaybackRendererWindow",
   "playbackRendererEntry",
   "playbackOutput.destroy()",
   "registerAppRoleBridges",
-  'label: "停止朗读"',
   "() => readingTargetAcquirer.acquire()"
 ]);
 assertMissing(mainSource, [
@@ -385,11 +378,6 @@ assertIncludes(playbackRendererBundle, [
 assertMissing(rendererBundle, ["getByteTimeDomainData", "sendOverlayMetric"]);
 assertIncludes(appIconSource, 'rect width="1024" height="1024"');
 assertMissing(appIconSource, 'x="64" y="64"');
-assertIncludes(mainSource, [
-  "nativeImage.createFromBuffer(createTrayIconPngBuffer()",
-  "image.setTemplateImage(false)",
-  "function encodePng"
-]);
 assertIncludes(templateTrayIconSource, "stroke-opacity");
 assertMissing(templateTrayIconSource, ["linearGradient", "width=\"1024\""]);
 assert.equal(builtTemplateTrayIcon, templateTrayIconSource);
@@ -830,7 +818,14 @@ async function createElectronPlaybackOutputScenario({
   const overlayActions = [];
   const output = await ElectronPlaybackOutput.create({
     createPlaybackRenderer: () => playbackRenderer.window,
-    getReaderWindow: () => readerWindow?.window,
+    readerFeedback: {
+      finishPlayback: (sessionId) =>
+        readerWindow?.messages.push([PLAYBACK_FEEDBACK_CHANNELS.finishSession, { sessionId }]),
+      failPlayback: (sessionId) =>
+        readerWindow?.messages.push([PLAYBACK_FEEDBACK_CHANNELS.failSession, { sessionId }]),
+      stopPlayback: (sessionId) =>
+        readerWindow?.messages.push([PLAYBACK_FEEDBACK_CHANNELS.stopSession, { sessionId }])
+    },
     overlay: createOverlayControllerForTest(overlayActions),
     playbackRendererEntry: "/app/playback-renderer/index.html"
   });

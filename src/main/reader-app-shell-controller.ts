@@ -19,8 +19,12 @@ export interface ReaderAppShellWindow {
   focus(): void;
   hide(): void;
   sendRoute(snapshot: RouteSnapshot): void;
+  sendPlaybackFinish(sessionId: number): void;
+  sendPlaybackFail(sessionId: number): void;
+  sendPlaybackStop(sessionId: number): void;
   onClose(listener: (event: ReaderAppShellWindowCloseEvent) => void): () => void;
   onReady(listener: () => void): () => void;
+  onLoaded(listener: () => void): () => void;
 }
 
 export interface ReaderAppShellWindowFactory {
@@ -42,6 +46,7 @@ export interface ReaderAppShellLifecycle {
   wasOpenedAtLogin(): boolean;
   onActivate(listener: () => void): () => void;
   onBeforeQuit(listener: () => void): () => void;
+  keepAliveAfterAllWindowsClosed(): () => void;
   quit(): void;
 }
 
@@ -76,6 +81,7 @@ export interface ReaderAppShellOptions {
   lifecycle: ReaderAppShellLifecycle;
   presence: ReaderAppShellPresence;
   playback: ReaderAppShellPlaybackCommands;
+  shutdown(): void;
 }
 
 export class ReaderRouteState {
@@ -113,6 +119,8 @@ export class ReaderAppShellController {
   private isQuitting = false;
   private isStarted = false;
   private isDisposed = false;
+  private hasShutdown = false;
+  private isWindowLoaded = false;
   private isWindowReady = false;
 
   constructor(private readonly options: ReaderAppShellOptions) {
@@ -132,9 +140,10 @@ export class ReaderAppShellController {
     );
     this.disposers.push(
       this.options.lifecycle.onBeforeQuit(() => {
-        this.isQuitting = true;
+        this.prepareToQuit();
       })
     );
+    this.disposers.push(this.options.lifecycle.keepAliveAfterAllWindowsClosed());
 
     if (!this.hasCompletedOnboarding || !this.options.lifecycle.wasOpenedAtLogin()) {
       this.open(this.currentRouteSnapshot().route);
@@ -176,8 +185,8 @@ export class ReaderAppShellController {
   }
 
   setOnboardingComplete(complete: boolean): void {
-    this.hasCompletedOnboarding = complete;
     this.options.state.setOnboardingComplete(complete);
+    this.hasCompletedOnboarding = complete;
   }
 
   isFocusedReaderSender(senderId: number): boolean {
@@ -187,6 +196,21 @@ export class ReaderAppShellController {
 
   hideForSelectionCapture(): void {
     this.options.presence.hideForSelectionCapture();
+  }
+
+  finishPlayback(sessionId: number): void {
+    if (this.isDisposed) return;
+    this.getLiveWindow()?.sendPlaybackFinish(sessionId);
+  }
+
+  failPlayback(sessionId: number): void {
+    if (this.isDisposed) return;
+    this.getLiveWindow()?.sendPlaybackFail(sessionId);
+  }
+
+  stopPlayback(sessionId: number): void {
+    if (this.isDisposed) return;
+    this.getLiveWindow()?.sendPlaybackStop(sessionId);
   }
 
   requestQuit(): void {
@@ -226,6 +250,7 @@ export class ReaderAppShellController {
     this.disposeWindowListeners();
     this.currentWindow = window;
     this.isWindowReady = false;
+    this.isWindowLoaded = false;
     this.deliveredRevision = -1;
     this.windowDisposers.push(
       window.onClose((event) => {
@@ -245,6 +270,17 @@ export class ReaderAppShellController {
         this.isWindowReady = true;
         window.show();
         window.focus();
+      }),
+      window.onLoaded(() => {
+        if (
+          this.isDisposed ||
+          this.currentWindow !== window ||
+          this.isWindowLoaded ||
+          window.isDestroyed()
+        ) {
+          return;
+        }
+        this.isWindowLoaded = true;
         this.publishRoute();
       })
     );
@@ -253,7 +289,7 @@ export class ReaderAppShellController {
   private publishRoute(): void {
     const window = this.getLiveWindow();
     const snapshot = this.currentRouteSnapshot();
-    if (!window || !this.isWindowReady || this.deliveredRevision === snapshot.revision) return;
+    if (!window || !this.isWindowLoaded || this.deliveredRevision === snapshot.revision) return;
     window.sendRoute(snapshot);
     this.deliveredRevision = snapshot.revision;
   }
@@ -267,6 +303,7 @@ export class ReaderAppShellController {
       this.disposeWindowListeners();
       this.currentWindow = undefined;
       this.isWindowReady = false;
+      this.isWindowLoaded = false;
       this.deliveredRevision = -1;
     }
     return this.currentWindow;
@@ -275,5 +312,13 @@ export class ReaderAppShellController {
   private disposeWindowListeners(): void {
     for (const dispose of this.windowDisposers) dispose();
     this.windowDisposers.splice(0);
+  }
+
+  private prepareToQuit(): void {
+    if (this.hasShutdown) return;
+    this.hasShutdown = true;
+    this.isQuitting = true;
+    this.options.shutdown();
+    this.dispose();
   }
 }

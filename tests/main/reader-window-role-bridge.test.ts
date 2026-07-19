@@ -66,14 +66,18 @@ describe("Reader Window role bridge", () => {
       setSpeechRate: vi.fn(() => settings),
       setModel: vi.fn(() => settings)
     };
-    const readBootstrapState = vi.fn(() => ({
-      hasCompletedOnboarding: false,
-      route: { route: "home" as const, revision: 0 }
-    }));
-    const acceptRendererRoute = vi.fn<(route: unknown) => RouteSnapshot | undefined>(() => ({
-      route: "history",
-      revision: 1
-    }));
+    const readerAppShell = {
+      getBootstrapState: vi.fn(() => ({
+        hasCompletedOnboarding: false,
+        route: { route: "home" as const, revision: 0 }
+      })),
+      acceptRendererRoute: vi.fn<(route: unknown) => RouteSnapshot | undefined>(() => ({
+        route: "history",
+        revision: 1
+      })),
+      setOnboardingComplete: vi.fn(),
+      isFocusedReaderSender: vi.fn(() => false)
+    };
     const clipboard = { writeText: vi.fn() };
     const readerWindowDependencies = {
       app,
@@ -82,8 +86,7 @@ describe("Reader Window role bridge", () => {
       minimaxAccountService,
       playbackCommands,
       playbackPreferences,
-      readBootstrapState,
-      acceptRendererRoute
+      readerAppShell
     } satisfies ReaderWindowImplementationDependencies;
 
     registerRoleHandlers(
@@ -99,8 +102,8 @@ describe("Reader Window role bridge", () => {
     });
     await bridge.setOnboardingComplete(true);
     await expect(bridge.setRoute("history")).resolves.toEqual({ route: "history", revision: 1 });
-    expect(acceptRendererRoute).toHaveBeenCalledWith("history");
-    expect(appDataStore.updateSettings).toHaveBeenCalledWith({ hasCompletedOnboarding: true });
+    expect(readerAppShell.acceptRendererRoute).toHaveBeenCalledWith("history");
+    expect(readerAppShell.setOnboardingComplete).toHaveBeenCalledWith(true);
     expect(appDataStore.updateSettings).not.toHaveBeenCalledWith({ lastRoute: "history" });
 
     await expect(bridge.getSettings()).resolves.toBe(settings);
@@ -144,7 +147,7 @@ describe("Reader Window role bridge", () => {
     expect(playbackCommands.startHistoryReplay).toHaveBeenCalledWith("history-1");
     expect(playbackCommands.startFavoriteReplay).toHaveBeenCalledWith("favorite-1");
 
-    acceptRendererRoute.mockReturnValueOnce(undefined);
+    readerAppShell.acceptRendererRoute.mockReturnValueOnce(undefined);
     await expect(loopback.invoke(APP_SHELL_CHANNELS.setRoute, ["unknown"])).rejects.toThrow(
       "Invalid Reader route."
     );
@@ -174,7 +177,7 @@ describe("Reader Window role bridge", () => {
     const revealPreviousAppBeforeCapture = vi.fn(async () => undefined);
     const dependencies = {
       readingTargetAcquirer: { revealPreviousAppBeforeCapture },
-      shouldRevealPreviousAppBeforeSelectionCapture: (senderId: number) => senderId === 8
+      readerAppShell: { isFocusedReaderSender: (senderId: number) => senderId === 8 }
     } satisfies ReaderWindowInvocationDependencies;
     const beforeInvoke = createReaderWindowBeforeInvoke(dependencies);
 

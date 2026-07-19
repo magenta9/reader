@@ -6,10 +6,7 @@ import {
   PLAYBACK_FEEDBACK_SURFACES,
   type PlaybackAudioSession
 } from "../../../src/shared/app-contracts.js";
-import {
-  PLAYBACK_FEEDBACK_CHANNELS,
-  RENDERER_AUDIO_CHANNELS
-} from "../../../src/shared/bridge-contracts.js";
+import { RENDERER_AUDIO_CHANNELS } from "../../../src/shared/bridge-contracts.js";
 
 describe("ElectronPlaybackOutput", () => {
   it("becomes available only after its owned Playback Renderer is ready", async () => {
@@ -76,25 +73,22 @@ describe("ElectronPlaybackOutput", () => {
 
   it("sends terminal feedback to an optional Reader Window without routing audio through it", async () => {
     const renderer = createWindow();
-    const reader = createWindow();
+    const readerFeedback: string[] = [];
     const overlayActions: string[] = [];
-    const output = await createOutput({ playbackRenderer: renderer, readerWindow: reader, overlayActions });
+    const output = await createOutput({ playbackRenderer: renderer, readerFeedback, overlayActions });
 
     output.startSession(createSession(301, PLAYBACK_FEEDBACK_SURFACES.historyDetail));
     output.audioChunk(301, new Uint8Array([9]));
     output.endSegment(301);
     output.finishGeneration(301);
-    expect(reader.messages).toEqual([]);
+    expect(readerFeedback).toEqual([]);
     output.completeSession(301);
     output.startSession(createSession(302, PLAYBACK_FEEDBACK_SURFACES.favoriteDetail));
     output.failSession(302);
     output.startSession(createSession(303, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay));
     output.stopSession(303);
 
-    expect(reader.messages).toEqual([
-      [PLAYBACK_FEEDBACK_CHANNELS.finishSession, { sessionId: 301 }],
-      [PLAYBACK_FEEDBACK_CHANNELS.failSession, { sessionId: 302 }]
-    ]);
+    expect(readerFeedback).toEqual(["finish:301", "fail:302"]);
     expect(renderer.messages.map(([channel]) => channel)).toEqual([
       RENDERER_AUDIO_CHANNELS.startSession,
       RENDERER_AUDIO_CHANNELS.audioChunk,
@@ -197,15 +191,19 @@ function createWindow(): FakeWindow {
 async function createOutput({
   overlayActions = [],
   playbackRenderer,
-  readerWindow
+  readerFeedback = []
 }: {
   overlayActions?: string[];
   playbackRenderer: FakeWindow;
-  readerWindow?: FakeWindow;
+  readerFeedback?: string[];
 }): Promise<ElectronPlaybackOutput> {
   return ElectronPlaybackOutput.create({
     createPlaybackRenderer: () => playbackRenderer.browserWindow,
-    getReaderWindow: () => readerWindow?.browserWindow,
+    readerFeedback: {
+      finishPlayback: (sessionId) => readerFeedback.push(`finish:${sessionId}`),
+      failPlayback: (sessionId) => readerFeedback.push(`fail:${sessionId}`),
+      stopPlayback: (sessionId) => readerFeedback.push(`stop:${sessionId}`)
+    },
     overlay: {
       dismiss: () => overlayActions.push("dismiss"),
       fail: (sessionId) => overlayActions.push(`fail:${sessionId}`),

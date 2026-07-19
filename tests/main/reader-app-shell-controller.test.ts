@@ -101,7 +101,7 @@ describe("ReaderAppShellController", () => {
 
     harness.shell.dispose();
     harness.shell.dispose();
-    expect(harness.disposals).toEqual(["menu", "activate", "beforeQuit"]);
+    expect(harness.disposals).toEqual(["menu", "activate", "beforeQuit", "windowAllClosed"]);
   });
 
   it("detaches window lifecycle listeners when disposed", () => {
@@ -147,17 +147,53 @@ describe("ReaderAppShellController", () => {
     expect(routeState.accept("history")).toEqual({ route: "history", revision: 1 });
     expect(setLastRoute).toHaveBeenCalledTimes(2);
   });
+
+  it("does not advance onboarding state when persistence fails", () => {
+    const harness = createHarness({ hasCompletedOnboarding: false });
+    harness.failOnboardingPersistence = true;
+
+    expect(() => harness.shell.setOnboardingComplete(true)).toThrow("database busy");
+    expect(harness.shell.getBootstrapState().hasCompletedOnboarding).toBe(false);
+  });
+
+  it("publishes Reader feedback only to the live Reader Window", () => {
+    const harness = createHarness();
+
+    harness.shell.finishPlayback(1);
+    harness.shell.open("home");
+    const window = harness.windows[0];
+    harness.shell.finishPlayback(2);
+    harness.shell.failPlayback(3);
+    harness.shell.stopPlayback(4);
+    if (window) window.destroyed = true;
+    harness.shell.finishPlayback(5);
+
+    expect(window?.feedback).toEqual(["finish:2", "fail:3", "stop:4"]);
+  });
+
+  it("runs shutdown and detaches lifecycle listeners exactly once before quit", () => {
+    const harness = createHarness();
+    harness.shell.start();
+
+    harness.lifecycle.beforeQuit();
+    harness.lifecycle.beforeQuit();
+
+    expect(harness.shutdown).toHaveBeenCalledOnce();
+    expect(harness.disposals).toEqual(["menu", "activate", "beforeQuit", "windowAllClosed"]);
+  });
 });
 
 class FakeReaderWindow implements ReaderAppShellWindow {
   readonly senderId = 17;
   readonly actions: string[] = [];
   readonly routes: RouteSnapshot[] = [];
+  readonly feedback: string[] = [];
   destroyed = false;
   focused = false;
   minimized = false;
   private closeListener: ((event: { preventDefault(): void }) => void) | undefined;
   private readyListener: (() => void) | undefined;
+  private loadedListener: (() => void) | undefined;
 
   isDestroyed(): boolean {
     return this.destroyed;
@@ -192,6 +228,18 @@ class FakeReaderWindow implements ReaderAppShellWindow {
     this.routes.push(snapshot);
   }
 
+  sendPlaybackFinish(sessionId: number): void {
+    this.feedback.push(`finish:${sessionId}`);
+  }
+
+  sendPlaybackFail(sessionId: number): void {
+    this.feedback.push(`fail:${sessionId}`);
+  }
+
+  sendPlaybackStop(sessionId: number): void {
+    this.feedback.push(`stop:${sessionId}`);
+  }
+
   onClose(listener: (event: { preventDefault(): void }) => void): () => void {
     this.closeListener = listener;
     return () => {
@@ -206,8 +254,16 @@ class FakeReaderWindow implements ReaderAppShellWindow {
     };
   }
 
+  onLoaded(listener: () => void): () => void {
+    this.loadedListener = listener;
+    return () => {
+      if (this.loadedListener === listener) this.loadedListener = undefined;
+    };
+  }
+
   ready(): void {
     this.readyListener?.();
+    this.loadedListener?.();
   }
 
   close(): { prevented: boolean } {
@@ -238,12 +294,20 @@ class FakeLifecycle implements ReaderAppShellLifecycle {
     return () => this.disposals.push("beforeQuit");
   }
 
+  keepAliveAfterAllWindowsClosed(): () => void {
+    return () => this.disposals.push("windowAllClosed");
+  }
+
   quit(): void {
     this.quitCalls += 1;
   }
 
   activate(): void {
     this.activateListener?.();
+  }
+
+  beforeQuit(): void {
+    this.beforeQuitListener?.();
   }
 }
 
@@ -259,8 +323,10 @@ function createHarness(options: {
   const disposals: string[] = [];
   const lifecycle = new FakeLifecycle(options.wasOpenedAtLogin ?? false, disposals);
   let hasCompletedOnboarding = options.hasCompletedOnboarding ?? true;
+  let failOnboardingPersistence = false;
   let lastRoute = options.lastRoute ?? "home";
   let menu: ReaderAppShellMenuActions | undefined;
+  const shutdown = vi.fn();
 
   const shell = new ReaderAppShellController({
     state: {
@@ -270,6 +336,7 @@ function createHarness(options: {
         persistedRoutes.push(route);
       },
       setOnboardingComplete: (complete) => {
+        if (failOnboardingPersistence) throw new Error("database busy");
         hasCompletedOnboarding = complete;
         onboardingUpdates.push(complete);
       }
@@ -297,7 +364,8 @@ function createHarness(options: {
         commandActions.push("play");
       },
       stop: () => commandActions.push("stop")
-    }
+    },
+    shutdown
   });
 
   return {
@@ -308,6 +376,13 @@ function createHarness(options: {
     commandActions,
     disposals,
     lifecycle,
+    shutdown,
+    get failOnboardingPersistence() {
+      return failOnboardingPersistence;
+    },
+    set failOnboardingPersistence(value: boolean) {
+      failOnboardingPersistence = value;
+    },
     get menu() {
       return menu;
     }
