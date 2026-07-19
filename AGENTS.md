@@ -11,3 +11,7 @@ The repo uses the default mattpocock/skills triage vocabulary as Linear labels; 
 ### Domain docs
 
 This is a single-context repo with `CONTEXT.md` and `docs/adr/` at the root. See `docs/agents/domain.md`.
+
+### Engineering workflow
+
+Use `make verify` as the default complete local gate. The verification-layer ownership and build-product contract are documented in `docs/TECH_STACK.md`; contribution and release commands are documented in `docs/CONTRIBUTING.md`.

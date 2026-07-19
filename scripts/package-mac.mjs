@@ -1,5 +1,6 @@
 import { existsSync, lstatSync } from "node:fs";
-import { cp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, relative, resolve, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runElectronRuntimeProbe } from "./electron-runtime.mjs";
@@ -116,6 +117,63 @@ async function verifyDmgOutput() {
   if (dmgFiles.length !== 1 || dmgFiles[0] !== basename(dmgPath)) {
     throw new Error(`Expected exactly ${basename(dmgPath)}; found ${dmgFiles.join(", ") || "none"}`);
   }
+  await verifyMacDiskImage(dmgPath);
+}
+
+export async function verifyMacDiskImage(
+  diskImage,
+  { runCommand = run, verifyApplication = verifyMacApplicationStructure } = {}
+) {
+  if (!existsSync(diskImage)) throw new Error(`Disk image is missing: ${diskImage}`);
+  const mountPoint = await mkdtemp(join(tmpdir(), "voicereader-dmg-"));
+  let mounted = false;
+  let verificationFailure;
+  try {
+    await runCommand(PACKAGING_PLAN.dmgTool, ["verify", diskImage], root);
+    await runCommand(
+      PACKAGING_PLAN.dmgTool,
+      ["attach", "-readonly", "-nobrowse", "-mountpoint", mountPoint, diskImage],
+      root
+    );
+    mounted = true;
+    const applications = (await readdir(mountPoint)).filter((name) => name.endsWith(".app"));
+    if (applications.length !== 1 || applications[0] !== `${appName}.app`) {
+      throw new Error(`Expected DMG to contain exactly ${appName}.app; found ${applications.join(", ") || "none"}`);
+    }
+    await verifyApplication(join(mountPoint, `${appName}.app`));
+  } catch (error) {
+    verificationFailure = error;
+  }
+
+  const cleanupFailures = [];
+  if (mounted) {
+    try {
+      await runCommand(PACKAGING_PLAN.dmgTool, ["detach", mountPoint], root);
+    } catch (error) {
+      cleanupFailures.push(error);
+    }
+  }
+  try {
+    await rm(mountPoint, { recursive: true, force: true });
+  } catch (error) {
+    cleanupFailures.push(error);
+  }
+
+  if (verificationFailure && cleanupFailures.length > 0) {
+    throw new AggregateError(
+      [verificationFailure, ...cleanupFailures],
+      `DMG verification failed: ${safeErrorMessage(verificationFailure)}; cleanup failed: ${cleanupFailures
+        .map(safeErrorMessage)
+        .join("; ")}`
+    );
+  }
+  if (verificationFailure) throw verificationFailure;
+  if (cleanupFailures.length === 1) throw cleanupFailures[0];
+  if (cleanupFailures.length > 1) throw new AggregateError(cleanupFailures, "DMG cleanup failed");
+}
+
+function safeErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function generateIcon() {

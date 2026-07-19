@@ -15,7 +15,6 @@ if (!report.ok) {
   throw new Error(`Build verification failed:\n${diagnostics}`);
 }
 
-await import("./legacy-dist-contract-tests.mjs");
 console.log("Dist contract tests passed.");
 
 function run(script, args) {

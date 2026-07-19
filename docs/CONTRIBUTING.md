@@ -19,7 +19,7 @@ bun run build
 bun run test:dist
 ```
 
-`bun run test` 运行快速 Vitest source-level 和 jsdom React UI 测试；`bun run test:watch` 用于本地迭代；`bun run test:dist` 检查构建产物和跨进程边界合同。完整提交前默认运行 `make verify`，它会从 frozen install 开始执行依赖脚本审计、两轮 clean build、typecheck、Vitest 和 dist contract checks。
+`bun run test` 运行快速 Vitest source-level 和 jsdom React UI 测试；`bun run test:watch` 用于本地迭代；`bun run test:dist` 只检查构建产物、HTML/CSP/资源、native addon 与三个 production preload 的可执行角色合同。完整提交前默认运行 `make verify`，它会从 frozen install 开始执行依赖脚本审计、一次包含 typecheck 的 clean build、Electron runtime probe、Vitest 和 Build Product checks。
 
 本地运行 app：
 
@@ -42,7 +42,7 @@ open release/mac/VoiceReader.app
 make deploy
 ```
 
-`make package-mac` 只生成并验证 ARM64 `.app` 与 DMG，不修改 `/Applications`。`make smoke-packaged` 会对最终 `.app` 运行 fresh、历史三表、无版本四表和 future negative 数据库矩阵；正向场景在隐藏窗口模式下完成真实 Reader App Shell 初始化，并创建隐藏 Playback Overlay 以加载最终包内的 HTML 与 preload，随后才报告 readiness、验证 exact v1 schema 与数据保留，future 场景继续验证 fail-closed。`make deploy` 会先执行完整验证和 candidate smoke；如果 `/Applications/VoiceReader.app` 正在运行，它会要求开发者正常退出应用并拒绝继续，不会自动结束进程。替换采用 staging/backup 流程，installed smoke 失败时恢复旧应用；所有 smoke 都使用临时 userData，不接触正常的本机数据。
+`make package-mac` 只生成 ARM64 `.app` 与 DMG，不修改 `/Applications`；它会直接验证最终 app 的 Info.plist、图标、helper identifiers、精确 Build Product、架构与签名 requirement，并校验、只读挂载 DMG 后对其中唯一的 `VoiceReader.app` 重跑相同验证。`make smoke-packaged` 会对最终 `.app` 运行 fresh、历史三表、无版本四表和 future negative 数据库矩阵；正向场景在隐藏窗口模式下完成真实 Reader App Shell 初始化，并创建隐藏 Playback Overlay 以加载最终包内的 HTML 与 preload，随后才报告 readiness、验证 exact v1 schema 与数据保留，future 场景继续验证 fail-closed。`make deploy` 会先执行完整验证和 candidate smoke；如果 `/Applications/VoiceReader.app` 正在运行，它会要求开发者正常退出应用并拒绝继续，不会自动结束进程。替换采用 staging/backup 流程，installed smoke 失败时恢复旧应用；所有 smoke 都使用临时 userData，不接触正常的本机数据。
 
 ## 选择任务
 

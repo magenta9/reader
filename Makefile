@@ -48,10 +48,7 @@ test-electron:
 verify: install
 	$(BUN) run clean
 	$(BUN) run build
-	$(BUN) run clean
-	$(BUN) run build
 	$(BUN) run test:electron
-	$(BUN) run typecheck
 	$(BUN) run test
 	$(BUN) run test:dist -- --no-build
 

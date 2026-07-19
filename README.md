@@ -50,14 +50,14 @@ bun run start
 - `bun run typecheck`：运行 TypeScript 类型检查。
 - `bun run test`：运行快速 Vitest source-level 测试和 jsdom React UI 测试。
 - `bun run test:watch`：以 watch 模式运行 Vitest，适合本地迭代。
-- `bun run test:dist`：构建后检查 `dist/` 产物、preload bridge、HTML/CSS、资源复制、native addon 和跨进程边界合同；已手动 `bun run build` 后可用 `bun run test:dist -- --no-build` 复用构建产物。
-- `bun run build`：把 Electron main、preload、renderer、overlay 和共享模块构建到 `dist/`。
+- `bun run test:dist`：构建后检查精确 `dist/` runtime manifest、三个 production preload、HTML/CSP、资源关系和 native addon；已手动 `bun run build` 后可用 `bun run test:dist -- --no-build` 复用构建产物。
+- `bun run build`：类型检查后，把 Electron main、三个 preload 和三个 renderer 的可发布运行产物构建到 `dist/`。
 - `bun run start`：从当前 `dist/` 启动 Electron app；首次运行前需要先 `bun run build`。
 - `bun run test:electron`：在真实 Electron 41 中加载 Selected Text addon 并读写临时 `node:sqlite` 数据库。
-- `make package-mac`：用自有 packager 构建并验证 ARM64 `VoiceReader.app` 与 DMG，不安装应用。
+- `make package-mac`：用自有 packager 构建 ARM64 `VoiceReader.app` 与 DMG，验证最终 app 的 metadata、资源、Build Product、架构和签名 requirement，并挂载验证 DMG 内容；不安装应用。
 - `make smoke-packaged`：用四个隔离 userData 启动最终 `.app`，验证 fresh、历史三表、无版本四表到精确 SQLite v1 的迁移与数据保留、future-version fail-closed，以及 packaged addon。
 - `make deploy`：执行完整门禁，安全替换并验证 `/Applications/VoiceReader.app`；VoiceReader 正在运行时会拒绝部署且不会自动结束进程。
-- `make verify`：从 frozen install 开始，完成依赖脚本审计、两轮 clean build、typecheck、Vitest 和 dist contract checks。
+- `make verify`：从 frozen install 开始，完成依赖脚本审计、一次包含 typecheck 的 clean build、Electron runtime probe、Vitest 和 Build Product checks。
 
 仓库要求 Bun `1.3.14` 和 Node `>=24 <25`，推荐 Node `24.18.0`。macOS 上构建 Selected Text 原生采集模块和打包 app 需要 Xcode Command Line Tools。
 
