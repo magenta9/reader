@@ -1,15 +1,3 @@
-import type {
-  AppSettings,
-  FavoriteRecord,
-  HistoryRetention,
-  HistoryRetentionChangeResult,
-  HistoryRetentionImpact,
-  MiniMaxSetupResult,
-  ReadingHistoryRecord,
-  ShortcutUpdateResult
-} from "../app-contracts.js";
-import type { DetectedLanguage } from "../types.js";
-
 export const APP_DATA_CHANNELS = {
   getSettings: "app-data:get-settings",
   setSpeechRate: "app-data:set-speech-rate",
@@ -36,33 +24,3 @@ export const APP_DATA_CHANNELS = {
   deleteFavoriteRecord: "app-data:delete-favorite-record",
   undoFavoriteDeletion: "app-data:undo-favorite-deletion"
 } as const;
-
-export interface AppDataBridge {
-  getSettings: () => Promise<AppSettings>;
-  setSpeechRate: (speechRate: number) => Promise<AppSettings>;
-  setModel: (model: string) => Promise<AppSettings>;
-  setLaunchAtLogin: (launchAtLogin: boolean) => Promise<AppSettings>;
-  setActivationShortcut: (shortcut: string) => Promise<ShortcutUpdateResult>;
-  setMiniMaxApiKey: (apiKey: string) => Promise<void>;
-  clearMiniMaxApiKey: () => Promise<void>;
-  hasMiniMaxApiKey: () => Promise<boolean>;
-  verifyMiniMaxKey: () => Promise<MiniMaxSetupResult>;
-  refreshVoices: () => Promise<MiniMaxSetupResult>;
-  setPreferredVoice: (language: DetectedLanguage, voiceId: string) => Promise<AppSettings>;
-  getErrorLogCount: () => Promise<number>;
-  clearErrorLog: () => Promise<void>;
-  getReadingHistoryCount: () => Promise<number>;
-  previewReadingHistoryRetention: (historyRetention: HistoryRetention) => Promise<HistoryRetentionImpact>;
-  applyReadingHistoryRetention: (
-    historyRetention: HistoryRetention,
-    expectedDeleteCount: number
-  ) => Promise<HistoryRetentionChangeResult>;
-  listReadingHistory: () => Promise<ReadingHistoryRecord[]>;
-  deleteReadingHistoryRecord: (id: string) => Promise<string | undefined>;
-  undoReadingHistoryDeletion: (undoToken: string) => Promise<boolean>;
-  clearReadingHistory: () => Promise<number>;
-  createFavoriteFromHistoryRecord: (id: string) => Promise<FavoriteRecord | undefined>;
-  listFavorites: () => Promise<FavoriteRecord[]>;
-  deleteFavoriteRecord: (id: string) => Promise<string | undefined>;
-  undoFavoriteDeletion: (undoToken: string) => Promise<boolean>;
-}

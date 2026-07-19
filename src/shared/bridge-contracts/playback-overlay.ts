@@ -1,5 +1,3 @@
-import type { OverlayMetric } from "../app-contracts.js";
-
 export const PLAYBACK_OVERLAY_EVENT_CHANNELS = {
   show: "overlay:show",
   metric: "overlay:metric",
@@ -22,12 +20,3 @@ export const PLAYBACK_OVERLAY_TIMING = {
   },
   controllerBufferMs: 30
 } as const;
-
-export interface PlaybackOverlayBridge {
-  onOverlayShow: (listener: () => void) => () => void;
-  onOverlayMetric: (listener: (metric: OverlayMetric) => void) => () => void;
-  onOverlayFinish: (listener: () => void) => () => void;
-  onOverlayFail: (listener: () => void) => () => void;
-  onOverlayStop: (listener: () => void) => () => void;
-  notifyOverlayReady: () => Promise<void>;
-}

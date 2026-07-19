@@ -1,9 +1,5 @@
 import { appDataRoleContract } from "../../shared/role-bridge-contracts.js";
-import {
-  registerRoleHandlers,
-  type ImplementationFromContract
-} from "../../shared/role-bridge-registry.js";
-import { createElectronMainRoleHandlerTransport } from "../electron-main-role-transport.js";
+import type { ImplementationFromContract } from "../../shared/role-bridge-registry.js";
 import type { AppBridgeHandlerDependencies } from "./dependencies.js";
 
 export interface AppDataImplementationDependencies {
@@ -38,30 +34,6 @@ export interface AppDataImplementationDependencies {
     AppBridgeHandlerDependencies["playbackPreferences"],
     "setSpeechRate" | "setModel"
   >;
-}
-
-type AppDataHandlerDependencies = AppDataImplementationDependencies &
-  Pick<AppBridgeHandlerDependencies, "ipcMain">;
-
-export function registerAppDataHandlers({
-  app,
-  appDataStore,
-  ipcMain,
-  minimaxAccountService,
-  playbackCommands,
-  playbackPreferences
-}: AppDataHandlerDependencies): void {
-  registerRoleHandlers(
-    appDataRoleContract,
-    createAppDataImplementation({
-      app,
-      appDataStore,
-      minimaxAccountService,
-      playbackCommands,
-      playbackPreferences
-    }),
-    createElectronMainRoleHandlerTransport(ipcMain)
-  );
 }
 
 export function createAppDataImplementation({

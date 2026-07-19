@@ -4,12 +4,12 @@ import {
   type PlaybackAudioOutcomeStatus,
   type PlaybackAudioSession
 } from "../shared/app-contracts.js";
-import type { PlaybackRendererBridge } from "../shared/bridge-contracts.js";
+import type { PlaybackRendererRoleBridge } from "../shared/role-bridge-contracts.js";
 
 const OVERLAY_LEVEL_COUNT = 13;
 const OVERLAY_METRIC_INTERVAL_MS = 64;
 
-export function mountPlaybackAudio(bridge: PlaybackRendererBridge): () => void {
+export function mountPlaybackAudio(bridge: PlaybackRendererRoleBridge): () => void {
   const queue = new PlaybackAudioQueue(bridge);
   const subscriptions = [
     bridge.onPlaybackStart((session) => queue.startSession(session)),
@@ -46,7 +46,7 @@ class PlaybackAudioQueue {
   private completedSegmentWeight = 0;
   private nextSegmentIndex = 0;
 
-  constructor(private readonly bridge: PlaybackRendererBridge) {}
+  constructor(private readonly bridge: PlaybackRendererRoleBridge) {}
 
   startSession(session: PlaybackAudioSession): void {
     this.stop();

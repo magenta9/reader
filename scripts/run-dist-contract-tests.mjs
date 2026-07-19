@@ -12,11 +12,15 @@ const { PlaybackService } = await import("../dist/main/playback/playback-service
 const { PlaybackCommandController } = await import(
   "../dist/main/playback/playback-command-controller.js"
 );
-const { registerPlaybackControlHandlers } = await import(
+const { createPlaybackControlImplementation } = await import(
   "../dist/main/app-bridge-handlers/playback-control.js"
 );
-const { registerPlaybackRendererHandlers } = await import(
+const { createPlaybackRendererImplementation } = await import(
   "../dist/main/app-bridge-handlers/playback-renderer.js"
+);
+const { registerRoleHandlers } = await import("../dist/shared/role-bridge-registry.js");
+const { playbackControlRoleContract, playbackRendererRoleContract } = await import(
+  "../dist/shared/role-bridge-contracts.js"
 );
 const { streamMiniMaxSpeechAudio } = await import("../dist/shared/minimax.js");
 const { PLAYBACK_FEEDBACK_SURFACES } = await import("../dist/shared/app-contracts.js");
@@ -30,224 +34,17 @@ const {
   RENDERER_AUDIO_CHANNELS
 } = await import("../dist/shared/bridge-contracts.js");
 
-const bridgeContractModuleChecks = [
-  {
-    distPath: "../dist/shared/bridge-contracts/app-shell.js",
-    sourcePath: "../src/shared/bridge-contracts/app-shell.ts",
-    expectedValues: ["APP_SHELL_CHANNELS", "interface AppShellBridge"]
-  },
-  {
-    distPath: "../dist/main/app-bridge-handlers/playback-renderer.js",
-    sourcePath: "../src/main/app-bridge-handlers/playback-renderer.ts",
-    expectedValues: [
-      "registerPlaybackRendererHandlers",
-      "playbackRendererRoleContract",
-      "registerRoleHandlers",
-      "reportAudioOutcome",
-      "sendOverlayMetric"
-    ]
-  },
-  {
-    distPath: "../dist/shared/bridge-contracts/app-data.js",
-    sourcePath: "../src/shared/bridge-contracts/app-data.ts",
-    expectedValues: ["APP_DATA_CHANNELS", "interface AppDataBridge"]
-  },
-  {
-    distPath: "../dist/shared/bridge-contracts/playback-control.js",
-    sourcePath: "../src/shared/bridge-contracts/playback-control.ts",
-    expectedValues: ["PLAYBACK_CONTROL_CHANNELS", "interface PlaybackControlBridge"]
-  },
-  {
-    distPath: "../dist/shared/bridge-contracts/clipboard.js",
-    sourcePath: "../src/shared/bridge-contracts/clipboard.ts",
-    expectedValues: ["CLIPBOARD_CHANNELS", "interface ClipboardBridge"]
-  },
-  {
-    distPath: "../dist/shared/bridge-contracts/renderer-audio.js",
-    sourcePath: "../src/shared/bridge-contracts/renderer-audio.ts",
-    expectedValues: [
-      "RENDERER_AUDIO_CHANNELS",
-      "interface PlaybackFeedbackBridge",
-      "interface PlaybackRendererBridge"
-    ]
-  },
-  {
-    name: "playback-overlay",
-    distPath: "../dist/shared/bridge-contracts/playback-overlay.js",
-    sourcePath: "../src/shared/bridge-contracts/playback-overlay.ts",
-    expectedValues: [
-      "PLAYBACK_OVERLAY_EVENT_CHANNELS",
-      "PLAYBACK_OVERLAY_COMMAND_CHANNELS",
-      "interface PlaybackOverlayBridge"
-    ]
-  }
-];
-
-const mainBridgeHandlerModuleChecks = [
-  {
-    distPath: "../dist/main/app-bridge-handlers/app-shell.js",
-    sourcePath: "../src/main/app-bridge-handlers/app-shell.ts",
-    expectedValues: [
-      "registerAppShellHandlers",
-      "createAppShellImplementation",
-      "appShellRoleContract",
-      "registerRoleHandlers"
-    ]
-  },
-  {
-    distPath: "../dist/main/app-bridge-handlers/app-data.js",
-    sourcePath: "../src/main/app-bridge-handlers/app-data.ts",
-    expectedValues: [
-      "registerAppDataHandlers",
-      "createAppDataImplementation",
-      "appDataRoleContract",
-      "registerRoleHandlers",
-      "setPreferredVoice"
-    ]
-  },
-  {
-    distPath: "../dist/main/app-bridge-handlers/playback-control.js",
-    sourcePath: "../src/main/app-bridge-handlers/playback-control.ts",
-    expectedValues: [
-      "registerPlaybackControlHandlers",
-      "PLAYBACK_CONTROL_CHANNELS",
-      "readingTargetAcquirer.revealPreviousAppBeforeCapture()",
-      "playbackCommands.startReadingTargetPlayback()"
-    ]
-  },
-  {
-    distPath: "../dist/main/app-bridge-handlers/clipboard.js",
-    sourcePath: "../src/main/app-bridge-handlers/clipboard.ts",
-    expectedValues: [
-      "registerClipboardHandlers",
-      "createClipboardImplementation",
-      "clipboardRoleContract",
-      "registerRoleHandlers"
-    ]
-  },
-  {
-    distPath: "../dist/main/app-bridge-handlers/playback-overlay.js",
-    sourcePath: "../src/main/app-bridge-handlers/playback-overlay.ts",
-    expectedValues: [
-      "registerPlaybackOverlayHandlers",
-      "playbackOverlayRoleContract",
-      "registerRoleHandlers",
-      "notifyOverlayReady"
-    ]
-  }
-];
-
-const preloadBridgeAdapterModuleChecks = [
-  {
-    distPath: "../dist/preload/bridge-adapters/app-shell.js",
-    sourcePath: "../src/preload/bridge-adapters/app-shell.ts",
-    expectedValues: [
-      "createAppShellBridge",
-      "appShellRoleContract",
-      "createRoleBridge",
-      "createElectronRendererRoleTransport"
-    ]
-  },
-  {
-    distPath: "../dist/preload/bridge-adapters/app-data.js",
-    sourcePath: "../src/preload/bridge-adapters/app-data.ts",
-    expectedValues: [
-      "createAppDataBridge",
-      "appDataRoleContract",
-      "createRoleBridge",
-      "createElectronRendererRoleTransport"
-    ]
-  },
-  {
-    distPath: "../dist/preload/bridge-adapters/playback-control.js",
-    sourcePath: "../src/preload/bridge-adapters/playback-control.ts",
-    expectedValues: ["createPlaybackControlBridge", "playbackControlRoleContract", "createRoleBridge"]
-  },
-  {
-    distPath: "../dist/preload/bridge-adapters/clipboard.js",
-    sourcePath: "../src/preload/bridge-adapters/clipboard.ts",
-    expectedValues: [
-      "createClipboardBridge",
-      "clipboardRoleContract",
-      "createRoleBridge",
-      "createElectronRendererRoleTransport"
-    ]
-  },
-  {
-    distPath: "../dist/preload/bridge-adapters/renderer-audio.js",
-    sourcePath: "../src/preload/bridge-adapters/renderer-audio.ts",
-    expectedValues: [
-      "createPlaybackFeedbackBridge",
-      "createPlaybackRendererBridge",
-      "playbackFeedbackRoleContract",
-      "playbackRendererRoleContract",
-      "createRoleBridge"
-    ]
-  },
-  {
-    distPath: "../dist/preload/bridge-adapters/playback-overlay.js",
-    sourcePath: "../src/preload/bridge-adapters/playback-overlay.ts",
-    expectedValues: [
-      "createPlaybackOverlayBridge",
-      "playbackOverlayRoleContract",
-      "createRoleBridge"
-    ]
-  },
-  {
-    distPath: "../dist/preload/bridge-adapters/ipc.js",
-    sourcePath: "../src/preload/bridge-adapters/ipc.ts",
-    expectedValues: ["interface PreloadIpc", "invoke<T>", "subscribe<T>", "subscribeVoid"]
-  }
-];
-
-const roleBridgeModuleChecks = [
-  {
-    distPath: "../dist/shared/role-bridge-registry.js",
-    sourcePath: "../src/shared/role-bridge-registry.ts",
-    expectedValues: ["createRoleBridge", "registerRoleHandlers", "selectRoleBridgeContract"]
-  },
-  {
-    distPath: "../dist/shared/role-bridge-contracts.js",
-    sourcePath: "../src/shared/role-bridge-contracts.ts",
-    expectedValues: [
-      "readerWindowRoleContract",
-      "appShellRoleContract",
-      "appDataRoleContract",
-      "clipboardRoleContract",
-      "playbackControlRoleContract",
-      "playbackFeedbackRoleContract"
-    ]
-  },
-  {
-    distPath: "../dist/main/electron-main-role-transport.js",
-    sourcePath: "../src/main/electron-main-role-transport.ts",
-    expectedValues: [
-      "createElectronMainRoleHandlerTransport",
-      "createElectronMainRoleEventTransport"
-    ]
-  },
-  {
-    distPath: "../dist/preload/electron-renderer-role-transport.js",
-    sourcePath: "../src/preload/electron-renderer-role-transport.ts",
-    expectedValues: ["createElectronRendererRoleTransport"]
-  }
-];
-
 for (const path of [
   "../dist/main/main.js",
-  "../dist/main/app-bridge-handlers.js",
-  ...mainBridgeHandlerModuleChecks.map(({ distPath }) => distPath),
+  "../dist/main/app-role-bridges.js",
   "../dist/main/app-presence-controller.js",
   "../dist/main/playback/playback-request-resolver.js",
   "../dist/main/reading-target/reading-target-acquirer.js",
   "../dist/shared/app-contracts.js",
   "../dist/shared/bridge-contracts.js",
-  ...bridgeContractModuleChecks.map(({ distPath }) => distPath),
   "../dist/preload/reader-window.cjs",
   "../dist/preload/playback-renderer.cjs",
   "../dist/preload/playback-overlay.cjs",
-  ...preloadBridgeAdapterModuleChecks.map(({ distPath }) => distPath),
-  ...roleBridgeModuleChecks.map(({ distPath }) => distPath),
   "../dist/renderer/index.html",
   "../dist/renderer/renderer.js",
   "../dist/renderer/record-view-model.js",
@@ -265,14 +62,14 @@ for (const path of [
 }
 assertFileMissing("../dist/preload/preload.js");
 assertFileMissing("../dist/preload/preload.cjs");
+assertFileMissing("../dist/preload/bridge-adapters");
+assertFileMissing("../dist/main/app-bridge-handlers.js");
 if (process.platform === "darwin") {
   assertFileExists("../dist/native/selection-copy-macos.node");
 }
 
 const mainBundle = await readFile(new URL("../dist/main/main.js", import.meta.url), "utf8");
 const appContractsBundle = await readFile(new URL("../dist/shared/app-contracts.js", import.meta.url), "utf8");
-const appContractsSource = await readFile(new URL("../src/shared/app-contracts.ts", import.meta.url), "utf8");
-const bridgeContractsSource = await readFile(new URL("../src/shared/bridge-contracts.ts", import.meta.url), "utf8");
 const readerPreloadBundle = await readFile(
   new URL("../dist/preload/reader-window.cjs", import.meta.url),
   "utf8"
@@ -283,15 +80,6 @@ const playbackRendererPreloadBundle = await readFile(
 );
 const playbackOverlayPreloadBundle = await readFile(
   new URL("../dist/preload/playback-overlay.cjs", import.meta.url),
-  "utf8"
-);
-const readerPreloadSource = await readFile(new URL("../src/preload/reader-window.ts", import.meta.url), "utf8");
-const playbackRendererPreloadSource = await readFile(
-  new URL("../src/preload/playback-renderer.ts", import.meta.url),
-  "utf8"
-);
-const playbackOverlayPreloadSource = await readFile(
-  new URL("../src/preload/playback-overlay.ts", import.meta.url),
   "utf8"
 );
 const rendererHtml = await readFile(new URL("../dist/renderer/index.html", import.meta.url), "utf8");
@@ -305,7 +93,6 @@ const overlayHtml = await readFile(new URL("../dist/overlay/index.html", import.
 const overlayBundle = await readFile(new URL("../dist/overlay/overlay.js", import.meta.url), "utf8");
 const overlayCss = await readFile(new URL("../dist/overlay/overlay.css", import.meta.url), "utf8");
 const mainSource = await readFile(new URL("../src/main/main.ts", import.meta.url), "utf8");
-const appBridgeHandlersSource = await readFile(new URL("../src/main/app-bridge-handlers.ts", import.meta.url), "utf8");
 const appPresenceControllerSource = await readFile(new URL("../src/main/app-presence-controller.ts", import.meta.url), "utf8");
 const rendererSource = await readFile(new URL("../src/renderer/main.tsx", import.meta.url), "utf8");
 const readerWindowAppSource = await readFile(new URL("../src/renderer/App.tsx", import.meta.url), "utf8");
@@ -316,7 +103,6 @@ const playbackAudioSource = await readFile(
 const playbackRendererSource = await readFile(new URL("../src/playback-renderer/main.ts", import.meta.url), "utf8");
 const overlaySource = await readFile(new URL("../src/overlay/main.tsx", import.meta.url), "utf8");
 const playbackOverlayAppSource = await readFile(new URL("../src/overlay/App.tsx", import.meta.url), "utf8");
-const voiceReaderBridgeSource = await readFile(new URL("../src/shared/voice-reader-bridge.ts", import.meta.url), "utf8");
 const appDataStoreSource = await readFile(new URL("../src/main/data/app-data-store.ts", import.meta.url), "utf8");
 const appDataSchemaSource = await readFile(new URL("../src/main/data/app-data-schema.ts", import.meta.url), "utf8");
 const packagedSmokeRuntimeSource = await readFile(
@@ -335,19 +121,6 @@ const appVerificationScript = await readFile(new URL("../scripts/verify-mac-app.
 const appIconSource = await readFile(new URL("../assets/voicereader-icon.svg", import.meta.url), "utf8");
 const templateTrayIconSource = await readFile(new URL("../assets/voicereader-template-icon.svg", import.meta.url), "utf8");
 const builtTemplateTrayIcon = await readFile(new URL("../dist/assets/voicereader-template-icon.svg", import.meta.url), "utf8");
-const checkedSources = new Map();
-for (const { sourcePath, expectedValues } of [
-  ...bridgeContractModuleChecks,
-  ...mainBridgeHandlerModuleChecks,
-  ...preloadBridgeAdapterModuleChecks,
-  ...roleBridgeModuleChecks
-]) {
-  const source = await readFile(new URL(sourcePath, import.meta.url), "utf8");
-  checkedSources.set(sourcePath, source);
-  assertIncludes(source, expectedValues);
-}
-const playbackOverlayBridgeSource =
-  checkedSources.get("../src/shared/bridge-contracts/playback-overlay.ts") ?? "";
 assertIncludes(mainBundle, [
   "VoiceReader",
   "\\u64AD\\u653E",
@@ -415,26 +188,9 @@ assertIncludes(mainSource, [
   "createPlaybackRendererWindow",
   "playbackRendererEntry",
   "playbackOutput.destroy()",
-  "registerAppBridgeHandlers",
+  "registerAppRoleBridges",
   'label: "停止朗读"',
   "() => readingTargetAcquirer.acquire()"
-]);
-assertIncludes(appBridgeHandlersSource, [
-  "registerAppBridgeHandlers",
-  "registerAppShellHandlers",
-  "registerAppDataHandlers",
-  "registerPlaybackControlHandlers",
-  "registerPlaybackRendererHandlers",
-  "registerClipboardHandlers",
-  "registerPlaybackOverlayHandlers"
-]);
-assertMissing(appBridgeHandlersSource, [
-  "ipcMain.handle",
-  "APP_SHELL_CHANNELS",
-  "APP_DATA_CHANNELS",
-  "PLAYBACK_CONTROL_CHANNELS",
-  "PLAYBACK_OVERLAY_COMMAND_CHANNELS",
-  "CLIPBOARD_CHANNELS"
 ]);
 assertMissing(mainSource, [
   "function syncDockPresence",
@@ -491,105 +247,12 @@ assertMissing(mainSource, [
   'target = {\n      text: "",\n      source: "selected_text"\n    };\n  }'
 ]);
 assertIncludes(appContractsBundle, "PLAYBACK_FEEDBACK_SURFACES");
-assertIncludes(appContractsSource, "FavoriteRecord");
-assertIncludes(appContractsSource, "favoriteDetail");
-assertMissing(appContractsSource, [
-  "interface ReaderWindowBridge",
-  "interface PlaybackFeedbackBridge",
-  "interface PlaybackRendererBridge",
-  "interface PlaybackOverlayBridge"
-]);
-assertIncludes(bridgeContractsSource, [
-  "./bridge-contracts/app-data.js",
-  "./bridge-contracts/app-shell.js",
-  "./bridge-contracts/clipboard.js",
-  "./bridge-contracts/playback-control.js",
-  "./bridge-contracts/playback-overlay.js",
-  "./bridge-contracts/renderer-audio.js",
-  "ReaderWindowBridge",
-  "ReaderWindowRuntimeBridge",
-  "PlaybackFeedbackBridge",
-  "PlaybackRendererBridge",
-  "VoiceReaderBridge"
-]);
-assertMissing(playbackOverlayBridgeSource, "PLAYBACK_OVERLAY_CHANNELS");
-assertMissing(bridgeContractsSource, [
-  "APP_SHELL_CHANNELS",
-  "APP_DATA_CHANNELS",
-  "PLAYBACK_CONTROL_CHANNELS",
-  "CLIPBOARD_CHANNELS",
-  "RENDERER_AUDIO_CHANNELS",
-  "PLAYBACK_OVERLAY_CHANNELS",
-  "interface AppShellBridge",
-  "interface AppDataBridge",
-  "interface PlaybackControlBridge",
-  "interface ClipboardBridge"
-]);
 for (const preloadBundle of [
   readerPreloadBundle,
   playbackRendererPreloadBundle,
   playbackOverlayPreloadBundle
 ]) {
   assertMissing(preloadBundle, ["../renderer/bridge", "window.location", "pathname"]);
-}
-for (const { name, source, expectedValues } of [
-  {
-    name: "reader preload entrypoint",
-    source: readerPreloadSource,
-    expectedValues: [
-      "readerWindowRoleContract",
-      "createRoleBridge",
-      "createElectronRendererRoleTransport"
-    ]
-  },
-  {
-    name: "playback renderer preload entrypoint",
-    source: playbackRendererPreloadSource,
-    expectedValues: [
-      "playbackRendererRoleContract",
-      "createRoleBridge",
-      "createElectronRendererRoleTransport"
-    ]
-  },
-  {
-    name: "playback overlay preload entrypoint",
-    source: playbackOverlayPreloadSource,
-    expectedValues: [
-      "playbackOverlayRoleContract",
-      "createRoleBridge",
-      "createElectronRendererRoleTransport"
-    ]
-  },
-  {
-    name: "shared voice-reader bridge",
-    source: voiceReaderBridgeSource,
-    expectedValues: [
-      "voiceReader: unknown",
-      "getReaderWindowBridge",
-      "getPlaybackRendererBridge",
-      "getPlaybackOverlayBridge"
-    ]
-  },
-  {
-    name: "reader window",
-    source: rendererSource,
-    expectedValues: ["getReaderWindowBridge"]
-  },
-  {
-    name: "playback audio",
-    source: playbackAudioSource,
-    expectedValues: ["PlaybackRendererBridge", "mountPlaybackAudio"]
-  },
-  {
-    name: "playback renderer",
-    source: playbackRendererSource,
-    expectedValues: ["getPlaybackRendererBridge", "mountPlaybackAudio"]
-  },
-  { name: "playback overlay", source: overlaySource, expectedValues: ["getPlaybackOverlayBridge"] }
-]) {
-  for (const expected of expectedValues) {
-    assert.equal(source.includes(expected), true, `${name} should include ${expected}`);
-  }
 }
 const readerRuntimeBridge = evaluatePreloadBridge(readerPreloadBundle);
 const playbackRendererRuntimeBridge = evaluatePreloadBridge(playbackRendererPreloadBundle);
@@ -794,7 +457,6 @@ assertOverlayPassiveCoverage();
 assertIncludes(playbackAudioSource, ["segmentWeights", "getSessionProgress", "createVoiceLevels", "smoothingTimeConstant", "levels,", "progress:"]);
 assertMissing(playbackAudioSource, "const progress = audioProgress");
 assertIncludes(playbackOverlayAppSource, ["const BAR_COUNT = 13", "smoothMotionValue", "normalizeWaveformLevels"]);
-assertIncludes(appContractsSource, ["levels?: number[]", "progress: number"]);
 assert.equal(packageScript.includes("dereference: true"), false);
 assert.equal(packageScript.includes("verbatimSymlinks: true"), true);
 assert.equal(packageScript.includes("default_app.asar"), true);
@@ -1055,8 +717,6 @@ function assertOverlayPassiveCoverage() {
     "anchorPosition"
   ]);
   assertMissing(playbackOverlayControllerSource, ["moveBy(delta", "manualPosition", "constrainOverlayPosition"]);
-  assertIncludes(playbackOverlayBridgeSource, ["notifyOverlayReady", 'ready: "overlay:ready"']);
-  assertMissing(playbackOverlayBridgeSource, ["OverlayDragDelta", "moveOverlayBy"]);
 }
 
 function evaluatePreloadBridge(preloadBundle, invoke = async () => undefined) {
@@ -1199,25 +859,24 @@ async function createBuiltPlaybackLifecycleScenario({
     async () => ({ text: "built playback lifecycle", source: "selected_text" })
   );
   const handlers = new Map();
-  registerPlaybackControlHandlers({
-    ipcMain: {
-      handle(channel, handler) {
-        handlers.set(channel, handler);
-      }
-    },
-    playbackCommands: commands,
-    readingTargetAcquirer: { revealPreviousAppBeforeCapture: async () => undefined },
-    shouldRevealPreviousAppBeforeSelectionCapture: () => false
-  });
-  registerPlaybackRendererHandlers({
-    ipcMain: {
-      handle(channel, handler) {
-        handlers.set(channel, handler);
-      }
-    },
-    playbackCommands: commands,
-    overlayController: { sendMetric() {} }
-  });
+  const transport = {
+    handle(channel, handler) {
+      handlers.set(channel, handler);
+    }
+  };
+  registerRoleHandlers(
+    playbackControlRoleContract,
+    createPlaybackControlImplementation({ playbackCommands: commands }),
+    transport
+  );
+  registerRoleHandlers(
+    playbackRendererRoleContract,
+    createPlaybackRendererImplementation({
+      playbackCommands: commands,
+      overlayController: { sendMetric() {} }
+    }),
+    transport
+  );
   return {
     ...outputScenario,
     errors,
@@ -1226,7 +885,7 @@ async function createBuiltPlaybackLifecycleScenario({
     async invoke(channel, ...args) {
       const handler = handlers.get(channel);
       assert.equal(typeof handler, "function", `missing built IPC handler for ${channel}`);
-      return handler({ sender: { id: 1 } }, ...args);
+      return handler({ senderId: 1 }, args);
     }
   };
 }

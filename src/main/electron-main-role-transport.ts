@@ -8,7 +8,7 @@ import type {
 export function createElectronMainRoleHandlerTransport(ipcMain: IpcMain): MainRoleHandlerTransport {
   return {
     handle: (channel, handler) => {
-      ipcMain.handle(channel, (_event, ...args) => handler(...args));
+      ipcMain.handle(channel, (event, ...args) => handler({ senderId: event.sender.id }, args));
     }
   };
 }

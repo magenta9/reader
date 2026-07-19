@@ -6,10 +6,13 @@ import type {
 export class InMemoryRoleBridgeLoopback
   implements MainRoleBridgeTransport, RendererRoleBridgeTransport
 {
-  private readonly handlers = new Map<string, (...args: unknown[]) => unknown>();
+  private readonly handlers = new Map<
+    string,
+    (context: {}, args: readonly unknown[]) => unknown
+  >();
   private readonly listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
-  handle(channel: string, handler: (...args: unknown[]) => unknown): void {
+  handle(channel: string, handler: (context: {}, args: readonly unknown[]) => unknown): void {
     if (this.handlers.has(channel)) throw new Error(`Handler already registered for ${channel}`);
     this.handlers.set(channel, handler);
   }
@@ -17,7 +20,7 @@ export class InMemoryRoleBridgeLoopback
   async invoke(channel: string, args: readonly unknown[]): Promise<unknown> {
     const handler = this.handlers.get(channel);
     if (!handler) throw new Error(`No handler registered for ${channel}`);
-    return handler(...args);
+    return handler({}, args);
   }
 
   subscribe(channel: string, listener: (...args: unknown[]) => void): () => void {

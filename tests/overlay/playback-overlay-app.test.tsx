@@ -5,10 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PlaybackOverlayApp } from "../../src/overlay/App.js";
 import type { OverlayMetric } from "../../src/shared/app-contracts.js";
-import {
-  PLAYBACK_OVERLAY_TIMING,
-  type PlaybackOverlayBridge
-} from "../../src/shared/bridge-contracts.js";
+import { PLAYBACK_OVERLAY_TIMING } from "../../src/shared/bridge-contracts.js";
+import type { PlaybackOverlayRoleBridge } from "../../src/shared/role-bridge-contracts.js";
 
 let restoreAnimationFrame: (() => void) | undefined;
 
@@ -178,7 +176,7 @@ describe("PlaybackOverlayApp", () => {
 });
 
 interface OverlayBridgeForTest {
-  bridge: PlaybackOverlayBridge;
+  bridge: PlaybackOverlayRoleBridge;
   fail: () => void;
   finish: () => void;
   metric: (metric: OverlayMetric) => void;

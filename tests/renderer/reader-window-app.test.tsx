@@ -11,7 +11,7 @@ import {
   type FavoriteRecord,
   type ReadingHistoryRecord
 } from "../../src/shared/app-contracts.js";
-import type { ReaderWindowRuntimeBridge } from "../../src/shared/bridge-contracts.js";
+import type { ReaderWindowRoleBridge } from "../../src/shared/role-bridge-contracts.js";
 
 afterEach(() => {
   cleanup();
@@ -235,7 +235,7 @@ describe("ReaderWindowApp", () => {
   it("recovers inline when Reading History cannot be loaded", async () => {
     const record = createHistoryRecord({ id: "history-recovered", preview: "重新载入后的历史" });
     const listReadingHistory = vi
-      .fn<ReaderWindowRuntimeBridge["listReadingHistory"]>()
+      .fn<ReaderWindowRoleBridge["listReadingHistory"]>()
       .mockRejectedValueOnce(new Error("database busy"))
       .mockResolvedValueOnce([record]);
     renderReaderWindow({
@@ -663,11 +663,11 @@ interface RenderReaderWindowOptions {
   favorites?: FavoriteRecord[];
   hasApiKey?: boolean;
   history?: ReadingHistoryRecord[];
-  readerPatch?: Partial<ReaderWindowRuntimeBridge>;
+  readerPatch?: Partial<ReaderWindowRoleBridge>;
   settings?: AppSettings;
 }
 
-function renderReaderWindow(options: RenderReaderWindowOptions = {}): ReaderWindowRuntimeBridge {
+function renderReaderWindow(options: RenderReaderWindowOptions = {}): ReaderWindowRoleBridge {
   const settings = options.settings ?? createVerifiedSettings();
   const readerBridge = createReaderBridge({
     ...options,
@@ -679,7 +679,7 @@ function renderReaderWindow(options: RenderReaderWindowOptions = {}): ReaderWind
 
 function createReaderBridge(
   options: Required<Pick<RenderReaderWindowOptions, "settings">> & RenderReaderWindowOptions
-): ReaderWindowRuntimeBridge {
+): ReaderWindowRoleBridge {
   let settings = options.settings;
   let history = [...(options.history ?? [])];
   let favorites = [...(options.favorites ?? [])];

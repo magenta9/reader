@@ -11,12 +11,13 @@ import {
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
-import { registerAppBridgeHandlers } from "./app-bridge-handlers.js";
+import { createReaderWindowEvents, registerAppRoleBridges } from "./app-role-bridges.js";
 import { AppPresenceController } from "./app-presence-controller.js";
 import { AppDataStore } from "./data/app-data-store.js";
 import { MiniMaxAccountService } from "./data/minimax-account-service.js";
 import { PlaybackPreferencesCommands } from "./data/playback-preferences-commands.js";
-import { APP_SHELL_CHANNELS } from "../shared/bridge-contracts.js";
+import type { EventEmitterFromContract } from "../shared/role-bridge-registry.js";
+import type { readerWindowRoleContract } from "../shared/role-bridge-contracts.js";
 import type {
   AppRoute,
   BootstrapState
@@ -33,6 +34,7 @@ import {
 } from "./packaged-smoke-runtime.js";
 
 let readerWindow: BrowserWindow | undefined;
+let readerWindowEvents: EventEmitterFromContract<typeof readerWindowRoleContract> | undefined;
 let tray: Tray | undefined;
 let pendingRoute: AppRoute = "home";
 let isQuitting = false;
@@ -118,7 +120,7 @@ async function bootstrap(): Promise<void> {
     globalShortcut,
     () => readingTargetAcquirer.acquire()
   );
-  registerAppBridgeHandlers({
+  registerAppRoleBridges({
     app,
     appDataStore,
     clipboard,
@@ -202,6 +204,7 @@ function openReaderWindow(route: AppRoute): void {
         sandbox: false
       }
     });
+    readerWindowEvents = createReaderWindowEvents(readerWindow.webContents);
 
     readerWindow.on("close", (event) => {
       if (isQuitting) return;
@@ -230,9 +233,9 @@ function openReaderWindow(route: AppRoute): void {
 }
 
 function sendRoute(route: AppRoute): void {
-  if (!readerWindow || readerWindow.isDestroyed()) return;
+  if (!readerWindow || readerWindow.isDestroyed() || !readerWindowEvents) return;
   appDataStore.updateSettings({ lastRoute: route });
-  readerWindow.webContents.send(APP_SHELL_CHANNELS.navigate, route);
+  readerWindowEvents.emitNavigate(route);
 }
 
 function createMenuBarMenu(): void {

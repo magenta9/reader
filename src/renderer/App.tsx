@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactElement } from "react";
-import type { AppRoute, AppSettings, ReaderWindowRuntimeBridge } from "./bridge.js";
+import type { AppRoute, AppSettings, ReaderWindowRoleBridge } from "./bridge.js";
 import { DEFAULT_ACTIVATION_SHORTCUT } from "../shared/app-contracts.js";
 import type { HistoryRetention, HistoryRetentionImpact } from "../shared/app-contracts.js";
 import type { DetectedLanguage, MiniMaxVoice } from "../shared/types.js";
@@ -9,7 +9,7 @@ import { historyRetentionLabel } from "./history-retention.js";
 import { RecordBrowser, type RecordUndoRequest } from "./record-browser.js";
 
 export interface ReaderWindowAppProps {
-  readerBridge: ReaderWindowRuntimeBridge;
+  readerBridge: ReaderWindowRoleBridge;
 }
 
 const AppDependenciesContext = createContext<ReaderWindowAppProps | undefined>(undefined);

@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactElement } from "react";
-import {
-  PLAYBACK_OVERLAY_TIMING,
-  type PlaybackOverlayBridge
-} from "../shared/bridge-contracts.js";
+import { PLAYBACK_OVERLAY_TIMING } from "../shared/bridge-contracts.js";
+import type { PlaybackOverlayRoleBridge } from "../shared/role-bridge-contracts.js";
 
 const BAR_COUNT = 13;
 
@@ -22,7 +20,7 @@ interface WaveformMotion {
   phase: number;
 }
 
-export function PlaybackOverlayApp({ overlayBridge }: { overlayBridge: PlaybackOverlayBridge }): ReactElement {
+export function PlaybackOverlayApp({ overlayBridge }: { overlayBridge: PlaybackOverlayRoleBridge }): ReactElement {
   const [state, setState] = useState<OverlayState>({
     visible: false,
     leaving: false,

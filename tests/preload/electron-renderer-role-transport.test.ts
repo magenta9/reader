@@ -1,18 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createAppShellBridge } from "../../src/preload/bridge-adapters/app-shell.js";
-import type { PreloadIpc } from "../../src/preload/bridge-adapters/ipc.js";
+import {
+  createElectronRendererRoleTransport,
+  type ElectronRendererIpc
+} from "../../src/preload/electron-renderer-role-transport.js";
 import { APP_SHELL_CHANNELS } from "../../src/shared/bridge-contracts.js";
+import { appShellRoleContract } from "../../src/shared/role-bridge-contracts.js";
+import { createRoleBridge } from "../../src/shared/role-bridge-registry.js";
 
 describe("Electron renderer role transport", () => {
   it("preserves invoke arguments and removes the exact navigate listener", async () => {
-    const listeners = new Map<string, Parameters<PreloadIpc["on"]>[1]>();
+    const listeners = new Map<string, Parameters<ElectronRendererIpc["on"]>[1]>();
     const invoke = vi.fn(async () => undefined);
-    const on = vi.fn((channel: string, listener: Parameters<PreloadIpc["on"]>[1]) => {
+    const on = vi.fn((channel: string, listener: Parameters<ElectronRendererIpc["on"]>[1]) => {
       listeners.set(channel, listener);
     });
     const off = vi.fn();
-    const bridge = createAppShellBridge({ invoke, on, off });
+    const bridge = createRoleBridge(
+      appShellRoleContract,
+      createElectronRendererRoleTransport({ invoke, on, off })
+    );
     const navigate = vi.fn();
 
     await bridge.setRoute("favorites");

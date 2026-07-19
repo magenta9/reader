@@ -4,7 +4,14 @@ export interface RendererRoleBridgeTransport {
 }
 
 export interface MainRoleHandlerTransport {
-  handle(channel: string, handler: (...args: unknown[]) => unknown): void;
+  handle(
+    channel: string,
+    handler: (context: RoleInvokeContext, args: readonly unknown[]) => unknown
+  ): void;
+}
+
+export interface RoleInvokeContext {
+  readonly senderId?: number;
 }
 
 export interface MainRoleEventTransport {
@@ -103,35 +110,6 @@ export function defineRoleBridgeRegistry<const Contracts extends readonly AnyRol
   return Object.freeze({ contracts: Object.freeze([...contracts]) as unknown as Contracts });
 }
 
-type ContractMethod<Contract extends AnyRoleBridgeContract> = Contract["endpoints"][number]["method"];
-type SelectedEndpoints<
-  Contract extends AnyRoleBridgeContract,
-  Methods extends readonly ContractMethod<Contract>[]
-> = {
-  readonly [Index in keyof Methods]: Extract<
-    Contract["endpoints"][number],
-    { method: Methods[Index] }
-  >;
-};
-
-export function selectRoleBridgeContract<
-  Contract extends AnyRoleBridgeContract,
-  const Methods extends readonly ContractMethod<Contract>[]
->(
-  contract: Contract,
-  methods: Methods
-): RoleBridgeContract<Contract["role"], SelectedEndpoints<Contract, Methods>> {
-  const endpoints = methods.map((method) => {
-    const endpoint = contract.endpoints.find((candidate) => candidate.method === method);
-    if (!endpoint) throw new Error(`Bridge role ${contract.role} has no endpoint method ${method}`);
-    return endpoint;
-  });
-  return defineRoleBridgeContract(contract.role, endpoints) as RoleBridgeContract<
-    Contract["role"],
-    SelectedEndpoints<Contract, Methods>
-  >;
-}
-
 export function getRoleBridgeContract(
   registry: RoleBridgeRegistry<readonly AnyRoleBridgeContract[]>,
   role: string
@@ -164,7 +142,8 @@ export function createRoleBridge<Contract extends AnyRoleBridgeContract>(
 export function registerRoleHandlers<Contract extends AnyRoleBridgeContract>(
   contract: Contract,
   implementation: ImplementationFromContract<Contract>,
-  transport: MainRoleHandlerTransport
+  transport: MainRoleHandlerTransport,
+  beforeInvoke: BeforeInvokeFromContract<Contract> = {}
 ): void {
   const invokeEndpoints = contract.endpoints.filter(
     (endpoint): endpoint is AnyInvokeEndpoint => endpoint.kind === "invoke"
@@ -176,7 +155,13 @@ export function registerRoleHandlers<Contract extends AnyRoleBridgeContract>(
   }
   for (const endpoint of invokeEndpoints) {
     const handler = Reflect.get(implementation, endpoint.method) as (...args: unknown[]) => unknown;
-    transport.handle(endpoint.channel, (...args) => Reflect.apply(handler, implementation, args));
+    transport.handle(endpoint.channel, async (context, args) => {
+      const hook = Reflect.get(beforeInvoke, endpoint.method) as
+        | ((context: RoleInvokeContext) => unknown)
+        | undefined;
+      if (hook) await hook(context);
+      return Reflect.apply(handler, implementation, args);
+    });
   }
 }
 
@@ -228,6 +213,14 @@ export type ImplementationFromContract<Contract extends AnyRoleBridgeContract> =
 
 export type EventEmitterFromContract<Contract extends AnyRoleBridgeContract> = Simplify<
   UnionToIntersection<EndpointEmitter<Contract["endpoints"][number]>>
+>;
+
+type EndpointBeforeInvoke<Endpoint> = Endpoint extends InvokeEndpoint<infer Method, unknown[], unknown>
+  ? { [Key in Method]?: (context: RoleInvokeContext) => unknown }
+  : never;
+
+export type BeforeInvokeFromContract<Contract extends AnyRoleBridgeContract> = Partial<
+  Simplify<UnionToIntersection<EndpointBeforeInvoke<Contract["endpoints"][number]>>>
 >;
 
 function validateContract(role: string, endpoints: readonly AnyEndpoint[]): void {

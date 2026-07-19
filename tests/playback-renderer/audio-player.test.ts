@@ -8,7 +8,7 @@ import {
   type PlaybackAudioSession,
   type SessionOverlayMetric
 } from "../../src/shared/app-contracts.js";
-import type { PlaybackRendererBridge } from "../../src/shared/bridge-contracts.js";
+import type { PlaybackRendererRoleBridge } from "../../src/shared/role-bridge-contracts.js";
 
 let activeBrowserFakes: BrowserFakes | undefined;
 
@@ -20,7 +20,7 @@ afterEach(() => {
 describe("Playback Audio renderer", () => {
   it("plays sessions emitted through the Playback Renderer seam until disposed", async () => {
     const events: QueueEvent[] = [];
-    const harness = createPlaybackRendererBridgeHarness(events);
+    const harness = createPlaybackRendererRoleBridgeHarness(events);
     const dispose = mountPlaybackAudio(harness.bridge);
 
     harness.start(createOverlaySession(101));
@@ -228,8 +228,8 @@ interface BrowserFakes {
   restore: () => void;
 }
 
-interface PlaybackRendererBridgeHarness {
-  bridge: PlaybackRendererBridge;
+interface PlaybackRendererRoleBridgeHarness {
+  bridge: PlaybackRendererRoleBridge;
   audioChunk: (payload: AudioChunkPayload) => void;
   fail: (payload: { sessionId: number }) => void;
   endAudioInput: (payload: { sessionId: number }) => void;
@@ -239,7 +239,7 @@ interface PlaybackRendererBridgeHarness {
   stop: (payload: { sessionId: number }) => void;
 }
 
-function createPlaybackRendererBridgeHarness(events: QueueEvent[]): PlaybackRendererBridgeHarness {
+function createPlaybackRendererRoleBridgeHarness(events: QueueEvent[]): PlaybackRendererRoleBridgeHarness {
   const startListeners = new Set<(session: PlaybackAudioSession) => void>();
   const audioChunkListeners = new Set<(payload: AudioChunkPayload) => void>();
   const segmentEndListeners = new Set<(payload: { sessionId: number }) => void>();
@@ -247,7 +247,7 @@ function createPlaybackRendererBridgeHarness(events: QueueEvent[]): PlaybackRend
   const failListeners = new Set<(payload: { sessionId: number }) => void>();
   const stopListeners = new Set<(payload: { sessionId: number }) => void>();
   const metrics: SessionOverlayMetric[] = [];
-  const bridge: PlaybackRendererBridge = {
+  const bridge: PlaybackRendererRoleBridge = {
     onPlaybackStart: (listener) => subscribe(startListeners, listener),
     onAudioChunk: (listener) => subscribe(audioChunkListeners, listener),
     onSegmentEnd: (listener) => subscribe(segmentEndListeners, listener),
@@ -283,10 +283,10 @@ function emitListeners<T>(listeners: Set<(payload: T) => void>, payload: T): voi
   for (const listener of listeners) listener(payload);
 }
 
-function createScenario(): BrowserFakes & { playback: PlaybackRendererBridgeHarness } {
+function createScenario(): BrowserFakes & { playback: PlaybackRendererRoleBridgeHarness } {
   activeBrowserFakes?.restore();
   const browserFakes = installBrowserFakes();
-  const playback = createPlaybackRendererBridgeHarness(browserFakes.events);
+  const playback = createPlaybackRendererRoleBridgeHarness(browserFakes.events);
   const disposePlayback = mountPlaybackAudio(playback.bridge);
   const scenario = {
     ...browserFakes,

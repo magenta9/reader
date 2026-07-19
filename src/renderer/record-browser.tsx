@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
-import type { FavoriteRecord, ReaderWindowRuntimeBridge, ReadingHistoryRecord } from "./bridge.js";
+import type { FavoriteRecord, ReaderWindowRoleBridge, ReadingHistoryRecord } from "./bridge.js";
 import type { HistoryRetention } from "../shared/app-contracts.js";
 import { historyRetentionLabel } from "./history-retention.js";
 import {
@@ -19,7 +19,7 @@ export interface RecordUndoRequest {
 
 interface CommonRecordBrowserProps {
   offerUndo: (action: RecordUndoRequest) => void;
-  readerBridge: ReaderWindowRuntimeBridge;
+  readerBridge: ReaderWindowRoleBridge;
 }
 
 export type RecordBrowserProps = CommonRecordBrowserProps &
@@ -49,19 +49,19 @@ interface RecordBrowserAdapter<TRecord extends BrowserRecord> {
   undoMessage: string;
   clearCopyFeedbackOnDelete: boolean;
   clearCopyFeedbackOnSelect: boolean;
-  deleteRecord: (readerBridge: ReaderWindowRuntimeBridge, id: string) => Promise<string | undefined>;
+  deleteRecord: (readerBridge: ReaderWindowRoleBridge, id: string) => Promise<string | undefined>;
   extraAction?: {
     completedLabel: string;
     errorLabel: string;
     idleLabel: string;
-    run: (readerBridge: ReaderWindowRuntimeBridge, id: string) => Promise<boolean>;
+    run: (readerBridge: ReaderWindowRoleBridge, id: string) => Promise<boolean>;
   };
   getTime: (record: TRecord) => number;
   groupRecords: (records: TRecord[]) => RecordGroup<TRecord>[];
-  listRecords: (readerBridge: ReaderWindowRuntimeBridge) => Promise<TRecord[]>;
+  listRecords: (readerBridge: ReaderWindowRoleBridge) => Promise<TRecord[]>;
   renderMetadata: (record: TRecord) => ReactNode;
-  replayRecord: (readerBridge: ReaderWindowRuntimeBridge, id: string) => Promise<{ started: boolean; sessionId?: number }>;
-  undoDeletion: (readerBridge: ReaderWindowRuntimeBridge, undoToken: string) => Promise<boolean>;
+  replayRecord: (readerBridge: ReaderWindowRoleBridge, id: string) => Promise<{ started: boolean; sessionId?: number }>;
+  undoDeletion: (readerBridge: ReaderWindowRoleBridge, undoToken: string) => Promise<boolean>;
 }
 
 const HISTORY_ADAPTER: RecordBrowserAdapter<ReadingHistoryRecord> = {
@@ -163,7 +163,7 @@ function RecordBrowserView<TRecord extends BrowserRecord>({
   kind: "history" | "favorites";
   onManageHistory?: () => void;
   offerUndo: (action: RecordUndoRequest) => void;
-  readerBridge: ReaderWindowRuntimeBridge;
+  readerBridge: ReaderWindowRoleBridge;
 }): ReactElement {
   const [records, setRecords] = useState<TRecord[]>([]);
   const [selectedId, setSelectedId] = useState<string | undefined>();
@@ -522,7 +522,7 @@ function DetailWaveform({ label }: { label: string }): ReactElement {
 }
 
 function useReplaySessionId(
-  readerBridge: ReaderWindowRuntimeBridge
+  readerBridge: ReaderWindowRoleBridge
 ): readonly [number | undefined, (sessionId: number | undefined) => void] {
   const [replaySessionId, setReplaySessionId] = useState<number | undefined>();
 

@@ -57,7 +57,7 @@ Issue 使用 Linear 原生状态和依赖关系；标签含义见 `docs/agents/t
 ## 编码约定
 
 - 使用 TypeScript strict mode，避免引入 `any` 和未建模的跨进程对象。
-- 共享类型优先放在 `src/shared/`；应用数据 payload 优先更新 `src/shared/app-contracts.ts`，跨 renderer/main 的 bridge/channel contract 优先更新 `src/shared/bridge-contracts/`。
+- 共享类型优先放在 `src/shared/`；应用数据 payload 优先更新 `src/shared/app-contracts.ts`。跨 renderer/main 能力先更新 `src/shared/role-bridge-contracts.ts` 中已有角色的 endpoint，并复用 `src/shared/bridge-contracts/` 的 channel 常量与 `src/shared/app-contracts.ts` 的 payload 类型；不得另写一套 preload/main channel wiring。
 - Renderer 只能通过 preload bridge 调用受控能力，不直接使用 Node 或 Electron main API。
 - 用户可见文案默认使用中文；领域概念使用 `CONTEXT.md` 中定义的术语。
 - 涉及产品行为、隐私边界、本地持久化或架构选择时，先检查 `docs/adr/` 是否已有决策。
@@ -84,7 +84,7 @@ feat: add language-scoped voice preference
 
 - 改动和 issue/PRD 对齐。
 - 用户可见行为、文案、隐私边界已经写清楚。
-- 新增跨进程能力已更新 shared contract、preload bridge 和调用方。
+- 新增跨进程能力已更新已有 role-scoped executable contract、main-owned implementation 和调用方；loopback 验证行为，构建后的对应 preload VM probe 验证最小权限，且没有 URL/pathname 角色推断或手写 IPC 镜像。
 - 本地数据结构变更通过 `AppDataStore.open(path)` 的版本化 lifecycle，有真实历史 SQLite fixture、原子 rollback 与 packaged upgrade smoke。
 - 已运行并记录相关验证命令。
 - 没有提交构建产物、密钥、SQLite 数据库或临时文件。

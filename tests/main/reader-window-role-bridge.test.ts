@@ -1,24 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  createAppDataImplementation,
-  type AppDataImplementationDependencies
-} from "../../src/main/app-bridge-handlers/app-data.js";
-import {
-  createAppShellImplementation,
-  type AppShellImplementationDependencies
-} from "../../src/main/app-bridge-handlers/app-shell.js";
-import {
   createClipboardImplementation,
   type ClipboardImplementationDependencies
 } from "../../src/main/app-bridge-handlers/clipboard.js";
-import { DEFAULT_APP_SETTINGS } from "../../src/main/data/app-data-store.js";
 import {
-  appDataRoleContract,
-  appShellRoleContract,
-  clipboardRoleContract,
-  readerWindowRoleContract
-} from "../../src/shared/role-bridge-contracts.js";
+  createReaderWindowBeforeInvoke,
+  createReaderWindowImplementation,
+  type ReaderWindowInvocationDependencies,
+  type ReaderWindowImplementationDependencies
+} from "../../src/main/app-role-bridges.js";
+import { DEFAULT_APP_SETTINGS } from "../../src/main/data/app-data-store.js";
+import { clipboardRoleContract, readerWindowRoleContract } from "../../src/shared/role-bridge-contracts.js";
 import { InMemoryRoleBridgeLoopback } from "../../src/shared/role-bridge-loopback.js";
 import { createRoleBridge, registerRoleHandlers } from "../../src/shared/role-bridge-registry.js";
 
@@ -61,7 +54,11 @@ describe("Reader Window role bridge", () => {
       setPreferredVoice: vi.fn(() => settings)
     };
     const playbackCommands = {
-      setActivationShortcut: vi.fn(() => ({ ok: true, settings }))
+      setActivationShortcut: vi.fn(() => ({ ok: true, settings })),
+      startReadingTargetPlayback: vi.fn(async () => ({ started: true })),
+      startHistoryReplay: vi.fn(async () => ({ started: true })),
+      startFavoriteReplay: vi.fn(async () => ({ started: true })),
+      stopPlayback: vi.fn()
     };
     const playbackPreferences = {
       setSpeechRate: vi.fn(() => settings),
@@ -73,33 +70,20 @@ describe("Reader Window role bridge", () => {
     }));
     const setPendingRoute = vi.fn();
     const clipboard = { writeText: vi.fn() };
-    const appShellDependencies = {
-      appDataStore,
-      readBootstrapState,
-      setPendingRoute
-    } satisfies AppShellImplementationDependencies;
-    const appDataDependencies = {
+    const readerWindowDependencies = {
       app,
       appDataStore,
+      clipboard,
       minimaxAccountService,
       playbackCommands,
-      playbackPreferences
-    } satisfies AppDataImplementationDependencies;
-    const clipboardDependencies = { clipboard } satisfies ClipboardImplementationDependencies;
+      playbackPreferences,
+      readBootstrapState,
+      setPendingRoute
+    } satisfies ReaderWindowImplementationDependencies;
 
     registerRoleHandlers(
-      appShellRoleContract,
-      createAppShellImplementation(appShellDependencies),
-      loopback
-    );
-    registerRoleHandlers(
-      appDataRoleContract,
-      createAppDataImplementation(appDataDependencies),
-      loopback
-    );
-    registerRoleHandlers(
-      clipboardRoleContract,
-      createClipboardImplementation(clipboardDependencies),
+      readerWindowRoleContract,
+      createReaderWindowImplementation(readerWindowDependencies),
       loopback
     );
     const bridge = createRoleBridge(readerWindowRoleContract, loopback);
@@ -139,6 +123,10 @@ describe("Reader Window role bridge", () => {
     await expect(bridge.deleteFavoriteRecord("favorite-1")).resolves.toBe("favorite-undo");
     await expect(bridge.undoFavoriteDeletion("favorite-undo")).resolves.toBe(true);
     await bridge.copyText("copied text");
+    await expect(bridge.playReadingTarget()).resolves.toEqual({ started: true });
+    await expect(bridge.playHistoryRecord("history-1")).resolves.toEqual({ started: true });
+    await expect(bridge.playFavoriteRecord("favorite-1")).resolves.toEqual({ started: true });
+    await bridge.stopPlayback();
 
     expect(playbackPreferences.setSpeechRate).toHaveBeenCalledWith(1.4);
     expect(playbackPreferences.setModel).toHaveBeenCalledWith("speech-2.8-hd");
@@ -148,6 +136,8 @@ describe("Reader Window role bridge", () => {
     expect(minimaxAccountService.setPreferredVoice).toHaveBeenCalledWith("zh", "voice-1");
     expect(appDataStore.applyReadingHistoryRetention).toHaveBeenCalledWith("1m", 2);
     expect(clipboard.writeText).toHaveBeenCalledWith("copied text");
+    expect(playbackCommands.startHistoryReplay).toHaveBeenCalledWith("history-1");
+    expect(playbackCommands.startFavoriteReplay).toHaveBeenCalledWith("favorite-1");
   });
 
   it("preserves implementation failures as rejected bridge promises", async () => {
@@ -168,5 +158,20 @@ describe("Reader Window role bridge", () => {
 
     const bridge = createRoleBridge(clipboardRoleContract, loopback);
     await expect(bridge.copyText("text")).rejects.toThrow("clipboard unavailable");
+  });
+
+  it("reveals the previous app only for eligible Reader Window senders", async () => {
+    const revealPreviousAppBeforeCapture = vi.fn(async () => undefined);
+    const dependencies = {
+      readingTargetAcquirer: { revealPreviousAppBeforeCapture },
+      shouldRevealPreviousAppBeforeSelectionCapture: (senderId: number) => senderId === 8
+    } satisfies ReaderWindowInvocationDependencies;
+    const beforeInvoke = createReaderWindowBeforeInvoke(dependencies);
+
+    await beforeInvoke.playReadingTarget?.({ senderId: 7 });
+    await beforeInvoke.playReadingTarget?.({ senderId: 8 });
+    await beforeInvoke.playReadingTarget?.({});
+
+    expect(revealPreviousAppBeforeCapture).toHaveBeenCalledOnce();
   });
 });
