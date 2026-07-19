@@ -639,7 +639,7 @@ function Settings(): ReactElement {
   };
 
   const updateSpeechRate = async (speechRate: number): Promise<void> => {
-    const next = await readerBridge.updateSettings({ speechRate });
+    const next = await readerBridge.setSpeechRate(speechRate);
     setSettings(next);
   };
 
@@ -650,14 +650,14 @@ function Settings(): ReactElement {
       }
       return;
     }
-    const next = await readerBridge.updateSettings({ model });
+    const next = await readerBridge.setModel(model);
     setSettings(next);
   };
 
   const saveCustomModel = async (): Promise<void> => {
     const model = customModelDraft.trim();
     if (!model) return;
-    const next = await readerBridge.updateSettings({ model });
+    const next = await readerBridge.setModel(model);
     setSettings(next);
   };
 

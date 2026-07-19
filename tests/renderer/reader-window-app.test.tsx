@@ -508,6 +508,30 @@ describe("ReaderWindowApp", () => {
     expect(screen.queryByRole("button", { name: "标记首次配置完成" })).not.toBeInTheDocument();
   });
 
+  it("updates Speech Rate and Model through their semantic bridge commands", async () => {
+    const bridge = renderReaderWindow({
+      bootstrapRoute: "settings",
+      settings: createVerifiedSettings({ model: "existing-custom-model" })
+    });
+    const setSpeechRate = vi.spyOn(bridge, "setSpeechRate");
+    const setModel = vi.spyOn(bridge, "setModel");
+    const genericUpdate = vi.spyOn(bridge, "updateSettings");
+
+    const speechRate = await screen.findByRole("slider", { name: "语速" });
+    fireEvent.change(speechRate, { target: { value: "1.6" } });
+    await waitFor(() => expect(setSpeechRate).toHaveBeenCalledWith(1.6));
+
+    const customModel = screen.getByLabelText("自定义 Model ID");
+    await userEvent.clear(customModel);
+    await userEvent.type(customModel, " custom-model-v2 ");
+    await userEvent.click(screen.getByRole("button", { name: "保存 Model" }));
+    await waitFor(() => expect(setModel).toHaveBeenCalledWith("custom-model-v2"));
+
+    await userEvent.selectOptions(screen.getByLabelText("Model"), "speech-2.8-hd");
+    await waitFor(() => expect(setModel).toHaveBeenCalledWith("speech-2.8-hd"));
+    expect(genericUpdate).not.toHaveBeenCalled();
+  });
+
   it("keeps the Settings layout stable while settings are loading", async () => {
     const settings = createVerifiedSettings();
     let resolveSettings!: (value: AppSettings) => void;
@@ -678,6 +702,14 @@ function createReaderBridge(
     getSettings: async () => settings,
     updateSettings: async (patch) => {
       settings = { ...settings, ...patch };
+      return settings;
+    },
+    setSpeechRate: async (speechRate) => {
+      settings = { ...settings, speechRate };
+      return settings;
+    },
+    setModel: async (model) => {
+      settings = { ...settings, model };
       return settings;
     },
     setLaunchAtLogin: async (launchAtLogin) => {

@@ -18,6 +18,9 @@ export function createAppDataBridge(ipc: PreloadIpc): AppDataBridge {
     getSettings: () => invoke<AppSettings>(ipc, APP_DATA_CHANNELS.getSettings),
     updateSettings: (patch: AppSettingsPatch) =>
       invoke<AppSettings>(ipc, APP_DATA_CHANNELS.updateSettings, patch),
+    setSpeechRate: (speechRate: number) =>
+      invoke<AppSettings>(ipc, APP_DATA_CHANNELS.setSpeechRate, speechRate),
+    setModel: (model: string) => invoke<AppSettings>(ipc, APP_DATA_CHANNELS.setModel, model),
     setLaunchAtLogin: (launchAtLogin: boolean) =>
       invoke<AppSettings>(ipc, APP_DATA_CHANNELS.setLaunchAtLogin, launchAtLogin),
     setActivationShortcut: (shortcut: string) =>

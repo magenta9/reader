@@ -15,6 +15,7 @@ import { registerAppBridgeHandlers } from "./app-bridge-handlers.js";
 import { AppPresenceController } from "./app-presence-controller.js";
 import { AppDataStore } from "./data/app-data-store.js";
 import { MiniMaxAccountService } from "./data/minimax-account-service.js";
+import { PlaybackPreferencesCommands } from "./data/playback-preferences-commands.js";
 import { APP_SHELL_CHANNELS } from "../shared/bridge-contracts.js";
 import type {
   AppRoute,
@@ -88,6 +89,7 @@ async function bootstrap(): Promise<void> {
     return;
   }
   minimaxAccountService = new MiniMaxAccountService(appDataStore);
+  const playbackPreferences = new PlaybackPreferencesCommands(appDataStore);
   overlayController = new PlaybackOverlayController();
   appPresence = new AppPresenceController({
     app,
@@ -122,6 +124,7 @@ async function bootstrap(): Promise<void> {
     clipboard,
     ipcMain,
     minimaxAccountService,
+    playbackPreferences,
     overlayController,
     playbackCommands,
     readingTargetAcquirer,

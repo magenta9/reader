@@ -5,7 +5,12 @@ import type { AppBridgeHandlerDependencies } from "./dependencies.js";
 
 type AppDataHandlerDependencies = Pick<
   AppBridgeHandlerDependencies,
-  "app" | "appDataStore" | "ipcMain" | "minimaxAccountService" | "playbackCommands"
+  | "app"
+  | "appDataStore"
+  | "ipcMain"
+  | "minimaxAccountService"
+  | "playbackCommands"
+  | "playbackPreferences"
 >;
 
 export function registerAppDataHandlers({
@@ -13,11 +18,18 @@ export function registerAppDataHandlers({
   appDataStore,
   ipcMain,
   minimaxAccountService,
-  playbackCommands
+  playbackCommands,
+  playbackPreferences
 }: AppDataHandlerDependencies): void {
   ipcMain.handle(APP_DATA_CHANNELS.getSettings, () => appDataStore.getSettings());
   ipcMain.handle(APP_DATA_CHANNELS.updateSettings, (_event, patch: AppSettingsPatch) =>
     appDataStore.updateSettings(withoutHistoryRetention(patch))
+  );
+  ipcMain.handle(APP_DATA_CHANNELS.setSpeechRate, (_event, speechRate: number) =>
+    playbackPreferences.setSpeechRate(speechRate)
+  );
+  ipcMain.handle(APP_DATA_CHANNELS.setModel, (_event, model: string) =>
+    playbackPreferences.setModel(model)
   );
   ipcMain.handle(APP_DATA_CHANNELS.setLaunchAtLogin, (_event, launchAtLogin: boolean) => {
     app.setLoginItemSettings({ openAtLogin: launchAtLogin });
