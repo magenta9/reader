@@ -171,7 +171,7 @@ function createPlaybackRendererWindow(): BrowserWindow {
     skipTaskbar: true,
     focusable: false,
     webPreferences: {
-      preload: join(mainBundleDir, "../preload/preload.cjs"),
+      preload: join(mainBundleDir, "../preload/playback-renderer.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -196,7 +196,7 @@ function openReaderWindow(route: AppRoute): void {
       titleBarStyle: "hiddenInset",
       trafficLightPosition: { x: 18, y: 18 },
       webPreferences: {
-        preload: join(mainBundleDir, "../preload/preload.cjs"),
+        preload: join(mainBundleDir, "../preload/reader-window.cjs"),
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: false

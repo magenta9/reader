@@ -2,13 +2,17 @@ import { BrowserWindow, screen } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OverlayMetric, SessionOverlayMetric } from "../../shared/app-contracts.js";
+import { PLAYBACK_OVERLAY_TIMING } from "../../shared/bridge-contracts.js";
+import { playbackOverlayRoleContract } from "../../shared/role-bridge-contracts.js";
 import {
-  PLAYBACK_OVERLAY_EVENT_CHANNELS,
-  PLAYBACK_OVERLAY_TIMING
-} from "../../shared/bridge-contracts.js";
+  createRoleEventEmitter,
+  type EventEmitterFromContract
+} from "../../shared/role-bridge-registry.js";
+import { createElectronMainRoleEventTransport } from "../electron-main-role-transport.js";
 
 export class PlaybackOverlayController {
   private overlayWindow: BrowserWindow | undefined;
+  private overlayEvents: EventEmitterFromContract<typeof playbackOverlayRoleContract> | undefined;
   private visibilityGeneration = 0;
   private overlayReady = false;
   private pendingShow = false;
@@ -46,7 +50,7 @@ export class PlaybackOverlayController {
       this.pendingMetric = nextMetric;
       return;
     }
-    this.overlayWindow?.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.metric, nextMetric);
+    this.overlayEvents?.emitOverlayMetric(nextMetric);
   }
 
   markReady(): void {
@@ -83,6 +87,7 @@ export class PlaybackOverlayController {
       this.overlayWindow.destroy();
     }
     this.overlayWindow = undefined;
+    this.overlayEvents = undefined;
     this.overlayReady = false;
     this.activeSessionId = undefined;
     this.pendingShow = false;
@@ -112,12 +117,16 @@ export class PlaybackOverlayController {
       focusable: false,
       hasShadow: false,
       webPreferences: {
-        preload: join(mainBundleDir, "../preload/preload.cjs"),
+        preload: join(mainBundleDir, "../preload/playback-overlay.cjs"),
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: false
       }
     });
+    this.overlayEvents = createRoleEventEmitter(
+      playbackOverlayRoleContract,
+      createElectronMainRoleEventTransport(this.overlayWindow.webContents)
+    );
     this.overlayReady = false;
     this.overlayWindow.setIgnoreMouseEvents(true);
     attachOverlayToFullscreenSpaces(this.overlayWindow);
@@ -139,20 +148,28 @@ export class PlaybackOverlayController {
   private flushPendingState(): void {
     const window = this.overlayWindow;
     if (!this.overlayReady || !window || window.isDestroyed()) return;
+    const events = this.getEvents();
     if (this.pendingShow) {
       this.pendingShow = false;
-      window.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.show);
+      events.emitOverlayShow();
     }
     if (this.pendingMetric) {
-      window.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS.metric, this.pendingMetric);
+      events.emitOverlayMetric(this.pendingMetric);
       this.pendingMetric = undefined;
     }
     if (this.pendingOutcome) {
       const outcome = this.pendingOutcome;
       this.pendingOutcome = undefined;
-      window.webContents.send(PLAYBACK_OVERLAY_EVENT_CHANNELS[outcome]);
+      if (outcome === "finish") events.emitOverlayFinish();
+      else if (outcome === "fail") events.emitOverlayFail();
+      else events.emitOverlayStop();
       this.hideAfterOutcome(outcome);
     }
+  }
+
+  private getEvents(): EventEmitterFromContract<typeof playbackOverlayRoleContract> {
+    if (!this.overlayEvents) throw new Error("Playback Overlay event bridge is unavailable.");
+    return this.overlayEvents;
   }
 
   private hideAfterOutcome(outcome: keyof typeof PLAYBACK_OVERLAY_TIMING.outcomeHoldMs): void {

@@ -217,6 +217,19 @@ export const clipboardRoleContract = selectRoleBridgeContract(readerWindowRoleCo
   "copyText"
 ] as const);
 
+export const playbackControlRoleContract = selectRoleBridgeContract(readerWindowRoleContract, [
+  "playReadingTarget",
+  "playHistoryRecord",
+  "playFavoriteRecord",
+  "stopPlayback"
+] as const);
+
+export const playbackFeedbackRoleContract = selectRoleBridgeContract(readerWindowRoleContract, [
+  "onPlaybackFinish",
+  "onPlaybackFail",
+  "onPlaybackStop"
+] as const);
+
 export type ReaderWindowRoleBridge = BridgeFromContract<typeof readerWindowRoleContract>;
 export type PlaybackRendererRoleBridge = BridgeFromContract<typeof playbackRendererRoleContract>;
 export type PlaybackOverlayRoleBridge = BridgeFromContract<typeof playbackOverlayRoleContract>;

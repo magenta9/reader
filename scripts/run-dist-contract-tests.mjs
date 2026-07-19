@@ -15,6 +15,9 @@ const { PlaybackCommandController } = await import(
 const { registerPlaybackControlHandlers } = await import(
   "../dist/main/app-bridge-handlers/playback-control.js"
 );
+const { registerPlaybackRendererHandlers } = await import(
+  "../dist/main/app-bridge-handlers/playback-renderer.js"
+);
 const { streamMiniMaxSpeechAudio } = await import("../dist/shared/minimax.js");
 const { PLAYBACK_FEEDBACK_SURFACES } = await import("../dist/shared/app-contracts.js");
 const {
@@ -32,6 +35,17 @@ const bridgeContractModuleChecks = [
     distPath: "../dist/shared/bridge-contracts/app-shell.js",
     sourcePath: "../src/shared/bridge-contracts/app-shell.ts",
     expectedValues: ["APP_SHELL_CHANNELS", "interface AppShellBridge"]
+  },
+  {
+    distPath: "../dist/main/app-bridge-handlers/playback-renderer.js",
+    sourcePath: "../src/main/app-bridge-handlers/playback-renderer.ts",
+    expectedValues: [
+      "registerPlaybackRendererHandlers",
+      "playbackRendererRoleContract",
+      "registerRoleHandlers",
+      "reportAudioOutcome",
+      "sendOverlayMetric"
+    ]
   },
   {
     distPath: "../dist/shared/bridge-contracts/app-data.js",
@@ -114,7 +128,12 @@ const mainBridgeHandlerModuleChecks = [
   {
     distPath: "../dist/main/app-bridge-handlers/playback-overlay.js",
     sourcePath: "../src/main/app-bridge-handlers/playback-overlay.ts",
-    expectedValues: ["registerPlaybackOverlayHandlers", "PLAYBACK_OVERLAY_COMMAND_CHANNELS"]
+    expectedValues: [
+      "registerPlaybackOverlayHandlers",
+      "playbackOverlayRoleContract",
+      "registerRoleHandlers",
+      "notifyOverlayReady"
+    ]
   }
 ];
 
@@ -142,7 +161,7 @@ const preloadBridgeAdapterModuleChecks = [
   {
     distPath: "../dist/preload/bridge-adapters/playback-control.js",
     sourcePath: "../src/preload/bridge-adapters/playback-control.ts",
-    expectedValues: ["createPlaybackControlBridge", "PLAYBACK_CONTROL_CHANNELS"]
+    expectedValues: ["createPlaybackControlBridge", "playbackControlRoleContract", "createRoleBridge"]
   },
   {
     distPath: "../dist/preload/bridge-adapters/clipboard.js",
@@ -160,8 +179,9 @@ const preloadBridgeAdapterModuleChecks = [
     expectedValues: [
       "createPlaybackFeedbackBridge",
       "createPlaybackRendererBridge",
-      "RENDERER_AUDIO_CHANNELS",
-      "PLAYBACK_OVERLAY_COMMAND_CHANNELS"
+      "playbackFeedbackRoleContract",
+      "playbackRendererRoleContract",
+      "createRoleBridge"
     ]
   },
   {
@@ -169,8 +189,8 @@ const preloadBridgeAdapterModuleChecks = [
     sourcePath: "../src/preload/bridge-adapters/playback-overlay.ts",
     expectedValues: [
       "createPlaybackOverlayBridge",
-      "PLAYBACK_OVERLAY_EVENT_CHANNELS",
-      "PLAYBACK_OVERLAY_COMMAND_CHANNELS"
+      "playbackOverlayRoleContract",
+      "createRoleBridge"
     ]
   },
   {
@@ -193,13 +213,18 @@ const roleBridgeModuleChecks = [
       "readerWindowRoleContract",
       "appShellRoleContract",
       "appDataRoleContract",
-      "clipboardRoleContract"
+      "clipboardRoleContract",
+      "playbackControlRoleContract",
+      "playbackFeedbackRoleContract"
     ]
   },
   {
     distPath: "../dist/main/electron-main-role-transport.js",
     sourcePath: "../src/main/electron-main-role-transport.ts",
-    expectedValues: ["createElectronMainRoleHandlerTransport"]
+    expectedValues: [
+      "createElectronMainRoleHandlerTransport",
+      "createElectronMainRoleEventTransport"
+    ]
   },
   {
     distPath: "../dist/preload/electron-renderer-role-transport.js",
@@ -218,7 +243,9 @@ for (const path of [
   "../dist/shared/app-contracts.js",
   "../dist/shared/bridge-contracts.js",
   ...bridgeContractModuleChecks.map(({ distPath }) => distPath),
-  "../dist/preload/preload.cjs",
+  "../dist/preload/reader-window.cjs",
+  "../dist/preload/playback-renderer.cjs",
+  "../dist/preload/playback-overlay.cjs",
   ...preloadBridgeAdapterModuleChecks.map(({ distPath }) => distPath),
   ...roleBridgeModuleChecks.map(({ distPath }) => distPath),
   "../dist/renderer/index.html",
@@ -237,6 +264,7 @@ for (const path of [
   assertFileExists(path);
 }
 assertFileMissing("../dist/preload/preload.js");
+assertFileMissing("../dist/preload/preload.cjs");
 if (process.platform === "darwin") {
   assertFileExists("../dist/native/selection-copy-macos.node");
 }
@@ -245,8 +273,27 @@ const mainBundle = await readFile(new URL("../dist/main/main.js", import.meta.ur
 const appContractsBundle = await readFile(new URL("../dist/shared/app-contracts.js", import.meta.url), "utf8");
 const appContractsSource = await readFile(new URL("../src/shared/app-contracts.ts", import.meta.url), "utf8");
 const bridgeContractsSource = await readFile(new URL("../src/shared/bridge-contracts.ts", import.meta.url), "utf8");
-const preloadBundle = await readFile(new URL("../dist/preload/preload.cjs", import.meta.url), "utf8");
-const preloadSource = await readFile(new URL("../src/preload/preload.ts", import.meta.url), "utf8");
+const readerPreloadBundle = await readFile(
+  new URL("../dist/preload/reader-window.cjs", import.meta.url),
+  "utf8"
+);
+const playbackRendererPreloadBundle = await readFile(
+  new URL("../dist/preload/playback-renderer.cjs", import.meta.url),
+  "utf8"
+);
+const playbackOverlayPreloadBundle = await readFile(
+  new URL("../dist/preload/playback-overlay.cjs", import.meta.url),
+  "utf8"
+);
+const readerPreloadSource = await readFile(new URL("../src/preload/reader-window.ts", import.meta.url), "utf8");
+const playbackRendererPreloadSource = await readFile(
+  new URL("../src/preload/playback-renderer.ts", import.meta.url),
+  "utf8"
+);
+const playbackOverlayPreloadSource = await readFile(
+  new URL("../src/preload/playback-overlay.ts", import.meta.url),
+  "utf8"
+);
 const rendererHtml = await readFile(new URL("../dist/renderer/index.html", import.meta.url), "utf8");
 const rendererBundle = await readFile(new URL("../dist/renderer/renderer.js", import.meta.url), "utf8");
 const playbackRendererHtml = await readFile(new URL("../dist/playback-renderer/index.html", import.meta.url), "utf8");
@@ -314,7 +361,9 @@ assertIncludes(mainBundle, [
   "minHeight: 620",
   "titleBarStyle",
   "hiddenInset",
-  "../preload/preload.cjs",
+  "../preload/reader-window.cjs",
+  "../preload/playback-renderer.cjs",
+  "../preload/playback-overlay.cjs",
   "setPath",
   "userData",
   "AppPresenceController",
@@ -375,6 +424,7 @@ assertIncludes(appBridgeHandlersSource, [
   "registerAppShellHandlers",
   "registerAppDataHandlers",
   "registerPlaybackControlHandlers",
+  "registerPlaybackRendererHandlers",
   "registerClipboardHandlers",
   "registerPlaybackOverlayHandlers"
 ]);
@@ -475,27 +525,39 @@ assertMissing(bridgeContractsSource, [
   "interface PlaybackControlBridge",
   "interface ClipboardBridge"
 ]);
-assertMissing(preloadBundle, "../renderer/bridge");
+for (const preloadBundle of [
+  readerPreloadBundle,
+  playbackRendererPreloadBundle,
+  playbackOverlayPreloadBundle
+]) {
+  assertMissing(preloadBundle, ["../renderer/bridge", "window.location", "pathname"]);
+}
 for (const { name, source, expectedValues } of [
   {
-    name: "preload runtime bridge",
-    source: preloadSource,
+    name: "reader preload entrypoint",
+    source: readerPreloadSource,
     expectedValues: [
-      "readerWindowBridge",
-      "playbackRendererBridge",
-      "playbackOverlayBridge",
-      "createAppShellBridge",
-      "createAppDataBridge",
-      "createPlaybackControlBridge",
-      "createClipboardBridge",
-      "createPlaybackFeedbackBridge",
-      "createPlaybackRendererBridge",
-      "createPlaybackOverlayBridge",
-      "createRuntimeBridge",
-      "isPlaybackOverlayRuntime",
-      'window.location.pathname.includes("/overlay/")',
-      "isPlaybackRendererRuntime",
-      'window.location.pathname.includes("/playback-renderer/")'
+      "readerWindowRoleContract",
+      "createRoleBridge",
+      "createElectronRendererRoleTransport"
+    ]
+  },
+  {
+    name: "playback renderer preload entrypoint",
+    source: playbackRendererPreloadSource,
+    expectedValues: [
+      "playbackRendererRoleContract",
+      "createRoleBridge",
+      "createElectronRendererRoleTransport"
+    ]
+  },
+  {
+    name: "playback overlay preload entrypoint",
+    source: playbackOverlayPreloadSource,
+    expectedValues: [
+      "playbackOverlayRoleContract",
+      "createRoleBridge",
+      "createElectronRendererRoleTransport"
     ]
   },
   {
@@ -529,9 +591,9 @@ for (const { name, source, expectedValues } of [
     assert.equal(source.includes(expected), true, `${name} should include ${expected}`);
   }
 }
-const readerRuntimeBridge = evaluatePreloadBridge("/renderer/index.html");
-const playbackRendererRuntimeBridge = evaluatePreloadBridge("/playback-renderer/index.html");
-const overlayRuntimeBridge = evaluatePreloadBridge("/overlay/index.html");
+const readerRuntimeBridge = evaluatePreloadBridge(readerPreloadBundle);
+const playbackRendererRuntimeBridge = evaluatePreloadBridge(playbackRendererPreloadBundle);
+const overlayRuntimeBridge = evaluatePreloadBridge(playbackOverlayPreloadBundle);
 assert.equal(typeof readerRuntimeBridge.getSettings, "function");
 assert.equal(typeof readerRuntimeBridge.setSpeechRate, "function");
 assert.equal(typeof readerRuntimeBridge.setModel, "function");
@@ -575,7 +637,7 @@ assert.equal(typeof overlayRuntimeBridge.onPlaybackStart, "undefined");
 assert.equal(typeof overlayRuntimeBridge.onPlaybackFinish, "undefined");
 
 const preferenceInvocations = [];
-const builtPreferenceBridge = evaluatePreloadBridge("/renderer/index.html", async (channel, ...args) => {
+const builtPreferenceBridge = evaluatePreloadBridge(readerPreloadBundle, async (channel, ...args) => {
   preferenceInvocations.push([channel, ...args]);
   return { speechRate: args[0], model: args[0] };
 });
@@ -997,10 +1059,9 @@ function assertOverlayPassiveCoverage() {
   assertMissing(playbackOverlayBridgeSource, ["OverlayDragDelta", "moveOverlayBy"]);
 }
 
-function evaluatePreloadBridge(pathname, invoke = async () => undefined) {
+function evaluatePreloadBridge(preloadBundle, invoke = async () => undefined) {
   let exposed;
   const sandbox = {
-    window: { location: { pathname } },
     require(specifier) {
       if (specifier !== "electron") throw new Error(`Unexpected preload require: ${specifier}`);
       return {
@@ -1147,6 +1208,15 @@ async function createBuiltPlaybackLifecycleScenario({
     playbackCommands: commands,
     readingTargetAcquirer: { revealPreviousAppBeforeCapture: async () => undefined },
     shouldRevealPreviousAppBeforeSelectionCapture: () => false
+  });
+  registerPlaybackRendererHandlers({
+    ipcMain: {
+      handle(channel, handler) {
+        handlers.set(channel, handler);
+      }
+    },
+    playbackCommands: commands,
+    overlayController: { sendMetric() {} }
   });
   return {
     ...outputScenario,
