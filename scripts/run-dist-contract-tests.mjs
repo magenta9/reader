@@ -3,9 +3,20 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { verifyBuiltVoiceReader } from "./build-verifier.mjs";
 
 const shouldBuild = !process.argv.includes("--no-build");
 if (shouldBuild) await run("scripts/build.mjs", []);
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const buildVerification = await verifyBuiltVoiceReader(resolve(root, "dist"));
+if (!buildVerification.ok) {
+  const diagnostics = buildVerification.findings
+    .map(({ category, artifact, reason }) => `[${category}] ${artifact}: ${reason}`)
+    .join("\n");
+  throw new Error(`Build verification failed:\n${diagnostics}`);
+}
 
 const { ElectronPlaybackOutput } = await import("../dist/main/playback/electron-playback-output.js");
 const { PlaybackService } = await import("../dist/main/playback/playback-service.js");
