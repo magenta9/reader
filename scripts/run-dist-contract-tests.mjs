@@ -467,6 +467,9 @@ const readerRuntimeBridge = evaluatePreloadBridge("/renderer/index.html");
 const playbackRendererRuntimeBridge = evaluatePreloadBridge("/playback-renderer/index.html");
 const overlayRuntimeBridge = evaluatePreloadBridge("/overlay/index.html");
 assert.equal(typeof readerRuntimeBridge.getSettings, "function");
+assert.equal(typeof readerRuntimeBridge.setSpeechRate, "function");
+assert.equal(typeof readerRuntimeBridge.setModel, "function");
+assert.equal(typeof readerRuntimeBridge.updateSettings, "undefined");
 assert.equal(typeof readerRuntimeBridge.createFavoriteFromHistoryRecord, "function");
 assert.equal(typeof readerRuntimeBridge.listFavorites, "function");
 assert.equal(typeof readerRuntimeBridge.deleteFavoriteRecord, "function");
@@ -504,6 +507,18 @@ assert.equal(typeof overlayRuntimeBridge.onOverlayShow, "function");
 assert.equal(typeof overlayRuntimeBridge.getSettings, "undefined");
 assert.equal(typeof overlayRuntimeBridge.onPlaybackStart, "undefined");
 assert.equal(typeof overlayRuntimeBridge.onPlaybackFinish, "undefined");
+
+const preferenceInvocations = [];
+const builtPreferenceBridge = evaluatePreloadBridge("/renderer/index.html", async (channel, ...args) => {
+  preferenceInvocations.push([channel, ...args]);
+  return { speechRate: args[0], model: args[0] };
+});
+await builtPreferenceBridge.setSpeechRate(1.6);
+await builtPreferenceBridge.setModel("speech-2.8-hd");
+assert.deepEqual(preferenceInvocations, [
+  [APP_DATA_CHANNELS.setSpeechRate, 1.6],
+  [APP_DATA_CHANNELS.setModel, "speech-2.8-hd"]
+]);
 for (const { name, source } of [
   { name: "reader window entrypoint", source: rendererSource },
   { name: "reader window app", source: readerWindowAppSource },
@@ -912,7 +927,7 @@ function assertOverlayPassiveCoverage() {
   assertMissing(playbackOverlayBridgeSource, ["OverlayDragDelta", "moveOverlayBy"]);
 }
 
-function evaluatePreloadBridge(pathname) {
+function evaluatePreloadBridge(pathname, invoke = async () => undefined) {
   let exposed;
   const sandbox = {
     window: { location: { pathname } },
@@ -925,7 +940,7 @@ function evaluatePreloadBridge(pathname) {
           }
         },
         ipcRenderer: {
-          invoke: async () => undefined,
+          invoke,
           on() {},
           off() {}
         }

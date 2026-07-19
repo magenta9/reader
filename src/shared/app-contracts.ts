@@ -36,8 +36,6 @@ export interface AppSettings {
   preferredVoicesByLanguage: Partial<Record<DetectedLanguage, string>>;
 }
 
-export type AppSettingsPatch = Partial<Omit<AppSettings, "historyRetention">>;
-
 export interface BootstrapState {
   hasCompletedOnboarding: boolean;
   lastRoute: AppRoute;

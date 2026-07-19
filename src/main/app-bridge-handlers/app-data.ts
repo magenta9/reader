@@ -1,4 +1,4 @@
-import type { AppSettings, AppSettingsPatch, HistoryRetention } from "../../shared/app-contracts.js";
+import type { HistoryRetention } from "../../shared/app-contracts.js";
 import { APP_DATA_CHANNELS } from "../../shared/bridge-contracts.js";
 import type { DetectedLanguage } from "../../shared/types.js";
 import type { AppBridgeHandlerDependencies } from "./dependencies.js";
@@ -22,9 +22,6 @@ export function registerAppDataHandlers({
   playbackPreferences
 }: AppDataHandlerDependencies): void {
   ipcMain.handle(APP_DATA_CHANNELS.getSettings, () => appDataStore.getSettings());
-  ipcMain.handle(APP_DATA_CHANNELS.updateSettings, (_event, patch: AppSettingsPatch) =>
-    appDataStore.updateSettings(withoutHistoryRetention(patch))
-  );
   ipcMain.handle(APP_DATA_CHANNELS.setSpeechRate, (_event, speechRate: number) =>
     playbackPreferences.setSpeechRate(speechRate)
   );
@@ -79,10 +76,4 @@ export function registerAppDataHandlers({
   ipcMain.handle(APP_DATA_CHANNELS.undoFavoriteDeletion, (_event, undoToken: string) =>
     appDataStore.undoFavoriteDeletion(undoToken)
   );
-}
-
-function withoutHistoryRetention(patch: AppSettingsPatch): AppSettingsPatch {
-  const safePatch = { ...patch } as Partial<AppSettings>;
-  delete safePatch.historyRetention;
-  return safePatch;
 }

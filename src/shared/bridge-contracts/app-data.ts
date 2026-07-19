@@ -1,6 +1,5 @@
 import type {
   AppSettings,
-  AppSettingsPatch,
   FavoriteRecord,
   HistoryRetention,
   HistoryRetentionChangeResult,
@@ -13,7 +12,6 @@ import type { DetectedLanguage } from "../types.js";
 
 export const APP_DATA_CHANNELS = {
   getSettings: "app-data:get-settings",
-  updateSettings: "app-data:update-settings",
   setSpeechRate: "app-data:set-speech-rate",
   setModel: "app-data:set-model",
   setLaunchAtLogin: "app-data:set-launch-at-login",
@@ -41,7 +39,6 @@ export const APP_DATA_CHANNELS = {
 
 export interface AppDataBridge {
   getSettings: () => Promise<AppSettings>;
-  updateSettings: (patch: AppSettingsPatch) => Promise<AppSettings>;
   setSpeechRate: (speechRate: number) => Promise<AppSettings>;
   setModel: (model: string) => Promise<AppSettings>;
   setLaunchAtLogin: (launchAtLogin: boolean) => Promise<AppSettings>;

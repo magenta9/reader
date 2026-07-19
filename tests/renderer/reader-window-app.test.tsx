@@ -515,7 +515,6 @@ describe("ReaderWindowApp", () => {
     });
     const setSpeechRate = vi.spyOn(bridge, "setSpeechRate");
     const setModel = vi.spyOn(bridge, "setModel");
-    const genericUpdate = vi.spyOn(bridge, "updateSettings");
 
     const speechRate = await screen.findByRole("slider", { name: "语速" });
     fireEvent.change(speechRate, { target: { value: "1.6" } });
@@ -529,7 +528,6 @@ describe("ReaderWindowApp", () => {
 
     await userEvent.selectOptions(screen.getByLabelText("Model"), "speech-2.8-hd");
     await waitFor(() => expect(setModel).toHaveBeenCalledWith("speech-2.8-hd"));
-    expect(genericUpdate).not.toHaveBeenCalled();
   });
 
   it("keeps the Settings layout stable while settings are loading", async () => {
@@ -592,7 +590,6 @@ describe("ReaderWindowApp", () => {
       impact: { historyRetention: "7d", deleteCount: 1, remainingCount: 1 },
       settings: { ...settings, historyRetention: "7d" }
     });
-    const genericUpdate = vi.spyOn(bridge, "updateSettings");
 
     const retentionSelect = await screen.findByLabelText("保留期限");
     await waitFor(() => expect(retentionSelect).toBeEnabled());
@@ -602,7 +599,6 @@ describe("ReaderWindowApp", () => {
     expect(confirmation).toHaveTextContent("改为7 天后，将删除 1 条超期历史记录，保留 1 条。收藏不会受影响。");
     expect(preview).toHaveBeenCalledWith("7d");
     expect(apply).not.toHaveBeenCalled();
-    expect(genericUpdate).not.toHaveBeenCalled();
 
     await userEvent.click(within(confirmation).getByRole("button", { name: "应用并删除 1 条" }));
 
@@ -700,10 +696,6 @@ function createReaderBridge(
     setRoute: async () => undefined,
     onNavigate: () => () => undefined,
     getSettings: async () => settings,
-    updateSettings: async (patch) => {
-      settings = { ...settings, ...patch };
-      return settings;
-    },
     setSpeechRate: async (speechRate) => {
       settings = { ...settings, speechRate };
       return settings;
