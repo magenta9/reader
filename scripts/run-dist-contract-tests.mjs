@@ -73,12 +73,23 @@ const mainBridgeHandlerModuleChecks = [
   {
     distPath: "../dist/main/app-bridge-handlers/app-shell.js",
     sourcePath: "../src/main/app-bridge-handlers/app-shell.ts",
-    expectedValues: ["registerAppShellHandlers", "APP_SHELL_CHANNELS"]
+    expectedValues: [
+      "registerAppShellHandlers",
+      "createAppShellImplementation",
+      "appShellRoleContract",
+      "registerRoleHandlers"
+    ]
   },
   {
     distPath: "../dist/main/app-bridge-handlers/app-data.js",
     sourcePath: "../src/main/app-bridge-handlers/app-data.ts",
-    expectedValues: ["registerAppDataHandlers", "APP_DATA_CHANNELS", "setPreferredVoice"]
+    expectedValues: [
+      "registerAppDataHandlers",
+      "createAppDataImplementation",
+      "appDataRoleContract",
+      "registerRoleHandlers",
+      "setPreferredVoice"
+    ]
   },
   {
     distPath: "../dist/main/app-bridge-handlers/playback-control.js",
@@ -93,7 +104,12 @@ const mainBridgeHandlerModuleChecks = [
   {
     distPath: "../dist/main/app-bridge-handlers/clipboard.js",
     sourcePath: "../src/main/app-bridge-handlers/clipboard.ts",
-    expectedValues: ["registerClipboardHandlers", "CLIPBOARD_CHANNELS"]
+    expectedValues: [
+      "registerClipboardHandlers",
+      "createClipboardImplementation",
+      "clipboardRoleContract",
+      "registerRoleHandlers"
+    ]
   },
   {
     distPath: "../dist/main/app-bridge-handlers/playback-overlay.js",
@@ -106,12 +122,22 @@ const preloadBridgeAdapterModuleChecks = [
   {
     distPath: "../dist/preload/bridge-adapters/app-shell.js",
     sourcePath: "../src/preload/bridge-adapters/app-shell.ts",
-    expectedValues: ["createAppShellBridge", "APP_SHELL_CHANNELS", "onNavigate"]
+    expectedValues: [
+      "createAppShellBridge",
+      "appShellRoleContract",
+      "createRoleBridge",
+      "createElectronRendererRoleTransport"
+    ]
   },
   {
     distPath: "../dist/preload/bridge-adapters/app-data.js",
     sourcePath: "../src/preload/bridge-adapters/app-data.ts",
-    expectedValues: ["createAppDataBridge", "APP_DATA_CHANNELS", "setPreferredVoice"]
+    expectedValues: [
+      "createAppDataBridge",
+      "appDataRoleContract",
+      "createRoleBridge",
+      "createElectronRendererRoleTransport"
+    ]
   },
   {
     distPath: "../dist/preload/bridge-adapters/playback-control.js",
@@ -121,7 +147,12 @@ const preloadBridgeAdapterModuleChecks = [
   {
     distPath: "../dist/preload/bridge-adapters/clipboard.js",
     sourcePath: "../src/preload/bridge-adapters/clipboard.ts",
-    expectedValues: ["createClipboardBridge", "CLIPBOARD_CHANNELS"]
+    expectedValues: [
+      "createClipboardBridge",
+      "clipboardRoleContract",
+      "createRoleBridge",
+      "createElectronRendererRoleTransport"
+    ]
   },
   {
     distPath: "../dist/preload/bridge-adapters/renderer-audio.js",
@@ -149,6 +180,34 @@ const preloadBridgeAdapterModuleChecks = [
   }
 ];
 
+const roleBridgeModuleChecks = [
+  {
+    distPath: "../dist/shared/role-bridge-registry.js",
+    sourcePath: "../src/shared/role-bridge-registry.ts",
+    expectedValues: ["createRoleBridge", "registerRoleHandlers", "selectRoleBridgeContract"]
+  },
+  {
+    distPath: "../dist/shared/role-bridge-contracts.js",
+    sourcePath: "../src/shared/role-bridge-contracts.ts",
+    expectedValues: [
+      "readerWindowRoleContract",
+      "appShellRoleContract",
+      "appDataRoleContract",
+      "clipboardRoleContract"
+    ]
+  },
+  {
+    distPath: "../dist/main/electron-main-role-transport.js",
+    sourcePath: "../src/main/electron-main-role-transport.ts",
+    expectedValues: ["createElectronMainRoleHandlerTransport"]
+  },
+  {
+    distPath: "../dist/preload/electron-renderer-role-transport.js",
+    sourcePath: "../src/preload/electron-renderer-role-transport.ts",
+    expectedValues: ["createElectronRendererRoleTransport"]
+  }
+];
+
 for (const path of [
   "../dist/main/main.js",
   "../dist/main/app-bridge-handlers.js",
@@ -161,6 +220,7 @@ for (const path of [
   ...bridgeContractModuleChecks.map(({ distPath }) => distPath),
   "../dist/preload/preload.cjs",
   ...preloadBridgeAdapterModuleChecks.map(({ distPath }) => distPath),
+  ...roleBridgeModuleChecks.map(({ distPath }) => distPath),
   "../dist/renderer/index.html",
   "../dist/renderer/renderer.js",
   "../dist/renderer/record-view-model.js",
@@ -232,7 +292,8 @@ const checkedSources = new Map();
 for (const { sourcePath, expectedValues } of [
   ...bridgeContractModuleChecks,
   ...mainBridgeHandlerModuleChecks,
-  ...preloadBridgeAdapterModuleChecks
+  ...preloadBridgeAdapterModuleChecks,
+  ...roleBridgeModuleChecks
 ]) {
   const source = await readFile(new URL(sourcePath, import.meta.url), "utf8");
   checkedSources.set(sourcePath, source);

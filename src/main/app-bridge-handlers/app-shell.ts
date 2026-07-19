@@ -1,11 +1,19 @@
-import type { AppRoute } from "../../shared/app-contracts.js";
-import { APP_SHELL_CHANNELS } from "../../shared/bridge-contracts.js";
+import { appShellRoleContract } from "../../shared/role-bridge-contracts.js";
+import {
+  registerRoleHandlers,
+  type ImplementationFromContract
+} from "../../shared/role-bridge-registry.js";
+import { createElectronMainRoleHandlerTransport } from "../electron-main-role-transport.js";
 import type { AppBridgeHandlerDependencies } from "./dependencies.js";
 
-type AppShellHandlerDependencies = Pick<
-  AppBridgeHandlerDependencies,
-  "appDataStore" | "ipcMain" | "readBootstrapState" | "setPendingRoute"
->;
+export interface AppShellImplementationDependencies {
+  appDataStore: Pick<AppBridgeHandlerDependencies["appDataStore"], "updateSettings">;
+  readBootstrapState: AppBridgeHandlerDependencies["readBootstrapState"];
+  setPendingRoute: AppBridgeHandlerDependencies["setPendingRoute"];
+}
+
+type AppShellHandlerDependencies = AppShellImplementationDependencies &
+  Pick<AppBridgeHandlerDependencies, "ipcMain">;
 
 export function registerAppShellHandlers({
   appDataStore,
@@ -13,12 +21,28 @@ export function registerAppShellHandlers({
   readBootstrapState,
   setPendingRoute
 }: AppShellHandlerDependencies): void {
-  ipcMain.handle(APP_SHELL_CHANNELS.getBootstrapState, () => readBootstrapState());
-  ipcMain.handle(APP_SHELL_CHANNELS.setRoute, (_event, route: AppRoute) => {
-    setPendingRoute(route);
-    appDataStore.updateSettings({ lastRoute: route });
-  });
-  ipcMain.handle(APP_SHELL_CHANNELS.setOnboardingComplete, (_event, complete: boolean) => {
-    appDataStore.updateSettings({ hasCompletedOnboarding: complete });
-  });
+  registerRoleHandlers(
+    appShellRoleContract,
+    createAppShellImplementation({ appDataStore, readBootstrapState, setPendingRoute }),
+    createElectronMainRoleHandlerTransport(ipcMain)
+  );
+}
+
+export function createAppShellImplementation({
+  appDataStore,
+  readBootstrapState,
+  setPendingRoute
+}: AppShellImplementationDependencies): ImplementationFromContract<
+  typeof appShellRoleContract
+> {
+  return {
+    getBootstrapState: () => readBootstrapState(),
+    setRoute: (route) => {
+      setPendingRoute(route);
+      appDataStore.updateSettings({ lastRoute: route });
+    },
+    setOnboardingComplete: (complete) => {
+      appDataStore.updateSettings({ hasCompletedOnboarding: complete });
+    }
+  };
 }

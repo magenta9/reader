@@ -23,6 +23,7 @@ import {
   defineRoleBridgeRegistry,
   eventEndpoint,
   invokeEndpoint,
+  selectRoleBridgeContract,
   type BridgeFromContract
 } from "./role-bridge-registry.js";
 
@@ -176,6 +177,44 @@ export const voiceReaderRoleBridgeRegistry = defineRoleBridgeRegistry([
   readerWindowRoleContract,
   playbackRendererRoleContract,
   playbackOverlayRoleContract
+] as const);
+
+export const appShellRoleContract = selectRoleBridgeContract(readerWindowRoleContract, [
+  "getBootstrapState",
+  "setOnboardingComplete",
+  "setRoute",
+  "onNavigate"
+] as const);
+
+export const appDataRoleContract = selectRoleBridgeContract(readerWindowRoleContract, [
+  "getSettings",
+  "setSpeechRate",
+  "setModel",
+  "setLaunchAtLogin",
+  "setActivationShortcut",
+  "setMiniMaxApiKey",
+  "clearMiniMaxApiKey",
+  "hasMiniMaxApiKey",
+  "verifyMiniMaxKey",
+  "refreshVoices",
+  "setPreferredVoice",
+  "getErrorLogCount",
+  "clearErrorLog",
+  "getReadingHistoryCount",
+  "previewReadingHistoryRetention",
+  "applyReadingHistoryRetention",
+  "listReadingHistory",
+  "deleteReadingHistoryRecord",
+  "undoReadingHistoryDeletion",
+  "clearReadingHistory",
+  "createFavoriteFromHistoryRecord",
+  "listFavorites",
+  "deleteFavoriteRecord",
+  "undoFavoriteDeletion"
+] as const);
+
+export const clipboardRoleContract = selectRoleBridgeContract(readerWindowRoleContract, [
+  "copyText"
 ] as const);
 
 export type ReaderWindowRoleBridge = BridgeFromContract<typeof readerWindowRoleContract>;

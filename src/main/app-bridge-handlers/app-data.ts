@@ -1,17 +1,47 @@
-import type { HistoryRetention } from "../../shared/app-contracts.js";
-import { APP_DATA_CHANNELS } from "../../shared/bridge-contracts.js";
-import type { DetectedLanguage } from "../../shared/types.js";
+import { appDataRoleContract } from "../../shared/role-bridge-contracts.js";
+import {
+  registerRoleHandlers,
+  type ImplementationFromContract
+} from "../../shared/role-bridge-registry.js";
+import { createElectronMainRoleHandlerTransport } from "../electron-main-role-transport.js";
 import type { AppBridgeHandlerDependencies } from "./dependencies.js";
 
-type AppDataHandlerDependencies = Pick<
-  AppBridgeHandlerDependencies,
-  | "app"
-  | "appDataStore"
-  | "ipcMain"
-  | "minimaxAccountService"
-  | "playbackCommands"
-  | "playbackPreferences"
->;
+export interface AppDataImplementationDependencies {
+  app: Pick<AppBridgeHandlerDependencies["app"], "setLoginItemSettings">;
+  appDataStore: Pick<
+    AppBridgeHandlerDependencies["appDataStore"],
+    | "getSettings"
+    | "updateSettings"
+    | "saveMiniMaxApiKey"
+    | "clearMiniMaxApiKey"
+    | "hasMiniMaxApiKey"
+    | "getErrorLogCount"
+    | "clearErrorLogs"
+    | "getReadingHistoryCount"
+    | "previewReadingHistoryRetention"
+    | "applyReadingHistoryRetention"
+    | "listReadingHistoryRecords"
+    | "deleteReadingHistoryRecord"
+    | "undoReadingHistoryDeletion"
+    | "clearReadingHistory"
+    | "createFavoriteFromHistoryRecord"
+    | "listFavoriteRecords"
+    | "deleteFavoriteRecord"
+    | "undoFavoriteDeletion"
+  >;
+  minimaxAccountService: Pick<
+    AppBridgeHandlerDependencies["minimaxAccountService"],
+    "verifyApiKey" | "refreshVoices" | "setPreferredVoice"
+  >;
+  playbackCommands: Pick<AppBridgeHandlerDependencies["playbackCommands"], "setActivationShortcut">;
+  playbackPreferences: Pick<
+    AppBridgeHandlerDependencies["playbackPreferences"],
+    "setSpeechRate" | "setModel"
+  >;
+}
+
+type AppDataHandlerDependencies = AppDataImplementationDependencies &
+  Pick<AppBridgeHandlerDependencies, "ipcMain">;
 
 export function registerAppDataHandlers({
   app,
@@ -21,59 +51,58 @@ export function registerAppDataHandlers({
   playbackCommands,
   playbackPreferences
 }: AppDataHandlerDependencies): void {
-  ipcMain.handle(APP_DATA_CHANNELS.getSettings, () => appDataStore.getSettings());
-  ipcMain.handle(APP_DATA_CHANNELS.setSpeechRate, (_event, speechRate: number) =>
-    playbackPreferences.setSpeechRate(speechRate)
+  registerRoleHandlers(
+    appDataRoleContract,
+    createAppDataImplementation({
+      app,
+      appDataStore,
+      minimaxAccountService,
+      playbackCommands,
+      playbackPreferences
+    }),
+    createElectronMainRoleHandlerTransport(ipcMain)
   );
-  ipcMain.handle(APP_DATA_CHANNELS.setModel, (_event, model: string) =>
-    playbackPreferences.setModel(model)
-  );
-  ipcMain.handle(APP_DATA_CHANNELS.setLaunchAtLogin, (_event, launchAtLogin: boolean) => {
-    app.setLoginItemSettings({ openAtLogin: launchAtLogin });
-    return appDataStore.updateSettings({ launchAtLogin });
-  });
-  ipcMain.handle(APP_DATA_CHANNELS.setActivationShortcut, (_event, shortcut: string) =>
-    playbackCommands.setActivationShortcut(shortcut)
-  );
-  ipcMain.handle(APP_DATA_CHANNELS.setMiniMaxApiKey, (_event, apiKey: string) => {
-    appDataStore.saveMiniMaxApiKey(apiKey);
-  });
-  ipcMain.handle(APP_DATA_CHANNELS.clearMiniMaxApiKey, () => {
-    appDataStore.clearMiniMaxApiKey();
-  });
-  ipcMain.handle(APP_DATA_CHANNELS.hasMiniMaxApiKey, () => appDataStore.hasMiniMaxApiKey());
-  ipcMain.handle(APP_DATA_CHANNELS.verifyMiniMaxKey, () => minimaxAccountService.verifyApiKey());
-  ipcMain.handle(APP_DATA_CHANNELS.refreshVoices, () => minimaxAccountService.refreshVoices());
-  ipcMain.handle(APP_DATA_CHANNELS.setPreferredVoice, (_event, language: DetectedLanguage, voiceId: string) =>
-    minimaxAccountService.setPreferredVoice(language, voiceId)
-  );
-  ipcMain.handle(APP_DATA_CHANNELS.getErrorLogCount, () => appDataStore.getErrorLogCount());
-  ipcMain.handle(APP_DATA_CHANNELS.clearErrorLog, () => appDataStore.clearErrorLogs());
-  ipcMain.handle(APP_DATA_CHANNELS.getReadingHistoryCount, () => appDataStore.getReadingHistoryCount());
-  ipcMain.handle(APP_DATA_CHANNELS.previewReadingHistoryRetention, (_event, historyRetention: HistoryRetention) =>
-    appDataStore.previewReadingHistoryRetention(historyRetention)
-  );
-  ipcMain.handle(
-    APP_DATA_CHANNELS.applyReadingHistoryRetention,
-    (_event, historyRetention: HistoryRetention, expectedDeleteCount: number) =>
-      appDataStore.applyReadingHistoryRetention(historyRetention, expectedDeleteCount)
-  );
-  ipcMain.handle(APP_DATA_CHANNELS.listReadingHistory, () => appDataStore.listReadingHistoryRecords());
-  ipcMain.handle(APP_DATA_CHANNELS.deleteReadingHistoryRecord, (_event, id: string) =>
-    appDataStore.deleteReadingHistoryRecord(id)
-  );
-  ipcMain.handle(APP_DATA_CHANNELS.undoReadingHistoryDeletion, (_event, undoToken: string) =>
-    appDataStore.undoReadingHistoryDeletion(undoToken)
-  );
-  ipcMain.handle(APP_DATA_CHANNELS.clearReadingHistory, () => appDataStore.clearReadingHistory());
-  ipcMain.handle(APP_DATA_CHANNELS.createFavoriteFromHistoryRecord, (_event, id: string) =>
-    appDataStore.createFavoriteFromHistoryRecord(id)
-  );
-  ipcMain.handle(APP_DATA_CHANNELS.listFavorites, () => appDataStore.listFavoriteRecords());
-  ipcMain.handle(APP_DATA_CHANNELS.deleteFavoriteRecord, (_event, id: string) =>
-    appDataStore.deleteFavoriteRecord(id)
-  );
-  ipcMain.handle(APP_DATA_CHANNELS.undoFavoriteDeletion, (_event, undoToken: string) =>
-    appDataStore.undoFavoriteDeletion(undoToken)
-  );
+}
+
+export function createAppDataImplementation({
+  app,
+  appDataStore,
+  minimaxAccountService,
+  playbackCommands,
+  playbackPreferences
+}: AppDataImplementationDependencies): ImplementationFromContract<
+  typeof appDataRoleContract
+> {
+  return {
+    getSettings: () => appDataStore.getSettings(),
+    setSpeechRate: (speechRate) => playbackPreferences.setSpeechRate(speechRate),
+    setModel: (model) => playbackPreferences.setModel(model),
+    setLaunchAtLogin: (launchAtLogin) => {
+      app.setLoginItemSettings({ openAtLogin: launchAtLogin });
+      return appDataStore.updateSettings({ launchAtLogin });
+    },
+    setActivationShortcut: (shortcut) => playbackCommands.setActivationShortcut(shortcut),
+    setMiniMaxApiKey: (apiKey) => appDataStore.saveMiniMaxApiKey(apiKey),
+    clearMiniMaxApiKey: () => appDataStore.clearMiniMaxApiKey(),
+    hasMiniMaxApiKey: () => appDataStore.hasMiniMaxApiKey(),
+    verifyMiniMaxKey: () => minimaxAccountService.verifyApiKey(),
+    refreshVoices: () => minimaxAccountService.refreshVoices(),
+    setPreferredVoice: (language, voiceId) =>
+      minimaxAccountService.setPreferredVoice(language, voiceId),
+    getErrorLogCount: () => appDataStore.getErrorLogCount(),
+    clearErrorLog: () => appDataStore.clearErrorLogs(),
+    getReadingHistoryCount: () => appDataStore.getReadingHistoryCount(),
+    previewReadingHistoryRetention: (historyRetention) =>
+      appDataStore.previewReadingHistoryRetention(historyRetention),
+    applyReadingHistoryRetention: (historyRetention, expectedDeleteCount) =>
+      appDataStore.applyReadingHistoryRetention(historyRetention, expectedDeleteCount),
+    listReadingHistory: () => appDataStore.listReadingHistoryRecords(),
+    deleteReadingHistoryRecord: (id) => appDataStore.deleteReadingHistoryRecord(id),
+    undoReadingHistoryDeletion: (undoToken) => appDataStore.undoReadingHistoryDeletion(undoToken),
+    clearReadingHistory: () => appDataStore.clearReadingHistory(),
+    createFavoriteFromHistoryRecord: (id) => appDataStore.createFavoriteFromHistoryRecord(id),
+    listFavorites: () => appDataStore.listFavoriteRecords(),
+    deleteFavoriteRecord: (id) => appDataStore.deleteFavoriteRecord(id),
+    undoFavoriteDeletion: (undoToken) => appDataStore.undoFavoriteDeletion(undoToken)
+  };
 }

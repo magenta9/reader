@@ -3,10 +3,15 @@ export interface RendererRoleBridgeTransport {
   subscribe(channel: string, listener: (...args: unknown[]) => void): () => void;
 }
 
-export interface MainRoleBridgeTransport {
+export interface MainRoleHandlerTransport {
   handle(channel: string, handler: (...args: unknown[]) => unknown): void;
+}
+
+export interface MainRoleEventTransport {
   emit(channel: string, args: readonly unknown[]): void;
 }
+
+export type MainRoleBridgeTransport = MainRoleHandlerTransport & MainRoleEventTransport;
 
 export interface InvokeEndpoint<
   Method extends string,
@@ -98,6 +103,35 @@ export function defineRoleBridgeRegistry<const Contracts extends readonly AnyRol
   return Object.freeze({ contracts: Object.freeze([...contracts]) as unknown as Contracts });
 }
 
+type ContractMethod<Contract extends AnyRoleBridgeContract> = Contract["endpoints"][number]["method"];
+type SelectedEndpoints<
+  Contract extends AnyRoleBridgeContract,
+  Methods extends readonly ContractMethod<Contract>[]
+> = {
+  readonly [Index in keyof Methods]: Extract<
+    Contract["endpoints"][number],
+    { method: Methods[Index] }
+  >;
+};
+
+export function selectRoleBridgeContract<
+  Contract extends AnyRoleBridgeContract,
+  const Methods extends readonly ContractMethod<Contract>[]
+>(
+  contract: Contract,
+  methods: Methods
+): RoleBridgeContract<Contract["role"], SelectedEndpoints<Contract, Methods>> {
+  const endpoints = methods.map((method) => {
+    const endpoint = contract.endpoints.find((candidate) => candidate.method === method);
+    if (!endpoint) throw new Error(`Bridge role ${contract.role} has no endpoint method ${method}`);
+    return endpoint;
+  });
+  return defineRoleBridgeContract(contract.role, endpoints) as RoleBridgeContract<
+    Contract["role"],
+    SelectedEndpoints<Contract, Methods>
+  >;
+}
+
 export function getRoleBridgeContract(
   registry: RoleBridgeRegistry<readonly AnyRoleBridgeContract[]>,
   role: string
@@ -130,7 +164,7 @@ export function createRoleBridge<Contract extends AnyRoleBridgeContract>(
 export function registerRoleHandlers<Contract extends AnyRoleBridgeContract>(
   contract: Contract,
   implementation: ImplementationFromContract<Contract>,
-  transport: MainRoleBridgeTransport
+  transport: MainRoleHandlerTransport
 ): void {
   const invokeEndpoints = contract.endpoints.filter(
     (endpoint): endpoint is AnyInvokeEndpoint => endpoint.kind === "invoke"
@@ -148,7 +182,7 @@ export function registerRoleHandlers<Contract extends AnyRoleBridgeContract>(
 
 export function createRoleEventEmitter<Contract extends AnyRoleBridgeContract>(
   contract: Contract,
-  transport: MainRoleBridgeTransport
+  transport: MainRoleEventTransport
 ): EventEmitterFromContract<Contract> {
   const emitter: Record<string, unknown> = {};
   for (const endpoint of contract.endpoints) {
