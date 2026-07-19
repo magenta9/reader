@@ -48,6 +48,7 @@ src/
 - `src/overlay/main.tsx`：Playback Overlay 运行时入口，负责真实 bridge lookup 和 root rendering。
 - `src/overlay/App.tsx`：可注入 fake bridge 的 Playback Overlay React UI。
 - `src/shared/app-contracts.ts`：跨进程应用数据 payload 类型。
+- `src/shared/speech-audio-stream.ts`：Playback-facing、供应商无关的 Speech Audio Stream port。
 - `src/shared/bridge-contracts/`：跨 renderer/main 的 bridge 与 channel contract。
 - `src/shared/minimax.ts`：MiniMax Voice API 与 production Speech Audio Stream adapter；第三方 wire format 不越过此边界。
 - `src/main/data/app-data-store.ts`：SQLite 本地数据。

@@ -12,7 +12,7 @@ import {
   PLAYBACK_FEEDBACK_SURFACES,
   type PlaybackAudioSession
 } from "../../../src/shared/app-contracts.js";
-import type { MiniMaxTtsRequest } from "../../../src/shared/minimax.js";
+import type { SpeechAudioStreamRequest } from "../../../src/shared/speech-audio-stream.js";
 import { createReadingSegments } from "../../../src/shared/segments.js";
 import type { MiniMaxVoice, ReadingTargetInput } from "../../../src/shared/types.js";
 
@@ -36,7 +36,7 @@ describe("PlaybackService", () => {
       expect(request.apiKey).toBe("playback-key");
       expect(request.voiceId).toBe("voice-zh");
       expect(request.text).toBe("这是一段剪切板文本。");
-      await request.onAudioHex("abcd");
+      await request.onAudioChunk(new Uint8Array([171, 205]));
     });
 
     const result = await playback.playReadingTarget(clipboardTargetInput("  这是一段剪切板文本。  "));
@@ -98,6 +98,7 @@ describe("PlaybackService", () => {
     expect(result.started).toBe(true);
     await playback.waitForCurrentGeneration();
     expect(events.at(-1)).toEqual(["fail", result.sessionId]);
+    expect(events).not.toContainEqual(["generation-finished", result.sessionId]);
     expect(store.listErrorLogs()[0]).toMatchObject({
       category: "minimax_runtime",
       message: "MiniMax TTS failed with HTTP 500"
@@ -132,14 +133,14 @@ describe("PlaybackService", () => {
   it("replaces a new Play session by aborting the previous stream and emitting the previous stop event", async () => {
     const store = await createVerifiedStore();
     const events: PlaybackEvent[] = [];
-    const requests: MiniMaxTtsRequest[] = [];
+    const requests: SpeechAudioStreamRequest[] = [];
     const playback = new PlaybackService(store, createSink(events), async (request) => {
       requests.push(request);
       if (requests.length === 1) {
         await new Promise<void>((resolve) => request.signal.addEventListener("abort", () => resolve(), { once: true }));
         return;
       }
-      await request.onAudioHex("abcd");
+      await request.onAudioChunk(new Uint8Array([171, 205]));
     });
 
     const first = await playback.playReadingTarget(selectedTextTargetInput("第一段播放文本。"));
@@ -184,7 +185,7 @@ describe("PlaybackService", () => {
     const events: PlaybackEvent[] = [];
     const playback = new PlaybackService(store, createSink(events), async (request) => {
       streamedTexts.push(request.text);
-      await request.onAudioHex("abcd");
+      await request.onAudioChunk(new Uint8Array([171, 205]));
     });
 
     const historyResult = await playback.playHistoryRecord(history.id);
@@ -217,7 +218,7 @@ describe("PlaybackService", () => {
     const store = await createVerifiedStore();
     const events: PlaybackEvent[] = [];
     const playback = new PlaybackService(store, createSink(events), async (request) => {
-      await request.onAudioHex("abcd");
+      await request.onAudioChunk(new Uint8Array([171, 205]));
     });
 
     const result = await playback.playReadingTarget(selectedTextTargetInput("音频输出失败测试。"));
@@ -291,7 +292,7 @@ describe("PlaybackService", () => {
       await new Promise<void>((resolve) => {
         releaseGeneration = resolve;
       });
-      await request.onAudioHex("abcd");
+      await request.onAudioChunk(new Uint8Array([171, 205]));
     });
 
     const first = await playback.playReadingTarget(selectedTextTargetInput("第一条终态竞态。"));

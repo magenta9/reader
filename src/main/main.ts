@@ -24,6 +24,7 @@ import { PlaybackService } from "./playback/playback-service.js";
 import { ElectronPlaybackOutput } from "./playback/electron-playback-output.js";
 import { PlaybackOverlayController } from "./playback/playback-overlay-controller.js";
 import { PlaybackCommandController } from "./playback/playback-command-controller.js";
+import { streamMiniMaxSpeechAudio } from "../shared/minimax.js";
 import { ReadingTargetAcquirer } from "./reading-target/reading-target-acquirer.js";
 import {
   enterPackagedSmokeMode,
@@ -104,7 +105,11 @@ async function bootstrap(): Promise<void> {
     overlay: overlayController,
     playbackRendererEntry
   });
-  const playbackService = new PlaybackService(appDataStore, playbackOutput);
+  const playbackService = new PlaybackService(
+    appDataStore,
+    playbackOutput,
+    streamMiniMaxSpeechAudio
+  );
   playbackCommands = new PlaybackCommandController(
     appDataStore,
     playbackService,

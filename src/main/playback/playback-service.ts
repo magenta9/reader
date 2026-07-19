@@ -1,4 +1,4 @@
-import { streamMiniMaxTts } from "../../shared/minimax.js";
+import type { SpeechAudioStreamPort } from "../../shared/speech-audio-stream.js";
 import {
   type PlaybackAudioSession,
   type PlaybackAudioOutcome,
@@ -7,7 +7,6 @@ import {
 import type { ReadingTargetInput } from "../../shared/types.js";
 import type { PlaybackDataStore, RuntimeErrorCategory } from "../data/app-data-store.js";
 import {
-  type PlaybackTtsStreamer,
   type PlaybackSessionPlan,
   PlaybackRequestResolver,
   type ResolvePlaybackRequestResult
@@ -38,7 +37,7 @@ export class PlaybackService {
   constructor(
     private readonly store: PlaybackDataStore,
     private readonly sink: PlaybackAudioSink,
-    private readonly streamTts: PlaybackTtsStreamer = streamMiniMaxTts,
+    private readonly streamAudio: SpeechAudioStreamPort,
     private readonly resolver: PlaybackRequestResolver = new PlaybackRequestResolver(store)
   ) {}
 
@@ -156,11 +155,11 @@ export class PlaybackService {
           return;
         }
 
-        await segment.stream(this.streamTts, {
+        await segment.stream(this.streamAudio, {
           signal: abortController.signal,
-          onAudioHex: (audioHex) => {
+          onAudioChunk: (bytes) => {
             if (!abortController.signal.aborted) {
-              this.sink.audioChunk(sessionId, hexToBytes(audioHex));
+              this.sink.audioChunk(sessionId, bytes);
             }
           }
         });
@@ -197,15 +196,6 @@ export class PlaybackService {
       message: safePlaybackErrorMessage(error)
     });
   }
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const clean = hex.trim();
-  const bytes = new Uint8Array(Math.floor(clean.length / 2));
-  for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = Number.parseInt(clean.slice(index * 2, index * 2 + 2), 16);
-  }
-  return bytes;
 }
 
 function safePlaybackErrorMessage(error: unknown): string {

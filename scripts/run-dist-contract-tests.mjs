@@ -931,7 +931,7 @@ async function createElectronPlaybackOutputScenario({
 }
 
 async function createBuiltPlaybackLifecycleScenario({
-  streamTts = async (request) => request.onAudioHex("0102"),
+  streamTts = async (request) => request.onAudioChunk(new Uint8Array([1, 2])),
   missingVoice = false
 } = {}) {
   const readerWindow = createPlaybackWindowForTest();

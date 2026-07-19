@@ -1,5 +1,6 @@
 import { normalizeMiniMaxVoices } from "./voices.js";
 import type { MiniMaxVoice } from "./types.js";
+import type { SpeechAudioStreamPort } from "./speech-audio-stream.js";
 
 const GLOBAL_API_BASE_URL = "https://api.minimax.io";
 const CN_API_BASE_URL = "https://api.minimaxi.com";
@@ -45,17 +46,6 @@ export interface MiniMaxTtsRequest {
   signal: AbortSignal;
   onAudioHex: (audioHex: string) => Promise<void> | void;
 }
-
-export interface SpeechAudioStreamRequest {
-  apiKey: string;
-  model: string;
-  voiceId: string;
-  text: string;
-  signal: AbortSignal;
-  onAudioChunk: (bytes: Uint8Array) => Promise<void> | void;
-}
-
-export type SpeechAudioStreamPort = (request: SpeechAudioStreamRequest) => Promise<void>;
 
 /** @deprecated Temporary hex compatibility for DEV-233 migration; remove in DEV-234. */
 export async function streamMiniMaxTts(request: MiniMaxTtsRequest): Promise<void> {
