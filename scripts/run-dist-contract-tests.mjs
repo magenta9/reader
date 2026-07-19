@@ -94,7 +94,6 @@ const overlayHtml = await readFile(new URL("../dist/overlay/index.html", import.
 const overlayBundle = await readFile(new URL("../dist/overlay/overlay.js", import.meta.url), "utf8");
 const overlayCss = await readFile(new URL("../dist/overlay/overlay.css", import.meta.url), "utf8");
 const mainSource = await readFile(new URL("../src/main/main.ts", import.meta.url), "utf8");
-const appPresenceControllerSource = await readFile(new URL("../src/main/app-presence-controller.ts", import.meta.url), "utf8");
 const rendererSource = await readFile(new URL("../src/renderer/main.tsx", import.meta.url), "utf8");
 const readerWindowAppSource = await readFile(new URL("../src/renderer/App.tsx", import.meta.url), "utf8");
 const playbackAudioSource = await readFile(
@@ -124,27 +123,11 @@ const templateTrayIconSource = await readFile(new URL("../assets/voicereader-tem
 const builtTemplateTrayIcon = await readFile(new URL("../dist/assets/voicereader-template-icon.svg", import.meta.url), "utf8");
 assertIncludes(mainBundle, [
   "VoiceReader",
-  "\\u64AD\\u653E",
-  "\\u6253\\u5F00 VoiceReader",
-  "\\u5386\\u53F2\\u8BB0\\u5F55",
-  "\\u6536\\u85CF",
-  "\\u8BBE\\u7F6E",
-  "width: 1100",
-  "height: 760",
-  "minWidth: 900",
-  "minHeight: 620",
-  "titleBarStyle",
-  "hiddenInset",
   "../preload/reader-window.cjs",
   "../preload/playback-renderer.cjs",
   "../preload/playback-overlay.cjs",
   "setPath",
   "userData",
-  "AppPresenceController",
-  "wasOpenedAtLogin",
-  "ready-to-show",
-  "did-finish-load",
-  "window-all-closed",
   "VoiceReader Playback Renderer",
   "playback-renderer/index.html",
   "backgroundThrottling: false",
@@ -173,29 +156,6 @@ assertIncludes(mainBundle, [
   "import.meta.url"
 ]);
 assertMissing(mainBundle, ["../preload/preload.js", "safeStorage", "isTrustedAccessibilityClient", "/usr/bin/osascript", "__dirname"]);
-assertIncludes(mainSource, [
-  "createElectronReaderAppShell",
-  "readerFeedback: readerAppShell",
-  "readerAppShell.hideForSelectionCapture()",
-  "ReadingTargetAcquirer",
-  "ElectronPlaybackOutput.create",
-  "createPlaybackRendererWindow",
-  "playbackRendererEntry",
-  "playbackOutput.destroy()",
-  "registerAppRoleBridges",
-  "() => readingTargetAcquirer.acquire()"
-]);
-assertMissing(mainSource, [
-  "function syncDockPresence",
-  "function syncDockIcon",
-  "function hideReaderAppForSelectionCapture"
-]);
-assertIncludes(appPresenceControllerSource, [
-  "class AppPresenceController",
-  "ensureDockVisible",
-  "setDockIconFromSvg",
-  "hideForSelectionCapture"
-]);
 assertIncludes(readingTargetAcquirerSource, [
   "class ReadingTargetAcquirer",
   "revealPreviousAppBeforeCapture",

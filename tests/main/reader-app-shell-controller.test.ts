@@ -23,6 +23,22 @@ describe("ReaderAppShellController", () => {
     expect(loginLaunch.windows).toHaveLength(1);
   });
 
+  it("reports initialization only after a required Reader Window has loaded", async () => {
+    const harness = createHarness({ hasCompletedOnboarding: false });
+    let initialized = false;
+    const initialization = harness.shell.start().then(() => {
+      initialized = true;
+    });
+
+    harness.windows[0]?.readyToShow();
+    await Promise.resolve();
+    expect(initialized).toBe(false);
+
+    harness.windows[0]?.loaded();
+    await initialization;
+    expect(initialized).toBe(true);
+  });
+
   it("publishes only the latest route after the window becomes ready", () => {
     const harness = createHarness();
 
@@ -262,7 +278,15 @@ class FakeReaderWindow implements ReaderAppShellWindow {
   }
 
   ready(): void {
+    this.readyToShow();
+    this.loaded();
+  }
+
+  readyToShow(): void {
     this.readyListener?.();
+  }
+
+  loaded(): void {
     this.loadedListener?.();
   }
 

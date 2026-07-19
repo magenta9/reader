@@ -41,10 +41,6 @@ async function bootstrap(): Promise<void> {
 
   const databasePath = join(app.getPath("userData"), "voicereader.sqlite");
   const appDataStore = AppDataStore.open(databasePath);
-  if (packagedSmoke.enabled) {
-    enterPackagedSmokeMode({ app, appDataStore, databasePath, scenario: packagedSmoke.scenario });
-    return;
-  }
   const minimaxAccountService = new MiniMaxAccountService(appDataStore);
   const playbackPreferences = new PlaybackPreferencesCommands(appDataStore);
   const overlayController = new PlaybackOverlayController();
@@ -56,6 +52,7 @@ async function bootstrap(): Promise<void> {
     buildMenu: (template) => Menu.buildFromTemplate(template),
     createBrowserWindow: (options) => new BrowserWindow(options),
     createTray: (icon) => new Tray(icon),
+    headless: packagedSmoke.enabled,
     nativeImage,
     playback: {
       play: async () => {
@@ -117,7 +114,16 @@ async function bootstrap(): Promise<void> {
   });
   app.setLoginItemSettings({ openAtLogin: appDataStore.getSettings().launchAtLogin });
   playbackCommands.registerActivationShortcut();
-  readerAppShell.start();
+  const readerAppShellInitialization = readerAppShell.start();
+  if (packagedSmoke.enabled) {
+    await readerAppShellInitialization;
+    enterPackagedSmokeMode({
+      app,
+      appDataStore,
+      databasePath,
+      scenario: packagedSmoke.scenario
+    });
+  }
 }
 
 function createPlaybackRendererWindow(): BrowserWindow {

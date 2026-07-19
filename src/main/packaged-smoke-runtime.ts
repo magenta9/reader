@@ -50,7 +50,6 @@ export function enterPackagedSmokeMode({
   const quit = (): void => {
     if (quitting) return;
     quitting = true;
-    appDataStore.close();
     app.quit();
   };
   process.once("SIGINT", quit);

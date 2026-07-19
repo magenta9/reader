@@ -42,7 +42,7 @@ open release/mac/VoiceReader.app
 make deploy
 ```
 
-`make package-mac` 只生成并验证 ARM64 `.app` 与 DMG，不修改 `/Applications`。`make smoke-packaged` 会对最终 `.app` 运行 fresh、历史三表、无版本四表和 future negative 数据库矩阵，验证 exact v1 schema、数据保留与 fail-closed。`make deploy` 会先执行完整验证和 candidate smoke；如果 `/Applications/VoiceReader.app` 正在运行，它会要求开发者正常退出应用并拒绝继续，不会自动结束进程。替换采用 staging/backup 流程，installed smoke 失败时恢复旧应用；所有 smoke 都使用临时 userData，不接触正常的本机数据。
+`make package-mac` 只生成并验证 ARM64 `.app` 与 DMG，不修改 `/Applications`。`make smoke-packaged` 会对最终 `.app` 运行 fresh、历史三表、无版本四表和 future negative 数据库矩阵；正向场景在隐藏窗口模式下完成真实 Reader App Shell 初始化后才报告 readiness，并验证 exact v1 schema 与数据保留，future 场景继续验证 fail-closed。`make deploy` 会先执行完整验证和 candidate smoke；如果 `/Applications/VoiceReader.app` 正在运行，它会要求开发者正常退出应用并拒绝继续，不会自动结束进程。替换采用 staging/backup 流程，installed smoke 失败时恢复旧应用；所有 smoke 都使用临时 userData，不接触正常的本机数据。
 
 ## 选择任务
 
@@ -58,6 +58,7 @@ Issue 使用 Linear 原生状态和依赖关系；标签含义见 `docs/agents/t
 
 - 使用 TypeScript strict mode，避免引入 `any` 和未建模的跨进程对象。
 - 共享类型优先放在 `src/shared/`；应用数据 payload 优先更新 `src/shared/app-contracts.ts`。跨 renderer/main 能力先更新 `src/shared/role-bridge-contracts.ts` 中已有角色的 endpoint，并复用 `src/shared/bridge-contracts/` 的 channel 常量与 `src/shared/app-contracts.ts` 的 payload 类型；不得另写一套 preload/main channel wiring。
+- App Shell endpoint、Selection Capture sender 判断与 Reader feedback 必须委托 `ReaderAppShellController` 的语义接口；不得在 `main.ts` 或 handler dependency bag 重新持有 Reader Window、route、Tray 或 quit 状态。
 - Renderer 只能通过 preload bridge 调用受控能力，不直接使用 Node 或 Electron main API。
 - 用户可见文案默认使用中文；领域概念使用 `CONTEXT.md` 中定义的术语。
 - 涉及产品行为、隐私边界、本地持久化或架构选择时，先检查 `docs/adr/` 是否已有决策。
@@ -85,6 +86,7 @@ feat: add language-scoped voice preference
 - 改动和 issue/PRD 对齐。
 - 用户可见行为、文案、隐私边界已经写清楚。
 - 新增跨进程能力已更新已有 role-scoped executable contract、main-owned implementation 和调用方；loopback 验证行为，构建后的对应 preload VM probe 验证最小权限，且没有 URL/pathname 角色推断或手写 IPC 镜像。
+- Reader Window、Menu Bar、导航、应用生命周期、presence、sender identity 与 Reader feedback 仍由 Reader App Shell 独占；相关 source 行为由 Shell/adapter 测试验证，dist contract 不镜像 Shell 源码结构。
 - 本地数据结构变更通过 `AppDataStore.open(path)` 的版本化 lifecycle，有真实历史 SQLite fixture、原子 rollback 与 packaged upgrade smoke。
 - 已运行并记录相关验证命令。
 - 没有提交构建产物、密钥、SQLite 数据库或临时文件。

@@ -122,15 +122,20 @@ export class ReaderAppShellController {
   private hasShutdown = false;
   private isWindowLoaded = false;
   private isWindowReady = false;
+  private readonly initialized: Promise<void>;
+  private resolveInitialized!: () => void;
 
   constructor(private readonly options: ReaderAppShellOptions) {
+    this.initialized = new Promise((resolve) => {
+      this.resolveInitialized = resolve;
+    });
     const initialState = options.state.read();
     this.routeState = new ReaderRouteState(initialState.lastRoute, options.state);
     this.hasCompletedOnboarding = initialState.hasCompletedOnboarding;
   }
 
-  start(): void {
-    if (this.isStarted || this.isDisposed) return;
+  start(): Promise<void> {
+    if (this.isStarted || this.isDisposed) return this.initialized;
     this.isStarted = true;
     this.disposers.push(this.options.menu.install(this.createMenuActions()));
     this.disposers.push(
@@ -147,7 +152,10 @@ export class ReaderAppShellController {
 
     if (!this.hasCompletedOnboarding || !this.options.lifecycle.wasOpenedAtLogin()) {
       this.open(this.currentRouteSnapshot().route);
+    } else {
+      this.resolveInitialized();
     }
+    return this.initialized;
   }
 
   open(route: unknown): boolean {
@@ -282,6 +290,7 @@ export class ReaderAppShellController {
         }
         this.isWindowLoaded = true;
         this.publishRoute();
+        this.resolveInitialized();
       })
     );
   }

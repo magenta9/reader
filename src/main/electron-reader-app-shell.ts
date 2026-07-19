@@ -27,6 +27,7 @@ export interface ElectronReaderAppShellOptions {
   buildMenu(template: MenuItemConstructorOptions[]): Menu;
   createBrowserWindow(options: BrowserWindowConstructorOptions): BrowserWindow;
   createTray(icon: NativeImage): Tray;
+  headless?: boolean;
   nativeImage: {
     createFromBuffer(buffer: Buffer, options: Electron.CreateFromBufferOptions): NativeImage;
     createFromDataURL(dataUrl: string): NativeImage;
@@ -80,11 +81,15 @@ class ElectronReaderWindowFactory implements ReaderAppShellWindowFactory {
     return {
       senderId: window.webContents.id,
       isDestroyed: () => window.isDestroyed(),
-      isFocused: () => window.isFocused(),
+      isFocused: () => !this.options.headless && window.isFocused(),
       isMinimized: () => window.isMinimized(),
       restore: () => window.restore(),
-      show: () => window.show(),
-      focus: () => window.focus(),
+      show: () => {
+        if (!this.options.headless) window.show();
+      },
+      focus: () => {
+        if (!this.options.headless) window.focus();
+      },
       hide: () => window.hide(),
       sendRoute: (snapshot) => events.emitNavigate(snapshot),
       sendPlaybackFinish: (sessionId) => events.emitPlaybackFinish({ sessionId }),
