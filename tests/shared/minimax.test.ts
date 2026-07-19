@@ -1,79 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  buildMiniMaxTtsBody,
   describeMiniMaxApiKeyProblem,
   getMiniMaxBaseUrlOrder,
-  parseMiniMaxStream,
   streamMiniMaxSpeechAudio
 } from "../../src/shared/minimax.js";
 
 const encoder = new TextEncoder();
 
-describe("MiniMax TTS helpers", () => {
+describe("MiniMax TTS adapter", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
-  });
-
-  it("builds streaming TTS request bodies", () => {
-    expect(buildMiniMaxTtsBody("speech-2.8-turbo", "voice-a", "hello")).toEqual({
-      model: "speech-2.8-turbo",
-      text: "hello",
-      stream: true,
-      output_format: "hex",
-      language_boost: "auto",
-      voice_setting: {
-        voice_id: "voice-a",
-        speed: 1,
-        vol: 1,
-        pitch: 0
-      },
-      audio_setting: {
-        sample_rate: 32000,
-        bitrate: 128000,
-        format: "mp3",
-        channel: 1
-      }
-    });
-  });
-
-  it("parses incremental streaming audio", async () => {
-    const emitted: string[] = [];
-    const stream = createMiniMaxStream('data: {"data":{"audio":"abcd"}}\n\ndata: {"data":{"audio":"ef01"}}\n');
-
-    await parseMiniMaxStream(stream, (audioHex) => {
-      emitted.push(audioHex);
-    });
-
-    expect(emitted).toEqual(["abcd", "ef01"]);
-  });
-
-  it("ignores final aggregate audio after incremental chunks", async () => {
-    const emitted: string[] = [];
-    const stream = createMiniMaxStream(
-      [
-        'data: {"data":{"audio":"aaaa","status":1}}',
-        'data: {"data":{"audio":"bbbb","status":1}}',
-        'data: {"data":{"audio":"aaaabbbb","status":2}}'
-      ].join("\n\n")
-    );
-
-    await parseMiniMaxStream(stream, (audioHex) => {
-      emitted.push(audioHex);
-    });
-
-    expect(emitted).toEqual(["aaaa", "bbbb"]);
-  });
-
-  it("emits final-only audio when no incremental chunks were emitted", async () => {
-    const emitted: string[] = [];
-    const stream = createMiniMaxStream('data: {"data":{"audio":"f1a1","status":2}}\n');
-
-    await parseMiniMaxStream(stream, (audioHex) => {
-      emitted.push(audioHex);
-    });
-
-    expect(emitted).toEqual(["f1a1"]);
   });
 
   it("accepts non-empty API keys and orders endpoints by key shape", () => {
@@ -95,9 +32,7 @@ describe("MiniMax TTS helpers", () => {
   });
 
   it("streams validated audio bytes through the production adapter seam", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
         miniMaxResponse(
           [
             'data: {"data":{"audio":"00aF","status":1}}',
@@ -106,8 +41,8 @@ describe("MiniMax TTS helpers", () => {
           ].join("\n\n"),
           "text/event-stream"
         )
-      )
     );
+    vi.stubGlobal("fetch", fetchMock);
     const chunks: number[][] = [];
 
     await streamMiniMaxSpeechAudio({
@@ -121,6 +56,19 @@ describe("MiniMax TTS helpers", () => {
       [0, 175],
       [16, 255]
     ]);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe("https://api.minimax.io/v1/t2a_v2");
+    expect(init).toMatchObject({ method: "POST", signal: expect.any(AbortSignal) });
+    expect(JSON.parse(String(init?.body))).toEqual({
+      model: "speech-2.8-turbo",
+      text: "adapter contract",
+      stream: true,
+      output_format: "hex",
+      language_boost: "auto",
+      voice_setting: { voice_id: "voice-a", speed: 1, vol: 1, pitch: 0 },
+      audio_setting: { sample_rate: 32000, bitrate: 128000, format: "mp3", channel: 1 }
+    });
   });
 
   it("supports final-only SSE and JSON success at the same byte-stream seam", async () => {
@@ -354,13 +302,4 @@ function miniMaxStreamResponse(chunks: string[]): Response {
     }),
     { headers: { "content-type": "text/event-stream" } }
   );
-}
-
-function createMiniMaxStream(text: string): ReadableStream<Uint8Array> {
-  return new ReadableStream({
-    start(controller) {
-      controller.enqueue(encoder.encode(text));
-      controller.close();
-    }
-  });
 }

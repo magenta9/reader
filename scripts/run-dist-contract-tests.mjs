@@ -15,6 +15,7 @@ const { PlaybackCommandController } = await import(
 const { registerPlaybackControlHandlers } = await import(
   "../dist/main/app-bridge-handlers/playback-control.js"
 );
+const { streamMiniMaxSpeechAudio } = await import("../dist/shared/minimax.js");
 const { PLAYBACK_FEEDBACK_SURFACES } = await import("../dist/shared/app-contracts.js");
 const {
   APP_DATA_CHANNELS,
@@ -755,7 +756,7 @@ assert.deepEqual(builtLifecycleScenario.readerWindow.messages, [
 builtLifecycleScenario.output.destroy();
 
 const builtFailureScenario = await createBuiltPlaybackLifecycleScenario({
-  streamTts: async () => {
+  streamAudio: async () => {
     throw new Error("MiniMax TTS failed with HTTP 500");
   }
 });
@@ -784,6 +785,68 @@ assert.deepEqual(builtSynchronousTerminalScenario.readerWindow.messages, [
   [PLAYBACK_FEEDBACK_CHANNELS.failSession, { sessionId: synchronousTerminalResult.sessionId }]
 ]);
 builtSynchronousTerminalScenario.output.destroy();
+
+const originalFetch = globalThis.fetch;
+try {
+  globalThis.fetch = async () =>
+    new Response('data: {"data":{"audio":"0102","status":2}}\n', {
+      headers: { "content-type": "text/event-stream" }
+    });
+  const builtProductionSuccess = await createBuiltPlaybackLifecycleScenario({
+    streamAudio: streamMiniMaxSpeechAudio
+  });
+  const productionSuccessResult = await builtProductionSuccess.invoke(
+    PLAYBACK_CONTROL_CHANNELS.playHistoryRecord,
+    "built-production-success"
+  );
+  await builtProductionSuccess.playback.waitForCurrentGeneration();
+  assert.deepEqual(
+    builtProductionSuccess.playbackRenderer.messages.find(
+      ([channel]) => channel === RENDERER_AUDIO_CHANNELS.audioChunk
+    ),
+    [
+      RENDERER_AUDIO_CHANNELS.audioChunk,
+      { sessionId: productionSuccessResult.sessionId, bytes: new Uint8Array([1, 2]) }
+    ]
+  );
+  await builtProductionSuccess.invoke(PLAYBACK_CONTROL_CHANNELS.rendererOutcome, {
+    sessionId: productionSuccessResult.sessionId,
+    status: "completed"
+  });
+  assert.deepEqual(builtProductionSuccess.readerWindow.messages, [
+    [PLAYBACK_FEEDBACK_CHANNELS.finishSession, { sessionId: productionSuccessResult.sessionId }]
+  ]);
+  builtProductionSuccess.output.destroy();
+
+  for (const { body, expectedMessage } of [
+    { body: "", expectedMessage: "MiniMax TTS returned no audio." },
+    {
+      body: 'data: {"data":{"audio":"xyz","status":2}}\n',
+      expectedMessage: "MiniMax TTS returned malformed audio hex."
+    }
+  ]) {
+    globalThis.fetch = async () =>
+      new Response(body, { headers: { "content-type": "text/event-stream" } });
+    const builtProductionFailure = await createBuiltPlaybackLifecycleScenario({
+      streamAudio: streamMiniMaxSpeechAudio
+    });
+    const productionFailureResult = await builtProductionFailure.invoke(
+      PLAYBACK_CONTROL_CHANNELS.playHistoryRecord,
+      "built-production-failure"
+    );
+    await builtProductionFailure.playback.waitForCurrentGeneration();
+    assert.equal(builtProductionFailure.shortcuts.has("Escape"), false);
+    assert.deepEqual(builtProductionFailure.readerWindow.messages, [
+      [PLAYBACK_FEEDBACK_CHANNELS.failSession, { sessionId: productionFailureResult.sessionId }]
+    ]);
+    assert.deepEqual(builtProductionFailure.errors, [
+      { category: "minimax_runtime", message: expectedMessage }
+    ]);
+    builtProductionFailure.output.destroy();
+  }
+} finally {
+  globalThis.fetch = originalFetch;
+}
 
 completeDeliveryScenario.output.destroy();
 assert.throws(
@@ -931,7 +994,7 @@ async function createElectronPlaybackOutputScenario({
 }
 
 async function createBuiltPlaybackLifecycleScenario({
-  streamTts = async (request) => request.onAudioChunk(new Uint8Array([1, 2])),
+  streamAudio = async (request) => request.onAudioChunk(new Uint8Array([1, 2])),
   missingVoice = false
 } = {}) {
   const readerWindow = createPlaybackWindowForTest();
@@ -973,7 +1036,7 @@ async function createBuiltPlaybackLifecycleScenario({
     resolveHistoryReplay: () => createPlan(PLAYBACK_FEEDBACK_SURFACES.historyDetail),
     resolveFavoriteReplay: () => createPlan(PLAYBACK_FEEDBACK_SURFACES.favoriteDetail)
   };
-  const playback = new PlaybackService(store, outputScenario.output, streamTts, resolver);
+  const playback = new PlaybackService(store, outputScenario.output, streamAudio, resolver);
   const shortcuts = new Map();
   const commands = new PlaybackCommandController(
     store,

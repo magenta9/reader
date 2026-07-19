@@ -37,24 +37,6 @@ export async function getMiniMaxVoices(apiKey: string): Promise<MiniMaxVoice[]> 
   throw lastError instanceof Error ? lastError : new Error("MiniMax connection failed.");
 }
 
-/** @deprecated Temporary hex compatibility for DEV-233 migration; remove in DEV-234. */
-export interface MiniMaxTtsRequest {
-  apiKey: string;
-  model: string;
-  voiceId: string;
-  text: string;
-  signal: AbortSignal;
-  onAudioHex: (audioHex: string) => Promise<void> | void;
-}
-
-/** @deprecated Temporary hex compatibility for DEV-233 migration; remove in DEV-234. */
-export async function streamMiniMaxTts(request: MiniMaxTtsRequest): Promise<void> {
-  return streamMiniMaxSpeechAudio({
-    ...request,
-    onAudioChunk: (bytes) => request.onAudioHex(bytesToHex(bytes))
-  });
-}
-
 export const streamMiniMaxSpeechAudio: SpeechAudioStreamPort = async (request) => {
   assertLikelyMiniMaxApiKey(request.apiKey);
   let lastError: unknown;
@@ -172,7 +154,7 @@ function assertMiniMaxBaseResponse(payload: unknown): void {
   }
 }
 
-export function buildMiniMaxTtsBody(model: string, voiceId: string, text: string): Record<string, unknown> {
+function buildMiniMaxTtsBody(model: string, voiceId: string, text: string): Record<string, unknown> {
   return {
     model,
     text,
@@ -192,14 +174,6 @@ export function buildMiniMaxTtsBody(model: string, voiceId: string, text: string
       channel: 1
     }
   };
-}
-
-/** @deprecated Temporary helper-level hex compatibility; remove in DEV-234. */
-export async function parseMiniMaxStream(
-  stream: ReadableStream<Uint8Array>,
-  onAudioHex: (audioHex: string) => Promise<void> | void
-): Promise<void> {
-  await parseMiniMaxByteStream(stream, (bytes) => onAudioHex(bytesToHex(bytes)));
 }
 
 async function parseMiniMaxByteStream(
@@ -331,9 +305,6 @@ function decodeMiniMaxAudioHex(audioHex: string): Uint8Array {
   return bytes;
 }
 
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
 
 function findMiniMaxDataStatus(value: unknown): number | undefined {
   if (!value || typeof value !== "object") return undefined;
