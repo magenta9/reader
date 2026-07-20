@@ -64,6 +64,10 @@ _Avoid_: Main screen, dashboard, control panel
 The Reader Window surface where the user manages the MiniMax connection, the Activation Shortcut, reading behavior, launch behavior, Reading History retention, and safe local maintenance actions. It presents user-controlled configuration and recovery states, not internal completion state.
 _Avoid_: Preferences, configuration panel, admin settings
 
+**Settings Workspace**:
+One active visit to Settings. It combines authoritative saved settings with section-level availability and owns that visit's drafts, confirmations, feedback, and pending actions; leaving Settings ends the workspace, and the next visit reloads authoritative state.
+_Avoid_: Settings state, preferences model, settings store
+
 **Menu Bar Icon**:
 The persistent VoiceReader icon in the macOS menu bar. It confirms that VoiceReader is running and opens the Menu Bar Menu for high-frequency actions.
 _Avoid_: Top button, tray button, status button
