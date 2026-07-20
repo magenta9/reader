@@ -41,8 +41,7 @@ export function registerAppRoleBridges(dependencies: AppBridgeHandlerDependencie
   registerRoleHandlers(
     readerWindowRoleContract,
     createReaderWindowImplementation(dependencies),
-    transport,
-    createReaderWindowBeforeInvoke(dependencies)
+    transport
   );
   registerRoleHandlers(
     playbackRendererRoleContract,

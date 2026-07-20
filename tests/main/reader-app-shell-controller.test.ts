@@ -97,7 +97,7 @@ describe("ReaderAppShellController", () => {
     harness.menu?.home();
     harness.menu?.quit();
 
-    expect(harness.commandActions).toEqual(["play", "stop"]);
+    expect(harness.commandActions).toEqual(["play:menu_bar", "stop"]);
     expect(harness.persistedRoutes).toEqual(["history", "favorites", "settings", "home"]);
     expect(harness.lifecycle.quitCalls).toBe(1);
   });
@@ -384,8 +384,8 @@ function createHarness(options: {
       hideForSelectionCapture: vi.fn()
     },
     playback: {
-      play: async () => {
-        commandActions.push("play");
+      play: async (trigger) => {
+        commandActions.push(`play:${trigger}`);
       },
       stop: () => commandActions.push("stop")
     },

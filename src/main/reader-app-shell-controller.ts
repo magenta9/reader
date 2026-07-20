@@ -4,6 +4,7 @@ import {
   type BootstrapState,
   type RouteSnapshot
 } from "../shared/app-contracts.js";
+import type { ReadingTargetAcquisitionTrigger } from "./reading-target/reading-target-acquirer.js";
 
 export interface ReaderAppShellWindowCloseEvent {
   preventDefault(): void;
@@ -70,7 +71,7 @@ export interface ReaderAppShellPresence {
 }
 
 export interface ReaderAppShellPlaybackCommands {
-  play(): Promise<void> | void;
+  play(trigger: ReadingTargetAcquisitionTrigger): Promise<void> | void;
   stop(): void;
 }
 
@@ -236,7 +237,7 @@ export class ReaderAppShellController {
 
   private createMenuActions(): ReaderAppShellMenuActions {
     return {
-      play: () => this.options.playback.play(),
+      play: () => this.options.playback.play("menu_bar"),
       stop: () => this.options.playback.stop(),
       home: () => {
         this.open("home");

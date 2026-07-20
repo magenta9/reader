@@ -15,7 +15,7 @@ export function createPlaybackControlImplementation({
   typeof playbackControlRoleContract
 > {
   return {
-    playReadingTarget: () => playbackCommands.startReadingTargetPlayback(),
+    playReadingTarget: () => playbackCommands.startReadingTargetPlayback("reader_window"),
     playHistoryRecord: (id) => playbackCommands.startHistoryReplay(id),
     playFavoriteRecord: (id) => playbackCommands.startFavoriteReplay(id),
     stopPlayback: () => playbackCommands.stopPlayback()

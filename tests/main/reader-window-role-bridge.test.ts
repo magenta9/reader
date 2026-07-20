@@ -144,6 +144,7 @@ describe("Reader Window role bridge", () => {
     expect(minimaxAccountService.setPreferredVoice).toHaveBeenCalledWith("zh", "voice-1");
     expect(appDataStore.applyReadingHistoryRetention).toHaveBeenCalledWith("1m", 2);
     expect(clipboard.writeText).toHaveBeenCalledWith("copied text");
+    expect(playbackCommands.startReadingTargetPlayback).toHaveBeenCalledWith("reader_window");
     expect(playbackCommands.startHistoryReplay).toHaveBeenCalledWith("history-1");
     expect(playbackCommands.startFavoriteReplay).toHaveBeenCalledWith("favorite-1");
 

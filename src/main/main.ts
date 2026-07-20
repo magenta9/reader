@@ -55,8 +55,8 @@ async function bootstrap(): Promise<void> {
     headless: packagedSmoke.enabled,
     nativeImage,
     playback: {
-      play: async () => {
-        await playbackCommands.startReadingTargetPlayback();
+      play: async (trigger) => {
+        await playbackCommands.startReadingTargetPlayback(trigger);
       },
       stop: () => playbackCommands.stopPlayback()
     },
@@ -98,7 +98,7 @@ async function bootstrap(): Promise<void> {
     appDataStore,
     playbackService,
     globalShortcut,
-    () => readingTargetAcquirer.acquire()
+    (trigger) => readingTargetAcquirer.acquire(trigger)
   );
   registerAppRoleBridges({
     app,
