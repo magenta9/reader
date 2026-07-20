@@ -60,6 +60,10 @@ _Avoid_: Toggle key, cancel key, pause key
 The main macOS window for VoiceReader. It contains Home, History, Favorites, and Settings surfaces for Reading Target playback status, Reading History, saved Favorite Records, and user configuration.
 _Avoid_: Main screen, dashboard, control panel
 
+**Home Workspace**:
+One active visit to Home in the Reader Window. It combines authoritative saved settings with MiniMax credential readiness and owns that visit's selected language, optimistic Preferred Voice presentation, recovery actions, Reading Target start or skip feedback, pending commands, and command ordering. Leaving Home ends the workspace; the next visit reloads authoritative state, and reads or commands from an earlier visit cannot update or unlock the current one. Playback Session activity and terminal feedback remain main-owned and use the session's named Feedback Surface.
+_Avoid_: Home state, dashboard model, home store
+
 **Settings**:
 The Reader Window surface where the user manages the MiniMax connection, the Activation Shortcut, reading behavior, launch behavior, Reading History retention, and safe local maintenance actions. It presents user-controlled configuration and recovery states, not internal completion state.
 _Avoid_: Preferences, configuration panel, admin settings
