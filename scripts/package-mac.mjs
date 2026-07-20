@@ -81,7 +81,9 @@ function snapshotInstalledApplication() {
 }
 
 async function verifyPackagedApplication() {
-  const { executable, addon } = await verifyMacApplicationStructure(appPath);
+  const { executable, addon } = await verifyMacApplicationStructure(appPath, {
+    identity: releaseIdentity
+  });
   await runElectronRuntimeProbe({ electronExecutable: executable, addonPath: addon });
 }
 
@@ -116,12 +118,16 @@ async function verifyDmgOutput() {
   if (dmgFiles.length !== 1 || dmgFiles[0] !== basename(dmgPath)) {
     throw new Error(`Expected exactly ${basename(dmgPath)}; found ${dmgFiles.join(", ") || "none"}`);
   }
-  await verifyMacDiskImage(dmgPath);
+  await verifyMacDiskImage(dmgPath, { identity: releaseIdentity });
 }
 
 export async function verifyMacDiskImage(
   diskImage,
-  { runCommand = run, verifyApplication = verifyMacApplicationStructure } = {}
+  {
+    identity = releaseIdentity,
+    runCommand = run,
+    verifyApplication = verifyMacApplicationStructure
+  } = {}
 ) {
   if (!existsSync(diskImage)) throw new Error(`Disk image is missing: ${diskImage}`);
   const mountPoint = await mkdtemp(join(tmpdir(), "voicereader-dmg-"));
@@ -136,12 +142,12 @@ export async function verifyMacDiskImage(
     );
     mounted = true;
     const applications = (await readdir(mountPoint)).filter((name) => name.endsWith(".app"));
-    if (applications.length !== 1 || applications[0] !== releaseIdentity.appFileName) {
+    if (applications.length !== 1 || applications[0] !== identity.appFileName) {
       throw new Error(
-        `Expected DMG to contain exactly ${releaseIdentity.appFileName}; found ${applications.join(", ") || "none"}`
+        `Expected DMG to contain exactly ${identity.appFileName}; found ${applications.join(", ") || "none"}`
       );
     }
-    await verifyApplication(join(mountPoint, releaseIdentity.appFileName));
+    await verifyApplication(join(mountPoint, identity.appFileName), { identity });
   } catch (error) {
     verificationFailure = error;
   }

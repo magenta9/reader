@@ -49,6 +49,7 @@ it("moves the public DMG plan when package metadata version changes", () => {
 });
 
 it("mounts the final DMG and verifies its only VoiceReader application", async () => {
+  const identity = await loadMacReleaseIdentity();
   const root = mkdtempSync(join(tmpdir(), "voicereader-dmg-verifier-"));
   temporaryRoots.push(root);
   const diskImage = join(root, "VoiceReader.dmg");
@@ -57,6 +58,7 @@ it("mounts the final DMG and verifies its only VoiceReader application", async (
   const verifyApplication = vi.fn(async () => undefined);
 
   await verifyMacDiskImage(diskImage, {
+    identity,
     runCommand: async (command, args) => {
       commands.push([command, args]);
       if (args[0] === "attach") {
@@ -70,6 +72,7 @@ it("mounts the final DMG and verifies its only VoiceReader application", async (
   expect(commands.map(([, args]) => args[0])).toEqual(["verify", "attach", "detach"]);
   expect(verifyApplication).toHaveBeenCalledOnce();
   expect(verifyApplication.mock.calls[0][0]).toMatch(/VoiceReader\.app$/);
+  expect(verifyApplication.mock.calls[0][1]).toEqual({ identity });
 });
 
 it("preserves the artifact failure when DMG detach also fails", async () => {

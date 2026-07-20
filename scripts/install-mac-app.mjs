@@ -2,14 +2,17 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { runPackagedSmoke } from "./packaged-smoke.mjs";
+import { loadMacReleaseIdentity } from "./release-identity.mjs";
 import { safelyReplaceApplication } from "./safe-app-replace.mjs";
 import { assertCommand, spawnCommand } from "./spawn-command.mjs";
 import { verifyMacApplicationStructure } from "./verify-mac-app.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDirectory, "..");
-const candidate = resolve(projectRoot, "release/mac/VoiceReader.app");
-export const installedApplication = "/Applications/VoiceReader.app";
+const releaseIdentity = await loadMacReleaseIdentity({ root: projectRoot });
+const candidate = releaseIdentity.paths.application;
+export const installedApplication = releaseIdentity.installedAppPath;
 
 export function findApplicationProcesses(application, processList) {
   const marker = `${application}/Contents/`;
@@ -35,8 +38,10 @@ export function assertApplicationNotRunning(application = installedApplication) 
 }
 
 export async function installMacApplication() {
-  if (process.platform !== "darwin" || process.arch !== "arm64") {
-    throw new Error(`Local installation supports darwin arm64 only; received ${process.platform} ${process.arch}`);
+  if (process.platform !== releaseIdentity.platform || process.arch !== releaseIdentity.architecture) {
+    throw new Error(
+      `Local installation supports ${releaseIdentity.platform} ${releaseIdentity.architecture} only; received ${process.platform} ${process.arch}`
+    );
   }
   if (!existsSync(candidate)) throw new Error(`Verified candidate is missing: ${candidate}`);
   assertApplicationNotRunning();
@@ -47,14 +52,12 @@ export async function installMacApplication() {
     copyApplication: async (source, destination) => {
       assertCommand(await spawnCommand("/usr/bin/ditto", [source, destination]), "Staging application copy");
     },
-    verifyStaged: verifyMacApplicationStructure,
+    verifyStaged: async (application) => {
+      await verifyMacApplicationStructure(application, { identity: releaseIdentity });
+    },
     beforeSwap: async () => assertApplicationNotRunning(),
     verifyInstalled: async (application) => {
-      await verifyMacApplicationStructure(application);
-      assertCommand(
-        await spawnCommand(process.execPath, [resolve(scriptDirectory, "packaged-smoke.mjs"), "--application", application]),
-        "Installed application smoke"
-      );
+      await runPackagedSmoke(application, { identity: releaseIdentity });
     },
     beforeCommit: async () => assertApplicationNotRunning()
   });

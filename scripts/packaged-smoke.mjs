@@ -4,10 +4,13 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadMacReleaseIdentity } from "./release-identity.mjs";
+import { verifyMacApplicationStructure } from "./verify-mac-app.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDirectory, "..");
-const defaultApplication = resolve(projectRoot, "release/mac/VoiceReader.app");
+const releaseIdentity = await loadMacReleaseIdentity({ root: projectRoot });
+const defaultApplication = releaseIdentity.paths.application;
 const CURRENT_SCHEMA_VERSION = 1;
 const CURRENT_ACTIVATION_SHORTCUT = "Control+Command+R";
 const LEGACY_ACTIVATION_SHORTCUT = "Command+Shift+R";
@@ -50,7 +53,7 @@ const FAVORITES_SCHEMA_SQL = [
 const CURRENT_SCHEMA_SQL = [...LEGACY_SCHEMA_SQL, ...FAVORITES_SCHEMA_SQL];
 
 export const SMOKE_PLAN = {
-  application: "release/mac/VoiceReader.app",
+  application: releaseIdentity.packagingPlan.app,
   packagedOnly: true,
   isolatedUserData: true,
   readinessPrefix: "VOICEREADER_SMOKE_READY ",
@@ -61,10 +64,15 @@ export const SMOKE_PLAN = {
 
 export async function runPackagedSmoke(
   application,
-  timeoutMs = SMOKE_PLAN.timeoutMs,
-  scenarios = SMOKE_PLAN.scenarios
+  {
+    timeoutMs = SMOKE_PLAN.timeoutMs,
+    scenarios = SMOKE_PLAN.scenarios,
+    identity = releaseIdentity,
+    verifyApplication = verifyMacApplicationStructure
+  } = {}
 ) {
-  const executable = resolve(application, "Contents/MacOS/VoiceReader");
+  await verifyApplication(application, { identity });
+  const executable = resolve(application, identity.applicationPaths.executable);
   if (!existsSync(executable)) {
     throw new Error(`Packaged application is missing: ${application}. Run bun run package:mac first.`);
   }
@@ -371,7 +379,7 @@ export async function main(argv = process.argv.slice(2)) {
       );
     }
   }
-  const result = await runPackagedSmoke(application, timeoutMs, scenarios);
+  const result = await runPackagedSmoke(application, { timeoutMs, scenarios });
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
