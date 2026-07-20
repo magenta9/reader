@@ -1,6 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { existsSync, readdirSync, renameSync, rmSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { existsSync, renameSync, rmSync } from "node:fs";
 
 export async function safelyReplaceApplication({
   source,
@@ -14,25 +12,10 @@ export async function safelyReplaceApplication({
   renameApplication = renameSync,
   removeApplication = (path) => rmSync(path, { recursive: true, force: true })
 }) {
-  const parent = dirname(destination);
-  const name = basename(destination);
-  const suffix = `${process.pid}-${randomUUID()}`;
-  const fallbackPaths = {
-    staging: resolve(parent, `.${name}.staging-${suffix}`),
-    backup: resolve(parent, `.${name}.backup-${suffix}`),
-    failed: resolve(parent, `.${name}.failed-${suffix}`)
-  };
-  const { staging, backup, failed } = swap?.paths ?? fallbackPaths;
-  const removeOwned = async (role) => {
-    if (swap) {
-      await swap.remove(role, removeApplication);
-    } else {
-      removeApplication(fallbackPaths[role]);
-    }
-  };
-  const preserveOwned = async (role) => {
-    if (swap) await swap.preserve(role);
-  };
+  if (!swap) throw new Error("Safe application replacement requires a transaction-owned swap capability");
+  const { staging, backup, failed } = swap.paths;
+  const removeOwned = (role) => swap.remove(role, removeApplication);
+  const preserveOwned = (role) => swap.preserve(role);
   let previousMoved = false;
   let replacementInstalled = false;
   let preserveFailed = false;
@@ -102,21 +85,6 @@ export async function safelyReplaceApplication({
         `The new application is installed and verified, but the previous backup could not be removed. ` +
           `The verified application remains at ${destination}; inspect and remove the residual backup at ${backup} manually. ` +
           `Cleanup error: ${error}`
-      );
-    }
-  }
-
-  if (!swap) {
-    try {
-      for (const entry of readdirSync(parent)) {
-        if (entry.startsWith(`.${name}.staging-`) || entry.startsWith(`.${name}.backup-`)) {
-          removeApplication(resolve(parent, entry));
-        }
-      }
-    } catch (error) {
-      throw new Error(
-        `The new application is installed and verified, but stale deployment artifacts could not be removed. ` +
-          `The verified application remains at ${destination}. Cleanup error: ${error}`
       );
     }
   }

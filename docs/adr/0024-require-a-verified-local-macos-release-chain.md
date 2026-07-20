@@ -1,6 +1,6 @@
 ---
 status: accepted
-refined-by: ADR-0029
+refined-by: ADR-0029, ADR-0038
 ---
 
 # Require a verified local macOS release chain

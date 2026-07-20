@@ -46,7 +46,9 @@ open release/mac/VoiceReader.app
 make deploy
 ```
 
-`make package-mac` 只生成 ARM64 `.app` 与 DMG，不修改 `/Applications`；它从根 `package.json` 加载并校验一个不可变 Release Identity snapshot，再验证最终 app 的 Info.plist、descriptor、图标、helper identifiers、精确 Build Product、架构与签名 requirement，并校验、只读挂载 DMG 后对其中唯一的 `VoiceReader.app` 重跑相同验证。`make smoke-packaged` 会先按 production Release Identity 复验最终 `.app`，再运行 fresh、历史三表、无版本四表和 future negative 数据库矩阵；正向场景在隐藏窗口模式下完成真实 Reader App Shell 初始化，并创建隐藏 Playback Overlay 以加载最终包内的 HTML 与 preload，随后才报告 readiness、验证 exact v1 schema 与数据保留，future 场景继续验证 fail-closed。`make deploy` 会先执行完整验证和 candidate smoke；如果 `/Applications/VoiceReader.app` 正在运行，它会要求开发者正常退出应用并拒绝继续，不会自动结束进程。替换采用 staging/backup 流程，installed smoke 失败时恢复旧应用；所有 smoke 都使用临时 userData，不接触正常的本机数据。
+`make package-mac` 只生成 ARM64 `.app` 与 DMG，不修改 `/Applications`；它先获取仓库级 Local Release Transaction 锁，在隔离 workspace 中从根 `package.json` 加载并校验不可变 Release Identity snapshot，生成并验证 app/DMG，再以 transaction-owned staging/backup 故障安全地发布到 `release/mac`。`make smoke-packaged` 会先按 production Release Identity 复验最终 `.app`，再运行 fresh、历史三表、无版本四表和 future negative 数据库矩阵；正向场景在隐藏窗口模式下完成真实 Reader App Shell 初始化，并创建隐藏 Playback Overlay 以加载最终包内的 HTML 与 preload，随后才报告 readiness、验证 exact v1 schema 与数据保留，future 场景继续验证 fail-closed。`make deploy` 会让完整验证、workspace package、candidate smoke、publication 和安装共享同一事务 candidate；如果 `/Applications/VoiceReader.app` 正在运行，它会要求开发者正常退出应用并拒绝继续，不会自动结束进程。发布和安装分别采用事务拥有的 staging/backup，提交失败或 installed smoke 失败时恢复上一份 release/应用；所有 smoke 都使用临时 userData，不接触正常的本机数据。
+
+如果 package、deploy 或 standalone install 报告 `.local-release/lock` 已存在，先打开 `.local-release/lock/owner.json`，记录其中的 repository root、transaction id、PID 和创建时间，再用 `ps -p <PID> -o pid=,command=` 确认对应进程已不存在，并确认当前没有本仓库的 package/deploy/install 正在运行。只有完成这些检查后，才可删除精确的 `.local-release/lock` 目录并重试。不要递归删除 `.local-release/`，不要顺手清理 `transactions/` workspace，也不要触碰 `/Applications/VoiceReader.app` 或 `~/Library/Application Support/VoiceReader`；生产代码故意不自动判断陈旧锁。
 
 发布版本只在根 `package.json` 的 `version` 字段提升。不要同步编辑 packager、Info.plist、verifier 或文档中的版本常量；Release Identity 会派生 descriptor/plist 版本和 `release/mac/VoiceReader-<package version>-arm64.dmg`。版本变更后必须重新运行 `make verify`、`make package-mac` 与 `make smoke-packaged`，以最终 artifact seam 证明 metadata 与产物一致。
 
@@ -71,7 +73,7 @@ Issue 使用 Linear 原生状态和依赖关系；标签含义见 `docs/agents/t
 - Renderer 只能通过 preload bridge 调用受控能力，不直接使用 Node 或 Electron main API。
 - 用户可见文案默认使用中文；领域概念使用 `CONTEXT.md` 中定义的术语。
 - 涉及产品行为、隐私边界、本地持久化或架构选择时，先从 `docs/adr/CATALOG.md` 确认已有决策的状态与关系，再阅读具体 ADR。
-- 不提交 `dist/`、`release/`、`.tmp/`、`node_modules/` 或本机数据文件。
+- 不提交 `dist/`、`release/`、`.tmp/`、`.local-release/`、`node_modules/` 或本机数据文件。
 
 ## 提交流程
 

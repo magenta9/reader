@@ -10,9 +10,9 @@ import {
   writeFileSync
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { findApplicationProcesses } from "../../scripts/install-mac-app.mjs";
+import { findApplicationProcesses, installMacApplication } from "../../scripts/install-mac-app.mjs";
 import { beginLocalReleaseTransaction } from "../../scripts/local-release-transaction.mjs";
 import { safelyReplaceApplication } from "../../scripts/safe-app-replace.mjs";
 import { DEPLOY_PLAN, deployMac } from "../../scripts/deploy-mac.mjs";
@@ -20,7 +20,7 @@ import { DEPLOY_PLAN, deployMac } from "../../scripts/deploy-mac.mjs";
 const deployScript = resolve("scripts/deploy-mac.mjs");
 const temporaryRoots = [];
 
-function createReplacementFixture() {
+async function createReplacementFixture() {
   const root = mkdtempSync(join(tmpdir(), "voicereader-safe-replace-"));
   temporaryRoots.push(root);
   const source = join(root, "candidate.app");
@@ -29,9 +29,12 @@ function createReplacementFixture() {
   mkdirSync(destination);
   writeFileSync(join(source, "version"), "new");
   writeFileSync(join(destination, "version"), "old");
+  const transaction = await beginLocalReleaseTransaction({ root });
   return {
     source,
     destination,
+    transaction,
+    swap: transaction.applicationSwap(destination),
     copyApplication: async (copySource, copyDestination) =>
       cpSync(copySource, copyDestination, { recursive: true }),
     verifyStaged: async () => {},
@@ -156,8 +159,8 @@ describe("local VoiceReader deployment", () => {
     expect(laterStages).toEqual([]);
   });
 
-  it("atomically replaces a verified application and removes the previous copy", async () => {
-    const fixture = createReplacementFixture();
+  it("atomically replaces a verified application without deleting foreign swap prefixes", async () => {
+    const fixture = await createReplacementFixture();
     const staleStaging = join(fixture.source, "..", ".VoiceReader.app.staging-old");
     const staleBackup = join(fixture.source, "..", ".VoiceReader.app.backup-old");
     mkdirSync(staleStaging);
@@ -168,30 +171,13 @@ describe("local VoiceReader deployment", () => {
       verifyInstalled: async (application) => expect(readFileSync(join(application, "version"), "utf8")).toBe("new")
     });
     expect(readFileSync(join(fixture.destination, "version"), "utf8")).toBe("new");
-    expect(existsSync(staleStaging)).toBe(false);
-    expect(existsSync(staleBackup)).toBe(false);
-  });
-
-  it("uses transaction-owned swap resources without cleaning another transaction prefix", async () => {
-    const fixture = createReplacementFixture();
-    const root = dirname(fixture.destination);
-    const transaction = await beginLocalReleaseTransaction({ root, id: "deployment" });
-    const swap = transaction.applicationSwap(fixture.destination);
-    const foreignStaging = join(root, ".VoiceReader.app.staging-foreign");
-    const foreignBackup = join(root, ".VoiceReader.app.backup-foreign");
-    mkdirSync(foreignStaging);
-    mkdirSync(foreignBackup);
-
-    await safelyReplaceApplication({ ...fixture, swap });
-
-    expect(readFileSync(join(fixture.destination, "version"), "utf8")).toBe("new");
-    expect(existsSync(foreignStaging)).toBe(true);
-    expect(existsSync(foreignBackup)).toBe(true);
-    await transaction.release();
+    expect(existsSync(staleStaging)).toBe(true);
+    expect(existsSync(staleBackup)).toBe(true);
+    await fixture.transaction.release();
   });
 
   it("leaves the installed application untouched when staged verification fails", async () => {
-    const fixture = createReplacementFixture();
+    const fixture = await createReplacementFixture();
     await expect(
       safelyReplaceApplication({
         ...fixture,
@@ -201,10 +187,11 @@ describe("local VoiceReader deployment", () => {
       })
     ).rejects.toThrow("staged signature failed");
     expect(readFileSync(join(fixture.destination, "version"), "utf8")).toBe("old");
+    await fixture.transaction.release();
   });
 
   it("restores the previous application when installed verification fails", async () => {
-    const fixture = createReplacementFixture();
+    const fixture = await createReplacementFixture();
     await expect(
       safelyReplaceApplication({
         ...fixture,
@@ -214,10 +201,11 @@ describe("local VoiceReader deployment", () => {
       })
     ).rejects.toThrow("installed smoke failed");
     expect(readFileSync(join(fixture.destination, "version"), "utf8")).toBe("old");
+    await fixture.transaction.release();
   });
 
   it("leaves the installed application untouched when the pre-swap guard fails", async () => {
-    const fixture = createReplacementFixture();
+    const fixture = await createReplacementFixture();
     await expect(
       safelyReplaceApplication({
         ...fixture,
@@ -227,10 +215,11 @@ describe("local VoiceReader deployment", () => {
       })
     ).rejects.toThrow("VoiceReader started during staging");
     expect(readFileSync(join(fixture.destination, "version"), "utf8")).toBe("old");
+    await fixture.transaction.release();
   });
 
   it("reports the preserved backup when rollback cannot move the failed replacement", async () => {
-    const fixture = createReplacementFixture();
+    const fixture = await createReplacementFixture();
     let failedRename = false;
     let message = "";
     try {
@@ -255,10 +244,11 @@ describe("local VoiceReader deployment", () => {
     const backup = message.match(/preserved at (.+)\./)?.[1];
     expect(backup && existsSync(backup)).toBe(true);
     expect(backup && readFileSync(join(backup, "version"), "utf8")).toBe("old");
+    await fixture.transaction.release();
   });
 
   it("keeps the verified replacement when committed backup cleanup fails", async () => {
-    const fixture = createReplacementFixture();
+    const fixture = await createReplacementFixture();
     let message = "";
     try {
       await safelyReplaceApplication({
@@ -274,6 +264,32 @@ describe("local VoiceReader deployment", () => {
     expect(message).toContain("new application is installed and verified");
     expect(message).toContain("residual backup at");
     expect(readFileSync(join(fixture.destination, "version"), "utf8")).toBe("new");
+    await fixture.transaction.release();
+  });
+
+  it("rejects replacement without a transaction-owned swap capability", async () => {
+    const fixture = await createReplacementFixture();
+    const { swap: _swap, ...withoutSwap } = fixture;
+
+    await expect(safelyReplaceApplication(withoutSwap)).rejects.toThrow("transaction-owned swap");
+    expect(readFileSync(join(fixture.destination, "version"), "utf8")).toBe("old");
+    await fixture.transaction.release();
+  });
+
+  it("rejects installation without an explicit transaction candidate handoff", async () => {
+    await expect(installMacApplication()).rejects.toThrow("explicit local release transaction and candidate");
+  });
+
+  it("rejects an installation candidate that does not belong to the transaction", async () => {
+    const root = mkdtempSync(join(tmpdir(), "voicereader-install-candidate-"));
+    temporaryRoots.push(root);
+    const transaction = await beginLocalReleaseTransaction({ root, id: "install-owner" });
+    const foreignCandidate = join(root, "foreign", "VoiceReader.app");
+
+    await expect(
+      installMacApplication({ transaction, candidate: foreignCandidate })
+    ).rejects.toThrow("does not belong to local release transaction install-owner");
+    await transaction.release();
   });
 
   it("detects main and helper processes running from the installed bundle", () => {

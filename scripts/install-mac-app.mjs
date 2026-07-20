@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { cp, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runPackagedSmoke } from "./packaged-smoke.mjs";
@@ -12,7 +13,7 @@ import { verifyMacApplicationStructure } from "./verify-mac-app.mjs";
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDirectory, "..");
 const releaseIdentity = await loadMacReleaseIdentity({ root: projectRoot });
-const defaultCandidate = releaseIdentity.paths.application;
+const publishedCandidate = releaseIdentity.paths.application;
 export const installedApplication = releaseIdentity.installedAppPath;
 
 export function findApplicationProcesses(application, processList) {
@@ -38,14 +39,13 @@ export function assertApplicationNotRunning(application = installedApplication) 
   }
 }
 
-export async function installMacApplication({
-  transaction,
-  candidate = defaultCandidate,
-  transactionRunner = withLocalReleaseTransaction
-} = {}) {
-  if (!transaction) {
-    return transactionRunner({ root: projectRoot }, (ownedTransaction) =>
-      installMacApplication({ transaction: ownedTransaction, candidate })
+export async function installMacApplication({ transaction, candidate } = {}) {
+  if (!transaction || !candidate) {
+    throw new Error("Installation requires an explicit local release transaction and candidate handoff");
+  }
+  if (resolve(candidate) !== resolve(transaction.candidatePath)) {
+    throw new Error(
+      `Installation candidate does not belong to local release transaction ${transaction.id}: ${candidate}`
     );
   }
   if (process.platform !== releaseIdentity.platform || process.arch !== releaseIdentity.architecture) {
@@ -77,9 +77,23 @@ export async function installMacApplication({
   return { installed: installedApplication, userDataModified: false };
 }
 
+export async function installPublishedMacApplication() {
+  return withLocalReleaseTransaction({ root: projectRoot }, async (transaction) => {
+    if (!existsSync(publishedCandidate)) {
+      throw new Error(`Verified candidate is missing: ${publishedCandidate}`);
+    }
+    await mkdir(dirname(transaction.candidatePath), { recursive: true });
+    await cp(publishedCandidate, transaction.candidatePath, {
+      recursive: true,
+      verbatimSymlinks: true
+    });
+    return installMacApplication({ transaction, candidate: transaction.candidatePath });
+  });
+}
+
 export async function main(argv = process.argv.slice(2)) {
   if (argv.length > 0) throw new Error("Usage: install-mac-app.mjs");
-  process.stdout.write(`${JSON.stringify(await installMacApplication())}\n`);
+  process.stdout.write(`${JSON.stringify(await installPublishedMacApplication())}\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -27,7 +27,7 @@
 | [ADR-0021](0021-split-vitest-source-tests-from-dist-contract-tests.md) | Split Vitest Source Tests From Dist Contract Tests | accepted | partially-superseded-by: [ADR-0036](0036-let-reading-target-acquisition-own-trigger-preparation.md); refined-by: [ADR-0032](0032-make-the-build-product-the-verifier-boundary.md) |
 | [ADR-0022](0022-use-bun-tooling-while-retaining-electron-runtime.md) | Use Bun tooling while retaining the Electron runtime | accepted | — |
 | [ADR-0023](0023-build-the-selection-addon-from-source.md) | Build the macOS selection addon from source | accepted | — |
-| [ADR-0024](0024-require-a-verified-local-macos-release-chain.md) | Require a verified local macOS release chain | accepted | refined-by: [ADR-0029](0029-version-the-sqlite-app-data-schema-atomically.md) |
+| [ADR-0024](0024-require-a-verified-local-macos-release-chain.md) | Require a verified local macOS release chain | accepted | refined-by: [ADR-0029](0029-version-the-sqlite-app-data-schema-atomically.md), [ADR-0038](0038-let-local-release-transaction-own-macos-publication-and-installation.md) |
 | [ADR-0025](0025-keep-the-custom-macos-packager.md) | Keep the custom macOS packager | accepted | — |
 | [ADR-0026](0026-let-main-own-playback-session-terminal-state.md) | Let the Main Process Own Playback Session Terminal State | accepted | — |
 | [ADR-0027](0027-let-minimax-adapter-own-validated-audio-bytes.md) | Let the MiniMax Adapter Own Validated Audio Bytes | accepted | — |
@@ -38,6 +38,7 @@
 | [ADR-0032](0032-make-the-build-product-the-verifier-boundary.md) | Make the Build Product the Verifier Boundary | accepted | — |
 | [ADR-0033](0033-let-settings-workspace-own-renderer-settings-workflow.md) | Let Settings Workspace Own the Renderer Settings Workflow | accepted | — |
 | [ADR-0034](0034-let-home-workspace-own-renderer-home-workflow.md) | Let Home Workspace Own the Renderer Home Workflow | accepted | — |
-| [ADR-0035](0035-let-release-identity-own-macos-artifact-identity.md) | Let Release Identity Own macOS Artifact Identity | accepted | — |
+| [ADR-0035](0035-let-release-identity-own-macos-artifact-identity.md) | Let Release Identity Own macOS Artifact Identity | accepted | refined-by: [ADR-0038](0038-let-local-release-transaction-own-macos-publication-and-installation.md) |
 | [ADR-0036](0036-let-reading-target-acquisition-own-trigger-preparation.md) | Let Reading Target Acquisition Own Trigger Preparation | accepted | — |
 | [ADR-0037](0037-let-adr-frontmatter-own-decision-status-and-relationships.md) | Let ADR Frontmatter Own Decision Status and Relationships | accepted | — |
+| [ADR-0038](0038-let-local-release-transaction-own-macos-publication-and-installation.md) | Let Local Release Transaction Own macOS Publication and Installation | accepted | — |

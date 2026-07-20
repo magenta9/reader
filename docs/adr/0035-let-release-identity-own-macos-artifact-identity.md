@@ -1,5 +1,6 @@
 ---
 status: accepted
+refined-by: ADR-0038
 ---
 
 # Let Release Identity Own macOS Artifact Identity

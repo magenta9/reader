@@ -34,9 +34,15 @@ describe("Local Release Transaction", () => {
 
     const lockPath = join(root, ".local-release", "lock");
 
-    await expect(beginLocalReleaseTransaction({ root, id: "competing-release" })).rejects.toThrow(
-      new RegExp(`Local release transaction is already active.*${lockPath.replaceAll("/", "\\/")}`)
-    );
+    let conflict = "";
+    try {
+      await beginLocalReleaseTransaction({ root, id: "competing-release" });
+    } catch (error) {
+      conflict = error instanceof Error ? error.message : String(error);
+    }
+    expect(conflict).toContain(`Local release transaction is already active. Lock: ${lockPath}.`);
+    expect(conflict).toContain(`inspect ${join(lockPath, "owner.json")}`);
+    expect(conflict).toContain(`remove only ${lockPath} before retrying`);
 
     expect(readFileSync(join(active.candidatePath, "marker"), "utf8")).toBe("active");
     expect(readFileSync(join(swap.paths.staging, "marker"), "utf8")).toBe("staging");
