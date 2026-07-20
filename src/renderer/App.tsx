@@ -1,4 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from "react";
 import type { CSSProperties, ReactElement } from "react";
 import type {
   AppRoute,
@@ -7,11 +16,12 @@ import type {
   RouteSnapshot
 } from "./bridge.js";
 import { DEFAULT_ACTIVATION_SHORTCUT } from "../shared/app-contracts.js";
-import type { HistoryRetention, HistoryRetentionImpact } from "../shared/app-contracts.js";
+import type { HistoryRetention } from "../shared/app-contracts.js";
 import type { DetectedLanguage, MiniMaxVoice } from "../shared/types.js";
 import { MODEL_OPTIONS } from "../shared/models.js";
 import { historyRetentionLabel } from "./history-retention.js";
 import { RecordBrowser, type RecordUndoRequest } from "./record-browser.js";
+import { SettingsWorkspace } from "./settings-workspace.js";
 
 export interface ReaderWindowAppProps {
   readerBridge: ReaderWindowRoleBridge;
@@ -533,258 +543,79 @@ function getSetupRecoveryAction(hasApiKey: boolean, settings: AppSettings | unde
 
 function Settings(): ReactElement {
   const { readerBridge } = useAppDependencies();
-  const [settings, setSettings] = useState<AppSettings | undefined>();
-  const [apiKeyDraft, setApiKeyDraft] = useState("");
-  const [customModelDraft, setCustomModelDraft] = useState("");
-  const [hasApiKey, setHasApiKey] = useState(false);
-  const [errorLogCount, setErrorLogCount] = useState(0);
-  const [readingHistoryCount, setReadingHistoryCount] = useState(0);
-  const [retentionDraft, setRetentionDraft] = useState<HistoryRetention>("1m");
-  const [retentionImpact, setRetentionImpact] = useState<HistoryRetentionImpact | undefined>();
-  const [isCheckingRetention, setIsCheckingRetention] = useState(false);
-  const [isApplyingRetention, setIsApplyingRetention] = useState(false);
-  const [isClearingHistory, setIsClearingHistory] = useState(false);
-  const [confirmClearHistory, setConfirmClearHistory] = useState(false);
-  const [historyActionMessage, setHistoryActionMessage] = useState("");
-  const [historyActionError, setHistoryActionError] = useState("");
-  const [isRecordingShortcut, setIsRecordingShortcut] = useState(false);
-  const [shortcutMessage, setShortcutMessage] = useState("");
-  const [setupMessage, setSetupMessage] = useState("");
-  const retentionPreviewGeneration = useRef(0);
+  const workspace = useMemo(() => new SettingsWorkspace(readerBridge), [readerBridge]);
+  const snapshot = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot, workspace.getSnapshot);
   const retentionSelect = useRef<HTMLSelectElement | null>(null);
   const retentionCancelButton = useRef<HTMLButtonElement | null>(null);
   const clearHistoryButton = useRef<HTMLButtonElement | null>(null);
   const clearHistoryCancelButton = useRef<HTMLButtonElement | null>(null);
+  const settings = snapshot.settings.status === "ready" ? snapshot.settings.value : undefined;
+  const hasApiKey = snapshot.miniMaxCredential.status === "ready" && snapshot.miniMaxCredential.value;
+  const errorLogCount = snapshot.errorLogCount.status === "ready" ? snapshot.errorLogCount.value : 0;
+  const readingHistoryCount =
+    snapshot.readingHistoryCount.status === "ready" ? snapshot.readingHistoryCount.value : 0;
+  const isCheckingRetention = snapshot.visit.retentionPhase === "checking";
+  const isApplyingRetention = snapshot.visit.retentionPhase === "applying";
 
   useEffect(() => {
-    void refreshSettings();
-  }, []);
+    workspace.start();
+    return () => workspace.dispose();
+  }, [workspace]);
 
   useEffect(() => {
-    if (retentionImpact) retentionCancelButton.current?.focus();
-  }, [retentionImpact]);
+    if (snapshot.visit.retentionImpact) retentionCancelButton.current?.focus();
+  }, [snapshot.visit.retentionImpact]);
 
   useEffect(() => {
-    if (confirmClearHistory) clearHistoryCancelButton.current?.focus();
-  }, [confirmClearHistory]);
+    if (snapshot.visit.confirmClearHistory) clearHistoryCancelButton.current?.focus();
+  }, [snapshot.visit.confirmClearHistory]);
 
   useEffect(() => {
-    if (!isRecordingShortcut) return undefined;
+    if (!snapshot.visit.isRecordingShortcut) return undefined;
     const recordShortcut = (event: KeyboardEvent): void => {
       event.preventDefault();
       event.stopPropagation();
       if (event.key === "Escape") {
-        setIsRecordingShortcut(false);
-        setShortcutMessage("未更改开始朗读快捷键");
+        workspace.cancelShortcutRecording();
         return;
       }
       const shortcut = acceleratorFromKeyboardEvent(event);
       if (!shortcut) {
-        setShortcutMessage("请按下包含修饰键的组合键");
+        workspace.rejectShortcutCandidate();
         return;
       }
-      setIsRecordingShortcut(false);
-      void saveActivationShortcut(shortcut);
+      void workspace.recordActivationShortcut(shortcut);
     };
     window.addEventListener("keydown", recordShortcut, true);
     return () => window.removeEventListener("keydown", recordShortcut, true);
-  }, [isRecordingShortcut, settings]);
-
-  const refreshSettings = async (): Promise<void> => {
-    const [nextSettings, nextHasApiKey, nextErrorLogCount, nextReadingHistoryCount] = await Promise.all([
-      readerBridge.getSettings(),
-      readerBridge.hasMiniMaxApiKey(),
-      readerBridge.getErrorLogCount(),
-      readerBridge.getReadingHistoryCount()
-    ]);
-    setSettings(nextSettings);
-    setHasApiKey(nextHasApiKey);
-    setErrorLogCount(nextErrorLogCount);
-    setReadingHistoryCount(nextReadingHistoryCount);
-    setRetentionDraft(nextSettings.historyRetention);
-    if (!isBuiltInModel(nextSettings.model)) setCustomModelDraft(nextSettings.model);
-  };
-
-  const saveApiKey = async (): Promise<void> => {
-    await readerBridge.setMiniMaxApiKey(apiKeyDraft);
-    setApiKeyDraft("");
-    setSetupMessage("API Key 已保存到本机 SQLite，等待验证");
-    await refreshSettings();
-  };
-
-  const clearApiKey = async (): Promise<void> => {
-    await readerBridge.clearMiniMaxApiKey();
-    setSetupMessage("API Key 已清除");
-    await refreshSettings();
-  };
-
-  const verifyApiKey = async (): Promise<void> => {
-    const result = await readerBridge.verifyMiniMaxKey();
-    setSetupMessage(result.ok ? "连接验证成功" : result.error ?? "连接验证失败");
-    setSettings(result.settings);
-    setHasApiKey(await readerBridge.hasMiniMaxApiKey());
-  };
-
-  const refreshVoices = async (): Promise<void> => {
-    const result = await readerBridge.refreshVoices();
-    setSetupMessage(
-      result.usedCachedVoices
-        ? `刷新失败，继续使用本地 Voice 缓存：${result.error}`
-        : result.ok
-          ? "Voice 列表已刷新"
-          : result.error ?? "Voice 列表刷新失败"
-    );
-    setSettings(result.settings);
-  };
-
-  const toggleLaunchAtLogin = async (): Promise<void> => {
-    const next = await readerBridge.setLaunchAtLogin(!settings?.launchAtLogin);
-    setSettings(next);
-  };
-
-  const saveActivationShortcut = async (shortcut: string): Promise<void> => {
-    const result = await readerBridge.setActivationShortcut(shortcut);
-    setSettings(result.settings);
-    setShortcutMessage(result.ok ? "开始朗读快捷键已更新" : result.error ?? "无法使用这个快捷键");
-  };
-
-  const updateSpeechRate = async (speechRate: number): Promise<void> => {
-    const next = await readerBridge.setSpeechRate(speechRate);
-    setSettings(next);
-  };
-
-  const updateModel = async (model: string): Promise<void> => {
-    if (model === "custom") {
-      if (!customModelDraft && settings?.model && !isBuiltInModel(settings.model)) {
-        setCustomModelDraft(settings.model);
-      }
-      return;
-    }
-    const next = await readerBridge.setModel(model);
-    setSettings(next);
-  };
-
-  const saveCustomModel = async (): Promise<void> => {
-    const model = customModelDraft.trim();
-    if (!model) return;
-    const next = await readerBridge.setModel(model);
-    setSettings(next);
-  };
-
-  const clearErrorLog = async (): Promise<void> => {
-    await readerBridge.clearErrorLog();
-    setErrorLogCount(0);
-  };
-
-  const applyRetention = async (
-    historyRetention: HistoryRetention,
-    expectedDeleteCount: number
-  ): Promise<void> => {
-    setIsApplyingRetention(true);
-    setHistoryActionError("");
-    try {
-      const result = await readerBridge.applyReadingHistoryRetention(historyRetention, expectedDeleteCount);
-      if (!result.applied) {
-        setRetentionImpact(result.impact);
-        setReadingHistoryCount(result.impact.deleteCount + result.impact.remainingCount);
-        setHistoryActionMessage("历史记录数量已变化，请按最新数量再次确认。");
-        return;
-      }
-      setSettings(result.settings);
-      setRetentionDraft(result.settings.historyRetention);
-      setRetentionImpact(undefined);
-      setReadingHistoryCount(result.impact.remainingCount);
-      setConfirmClearHistory(false);
-      setHistoryActionMessage(
-        result.impact.deleteCount
-          ? `保留期限已改为${historyRetentionLabel(result.settings.historyRetention)}，已删除 ${result.impact.deleteCount} 条超期历史记录。收藏未受影响。`
-          : `保留期限已改为${historyRetentionLabel(result.settings.historyRetention)}。已删除的历史记录不会恢复。`
-      );
-    } catch {
-      setRetentionDraft(settings?.historyRetention ?? "1m");
-      setHistoryActionError("保留期限更新失败，现有历史记录未变更。");
-    } finally {
-      setIsApplyingRetention(false);
-    }
-  };
-
-  const requestRetentionChange = async (historyRetention: HistoryRetention): Promise<void> => {
-    const requestGeneration = ++retentionPreviewGeneration.current;
-    setRetentionDraft(historyRetention);
-    setRetentionImpact(undefined);
-    setConfirmClearHistory(false);
-    setHistoryActionMessage("");
-    setHistoryActionError("");
-    if (historyRetention === settings?.historyRetention) return;
-
-    setIsCheckingRetention(true);
-    try {
-      const impact = await readerBridge.previewReadingHistoryRetention(historyRetention);
-      if (requestGeneration !== retentionPreviewGeneration.current) return;
-      if (impact.deleteCount > 0) {
-        setRetentionImpact(impact);
-        return;
-      }
-      await applyRetention(historyRetention, 0);
-    } catch {
-      if (requestGeneration !== retentionPreviewGeneration.current) return;
-      setRetentionDraft(settings?.historyRetention ?? "1m");
-      setHistoryActionError("无法检查保留期限的影响，请稍后重试。");
-    } finally {
-      if (requestGeneration === retentionPreviewGeneration.current) setIsCheckingRetention(false);
-    }
-  };
-
-  const confirmRetentionChange = async (): Promise<void> => {
-    if (!retentionImpact) return;
-    await applyRetention(retentionImpact.historyRetention, retentionImpact.deleteCount);
-  };
+  }, [snapshot.visit.isRecordingShortcut, workspace]);
 
   const cancelRetentionChange = (): void => {
-    retentionPreviewGeneration.current += 1;
-    setRetentionDraft(settings?.historyRetention ?? "1m");
-    setRetentionImpact(undefined);
-    setIsCheckingRetention(false);
-    setHistoryActionMessage("已取消保留期限变更。");
-    setHistoryActionError("");
+    workspace.cancelRetentionChange();
     window.setTimeout(() => retentionSelect.current?.focus());
   };
 
   const cancelClearReadingHistory = (): void => {
-    setConfirmClearHistory(false);
-    setHistoryActionMessage("已取消清空历史记录。");
-    setHistoryActionError("");
+    workspace.cancelClearHistory();
     window.setTimeout(() => clearHistoryButton.current?.focus());
   };
 
-  const clearReadingHistory = async (): Promise<void> => {
-    if (isClearingHistory) return;
-    setIsClearingHistory(true);
-    setHistoryActionMessage("");
-    setHistoryActionError("");
-    try {
-      const clearedCount = await readerBridge.clearReadingHistory();
-      setReadingHistoryCount(0);
-      setConfirmClearHistory(false);
-      setRetentionImpact(undefined);
-      setHistoryActionMessage(`已清空 ${clearedCount} 条历史记录，收藏仍然保留。`);
-    } catch {
-      setHistoryActionError("清空失败，现有历史记录仍然保留。");
-    } finally {
-      setIsClearingHistory(false);
-    }
-  };
-
-  const currentSpeechRate = settings?.speechRate ?? 1;
+  const currentSpeechRate = snapshot.presentation.speechRate;
   const speechRateProgress = ((currentSpeechRate - 0.5) / 2.5) * 100;
-  const modelSelectValue = !settings
-    ? MODEL_OPTIONS[0]?.id ?? "speech-2.8-turbo"
-    : isBuiltInModel(settings.model)
-      ? settings.model
-      : "custom";
+  const modelSelectValue = snapshot.visit.customModelSelected
+    ? "custom"
+    : settings?.model ?? MODEL_OPTIONS[0]?.id ?? "speech-2.8-turbo";
 
   return (
-    <section aria-busy={!settings} aria-label="设置" className="settings-layout">
+    <section aria-busy={snapshot.settings.status === "loading"} aria-label="设置" className="settings-layout">
+      {snapshot.settings.status === "error" ? (
+        <div className="inline-error" role="alert">
+          <p>无法读取设置</p>
+          <button className="text-action" onClick={() => workspace.retrySettings()} type="button">
+            重试设置
+          </button>
+        </div>
+      ) : null}
       {SETTINGS_GROUPS.map((group) => (
         <section aria-labelledby={SETTINGS_GROUP_IDS[group]} className="settings-section" key={group}>
           <div className="settings-heading">
@@ -796,10 +627,26 @@ function Settings(): ReactElement {
               <div className="settings-meta-row">
                 <span>
                   API Key 状态：
-                  {settings ? (hasApiKey ? apiKeyStatusLabel(settings.apiKeyStatus) : "未保存") : "正在读取"}
+                  {snapshot.miniMaxCredential.status === "loading"
+                    ? "正在读取"
+                    : snapshot.miniMaxCredential.status === "error"
+                      ? "—"
+                      : !hasApiKey
+                        ? "未保存"
+                        : settings
+                          ? apiKeyStatusLabel(settings.apiKeyStatus)
+                          : "已保存，验证状态不可用"}
                 </span>
                 <span>Voice 缓存：{settings ? `${settings.voices.length} 个` : "—"}</span>
               </div>
+              {snapshot.miniMaxCredential.status === "error" ? (
+                <div className="inline-error" role="alert">
+                  <span>API Key 状态读取失败</span>
+                  <button className="text-action" onClick={() => workspace.retryMiniMaxCredential()} type="button">
+                    重试 API Key 状态
+                  </button>
+                </div>
+              ) : null}
               {settings?.apiKeyError && (
                 <p className="inline-error" role="alert">
                   {settings.apiKeyError}
@@ -810,38 +657,39 @@ function Settings(): ReactElement {
                   {settings.voiceRefreshError}
                 </p>
               )}
-              {setupMessage && (
+              {snapshot.visit.feedback.setup && (
                 <p className="inline-note" role="status">
-                  {setupMessage}
+                  {snapshot.visit.feedback.setup}
                 </p>
               )}
               <div className="setting-field-row">
                 <label className="field-label settings-wide-field">
                   MiniMax API Key
                   <input
-                    onChange={(event) => setApiKeyDraft(event.target.value)}
+                    disabled={!snapshot.canWrite || snapshot.pending.account}
+                    onChange={(event) => workspace.updateApiKeyDraft(event.target.value)}
                     placeholder="输入后会保存到本机 SQLite"
                     type="password"
-                    value={apiKeyDraft}
+                    value={snapshot.visit.apiKeyDraft}
                   />
                 </label>
                 <button
                   className="secondary-action"
-                  disabled={!apiKeyDraft.trim()}
-                  onClick={saveApiKey}
+                  disabled={!snapshot.canWrite || snapshot.pending.account || !snapshot.visit.apiKeyDraft.trim()}
+                  onClick={() => void workspace.saveApiKey()}
                   type="button"
                 >
                   保存 API Key
                 </button>
               </div>
               <div className="button-row">
-                <button className="secondary-action" disabled={!hasApiKey} onClick={verifyApiKey} type="button">
+                <button className="secondary-action" disabled={!snapshot.canWrite || !hasApiKey || snapshot.pending.account} onClick={() => void workspace.verifyApiKey()} type="button">
                   验证连接
                 </button>
-                <button className="secondary-action" disabled={!hasApiKey} onClick={refreshVoices} type="button">
+                <button className="secondary-action" disabled={!snapshot.canWrite || !hasApiKey || snapshot.pending.account} onClick={() => void workspace.refreshVoices()} type="button">
                   刷新 Voice
                 </button>
-                <button className="text-action" disabled={!hasApiKey} onClick={clearApiKey} type="button">
+                <button className="text-action" disabled={!snapshot.canWrite || !hasApiKey || snapshot.pending.account} onClick={() => void workspace.clearApiKey()} type="button">
                   清除 API Key
                 </button>
               </div>
@@ -852,22 +700,19 @@ function Settings(): ReactElement {
               <p className="muted">开始朗读：{settings?.activationShortcut ?? DEFAULT_ACTIVATION_SHORTCUT}</p>
               <div className="button-row shortcut-setting-row">
                 <button
-                  className={isRecordingShortcut ? "shortcut-recorder is-recording" : "shortcut-recorder"}
-                  disabled={!settings}
-                  onClick={() => {
-                    setIsRecordingShortcut(true);
-                    setShortcutMessage("请按新的开始朗读快捷键");
-                  }}
+                  className={snapshot.visit.isRecordingShortcut ? "shortcut-recorder is-recording" : "shortcut-recorder"}
+                  disabled={!snapshot.canWrite || snapshot.pending.shortcut}
+                  onClick={() => workspace.beginShortcutRecording()}
                   type="button"
                 >
-                  {isRecordingShortcut
+                  {snapshot.visit.isRecordingShortcut
                     ? "按下新的组合键"
                     : settings?.activationShortcut ?? DEFAULT_ACTIVATION_SHORTCUT}
                 </button>
                 <button
                   className="text-action"
-                  disabled={!settings}
-                  onClick={() => void saveActivationShortcut(DEFAULT_ACTIVATION_SHORTCUT)}
+                  disabled={!snapshot.canWrite || snapshot.pending.shortcut}
+                  onClick={() => void workspace.setActivationShortcut(DEFAULT_ACTIVATION_SHORTCUT)}
                   type="button"
                 >
                   恢复默认快捷键
@@ -879,7 +724,7 @@ function Settings(): ReactElement {
                 </p>
               ) : (
                 <p className="inline-note" role="status">
-                  {shortcutMessage || (settings ? "开始朗读快捷键可用" : "正在读取快捷键")}
+                  {snapshot.visit.feedback.shortcut || (settings ? "开始朗读快捷键可用" : "正在读取快捷键")}
                 </p>
               )}
               <p className="muted">
@@ -895,10 +740,10 @@ function Settings(): ReactElement {
                   <input
                     aria-valuetext={`${currentSpeechRate.toFixed(1)} 倍`}
                     className="range-control"
-                    disabled={!settings}
+                    disabled={!snapshot.canWrite}
                     max="3"
                     min="0.5"
-                    onChange={(event) => void updateSpeechRate(Number(event.target.value))}
+                    onChange={(event) => workspace.updateSpeechRate(Number(event.target.value))}
                     step="0.1"
                     style={{ "--range-progress": `${speechRateProgress}%` } as CSSProperties}
                     type="range"
@@ -907,12 +752,15 @@ function Settings(): ReactElement {
                   <span aria-hidden="true">{currentSpeechRate.toFixed(1)}x</span>
                 </div>
               </label>
+              {snapshot.visit.feedback.speechRate ? (
+                <p className="inline-error" role="alert">{snapshot.visit.feedback.speechRate}</p>
+              ) : null}
               <label className="field-label">
                 Model
                 <select
                   className="voice-select"
-                  disabled={!settings}
-                  onChange={(event) => void updateModel(event.target.value)}
+                  disabled={!snapshot.canWrite || snapshot.pending.model}
+                  onChange={(event) => void workspace.selectModel(event.target.value)}
                   value={modelSelectValue}
                 >
                   {MODEL_OPTIONS.map((option) => (
@@ -928,22 +776,26 @@ function Settings(): ReactElement {
                   <label className="field-label settings-wide-field">
                     自定义 Model ID
                     <input
-                      onChange={(event) => setCustomModelDraft(event.target.value)}
+                      disabled={!snapshot.canWrite || snapshot.pending.model}
+                      onChange={(event) => workspace.updateCustomModelDraft(event.target.value)}
                       placeholder="例如 speech-2.8-turbo"
                       type="text"
-                      value={customModelDraft}
+                      value={snapshot.visit.customModelDraft}
                     />
                   </label>
                   <button
                     className="secondary-action"
-                    disabled={!customModelDraft.trim()}
-                    onClick={saveCustomModel}
+                    disabled={!snapshot.canWrite || snapshot.pending.model || !snapshot.visit.customModelDraft.trim()}
+                    onClick={() => void workspace.saveCustomModel()}
                     type="button"
                   >
                     保存 Model
                   </button>
                 </div>
               )}
+              {snapshot.visit.feedback.model ? (
+                <p className="inline-error" role="alert">{snapshot.visit.feedback.model}</p>
+              ) : null}
               <p className="muted">保存 Model 时不做可用性验证；朗读失败会留下一条不含正文的错误记录。</p>
             </div>
           )}
@@ -951,19 +803,34 @@ function Settings(): ReactElement {
             <div className="settings-stack">
               <div className="settings-meta-row">
                 <span>当前保留期限：{historyRetentionLabel(settings?.historyRetention ?? "1m")}</span>
-                <span>当前历史记录：{readingHistoryCount} 条</span>
+                <span>
+                  当前历史记录：
+                  {snapshot.readingHistoryCount.status === "loading"
+                    ? "正在读取"
+                    : snapshot.readingHistoryCount.status === "error"
+                      ? "—"
+                      : `${readingHistoryCount} 条`}
+                </span>
               </div>
+              {snapshot.readingHistoryCount.status === "error" ? (
+                <div className="inline-error" role="alert">
+                  <span>历史记录数量读取失败</span>
+                  <button className="text-action" onClick={() => workspace.retryReadingHistoryCount()} type="button">
+                    重试历史记录数量
+                  </button>
+                </div>
+              ) : null}
               <label className="field-label">
                 保留期限
                 <select
                   aria-busy={isCheckingRetention || isApplyingRetention}
                   className="voice-select"
                   onChange={(event) =>
-                    void requestRetentionChange(event.target.value as HistoryRetention)
+                    void workspace.requestRetentionChange(event.target.value as HistoryRetention)
                   }
                   disabled={!settings || isApplyingRetention}
                   ref={retentionSelect}
-                  value={retentionDraft}
+                  value={snapshot.visit.retentionDraft}
                 >
                   <option value="7d">7 天</option>
                   <option value="1m">1 个月</option>
@@ -976,7 +843,7 @@ function Settings(): ReactElement {
                   正在计算保留期限的影响…
                 </p>
               ) : null}
-              {retentionImpact ? (
+              {snapshot.visit.retentionImpact ? (
                 <div
                   aria-label="确认保留期限变更"
                   className="destructive-confirmation"
@@ -990,18 +857,18 @@ function Settings(): ReactElement {
                   role="group"
                 >
                   <p>
-                    改为{historyRetentionLabel(retentionImpact.historyRetention)}后，将删除{" "}
-                    <strong>{retentionImpact.deleteCount}</strong> 条超期历史记录，保留{" "}
-                    <strong>{retentionImpact.remainingCount}</strong> 条。收藏不会受影响。
+                    改为{historyRetentionLabel(snapshot.visit.retentionImpact.historyRetention)}后，将删除{" "}
+                    <strong>{snapshot.visit.retentionImpact.deleteCount}</strong> 条超期历史记录，保留{" "}
+                    <strong>{snapshot.visit.retentionImpact.remainingCount}</strong> 条。收藏不会受影响。
                   </p>
                   <div className="button-row">
                     <button
                       className="danger-action"
-                      disabled={isApplyingRetention || isCheckingRetention}
-                      onClick={() => void confirmRetentionChange()}
+                      disabled={!snapshot.canWrite || isApplyingRetention || isCheckingRetention}
+                      onClick={() => void workspace.confirmRetentionChange()}
                       type="button"
                     >
-                      {isApplyingRetention ? "正在应用" : `应用并删除 ${retentionImpact.deleteCount} 条`}
+                      {isApplyingRetention ? "正在应用" : `应用并删除 ${snapshot.visit.retentionImpact.deleteCount} 条`}
                     </button>
                     <button
                       className="text-action"
@@ -1019,7 +886,7 @@ function Settings(): ReactElement {
                 <p className="muted">
                   历史全文和收藏全文只保存在本机，不保存音频；当前朗读文本会发送给 MiniMax 生成语音。
                 </p>
-                {confirmClearHistory ? (
+                {snapshot.visit.confirmClearHistory ? (
                   <div
                     aria-label="确认清空历史记录"
                     className="destructive-confirmation"
@@ -1038,15 +905,15 @@ function Settings(): ReactElement {
                     <div className="button-row">
                       <button
                         className="danger-action"
-                        disabled={isClearingHistory}
-                        onClick={() => void clearReadingHistory()}
+                        disabled={!snapshot.canWrite || snapshot.pending.clearHistory}
+                        onClick={() => void workspace.clearReadingHistory()}
                         type="button"
                       >
-                        {isClearingHistory ? "正在清空" : `清空 ${readingHistoryCount} 条`}
+                        {snapshot.pending.clearHistory ? "正在清空" : `清空 ${readingHistoryCount} 条`}
                       </button>
                       <button
                         className="text-action"
-                        disabled={isClearingHistory}
+                        disabled={snapshot.pending.clearHistory}
                         onClick={cancelClearReadingHistory}
                         ref={clearHistoryCancelButton}
                         type="button"
@@ -1058,16 +925,8 @@ function Settings(): ReactElement {
                 ) : (
                   <button
                     className="secondary-action"
-                    disabled={!readingHistoryCount || isApplyingRetention}
-                    onClick={() => {
-                      retentionPreviewGeneration.current += 1;
-                      setRetentionImpact(undefined);
-                      setRetentionDraft(settings?.historyRetention ?? "1m");
-                      setIsCheckingRetention(false);
-                      setHistoryActionMessage("");
-                      setHistoryActionError("");
-                      setConfirmClearHistory(true);
-                    }}
+                    disabled={!snapshot.canWrite || snapshot.readingHistoryCount.status !== "ready" || !readingHistoryCount || isApplyingRetention}
+                    onClick={() => workspace.requestClearHistoryConfirmation()}
                     ref={clearHistoryButton}
                     type="button"
                   >
@@ -1075,14 +934,14 @@ function Settings(): ReactElement {
                   </button>
                 )}
               </div>
-              {historyActionMessage ? (
+              {snapshot.visit.feedback.historyAction ? (
                 <p className="inline-note" role="status">
-                  {historyActionMessage}
+                  {snapshot.visit.feedback.historyAction}
                 </p>
               ) : null}
-              {historyActionError ? (
+              {snapshot.visit.feedback.historyError ? (
                 <p className="inline-error" role="alert">
-                  {historyActionError}
+                  {snapshot.visit.feedback.historyError}
                 </p>
               ) : null}
             </div>
@@ -1090,16 +949,35 @@ function Settings(): ReactElement {
           {group === "通用" && (
             <div className="settings-stack">
               <div className="button-row">
-                <button className="secondary-action" disabled={!settings} onClick={toggleLaunchAtLogin} type="button">
+                <button className="secondary-action" disabled={!snapshot.canWrite || snapshot.pending.launchAtLogin} onClick={() => void workspace.setLaunchAtLogin(!settings?.launchAtLogin)} type="button">
                   {settings?.launchAtLogin ? "关闭登录时启动" : "开启登录时启动"}
                 </button>
               </div>
+              {snapshot.visit.feedback.launchAtLogin ? (
+                <p className="inline-error" role="alert">{snapshot.visit.feedback.launchAtLogin}</p>
+              ) : null}
               <div className="log-count">
-                <span>错误记录：{errorLogCount}</span>
-                <button className="text-action" disabled={!errorLogCount} onClick={clearErrorLog} type="button">
-                  清空
-                </button>
+                <span>
+                  错误记录：
+                  {snapshot.errorLogCount.status === "loading"
+                    ? "正在读取"
+                    : snapshot.errorLogCount.status === "error"
+                      ? "—"
+                      : errorLogCount}
+                </span>
+                {snapshot.errorLogCount.status === "error" ? (
+                  <button className="text-action" onClick={() => workspace.retryErrorLogCount()} type="button">
+                    重试错误记录数量
+                  </button>
+                ) : (
+                  <button className="text-action" disabled={!snapshot.canWrite || !errorLogCount || snapshot.pending.errorLog} onClick={() => void workspace.clearErrorLog()} type="button">
+                    清空
+                  </button>
+                )}
               </div>
+              {snapshot.visit.feedback.errorLog ? (
+                <p className="inline-error" role="alert">{snapshot.visit.feedback.errorLog}</p>
+              ) : null}
             </div>
           )}
         </section>
@@ -1127,10 +1005,6 @@ function playbackSkippedLabel(skipped: string | undefined): string {
   if (skipped === "unverified_api_key") return "需要验证连接";
   if (skipped === "missing_voice") return "需要选择 Voice";
   return "未开始播放";
-}
-
-function isBuiltInModel(model: string): boolean {
-  return MODEL_OPTIONS.some((option) => option.id === model);
 }
 
 function acceleratorFromKeyboardEvent(event: KeyboardEvent): string | undefined {

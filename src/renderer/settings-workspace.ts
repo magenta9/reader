@@ -4,6 +4,7 @@ import type {
   HistoryRetentionChangeResult,
   HistoryRetentionImpact
 } from "../shared/app-contracts.js";
+import { MODEL_OPTIONS } from "../shared/models.js";
 import { historyRetentionLabel } from "./history-retention.js";
 
 export interface SettingsWorkspaceCapabilities {
@@ -62,6 +63,7 @@ export type SettingsPendingCommand =
 export interface SettingsVisitSnapshot {
   readonly apiKeyDraft: string;
   readonly customModelDraft: string;
+  readonly customModelSelected: boolean;
   readonly isRecordingShortcut: boolean;
   readonly confirmClearHistory: boolean;
   readonly retentionDraft: HistoryRetention;
@@ -101,6 +103,7 @@ export class SettingsWorkspace {
   private queuedSpeechRate: number | undefined;
   private readonly inFlightCommands = new Set<SettingsPendingCommand>();
   private retentionPreviewGeneration = 0;
+  private visitGeneration = 0;
 
   constructor(private readonly capabilities: SettingsWorkspaceCapabilities) {}
 
@@ -112,8 +115,10 @@ export class SettingsWorkspace {
   };
 
   start(): void {
-    if (this.started || this.snapshot.disposed) return;
+    if (this.started) return;
+    if (this.snapshot.disposed) this.snapshot = createInitialSnapshot();
     this.started = true;
+    this.visitGeneration += 1;
     this.loadSettings();
     this.loadMiniMaxCredential();
     this.loadErrorLogCount();
@@ -152,8 +157,30 @@ export class SettingsWorkspace {
       "model",
       "模型更新失败，请稍后重试。",
       () => this.capabilities.setModel(model),
-      (settings) => this.acceptModel(settings.model)
+      (settings) => {
+        this.acceptModel(settings.model);
+        this.updateVisit(
+          isBuiltInModel(settings.model)
+            ? { customModelSelected: false }
+            : { customModelDraft: settings.model, customModelSelected: true }
+        );
+      }
     );
+  }
+
+  async selectModel(model: string): Promise<void> {
+    if (model === "custom") {
+      this.updateVisit({ customModelSelected: true });
+      if (
+        !this.snapshot.visit.customModelDraft &&
+        this.snapshot.settings.status === "ready" &&
+        !isBuiltInModel(this.snapshot.settings.value.model)
+      ) {
+        this.updateVisit({ customModelDraft: this.snapshot.settings.value.model });
+      }
+      return;
+    }
+    await this.setModel(model);
   }
 
   async setLaunchAtLogin(launchAtLogin: boolean): Promise<void> {
@@ -423,7 +450,10 @@ export class SettingsWorkspace {
 
   dispose(): void {
     if (this.snapshot.disposed) return;
+    this.started = false;
+    this.retentionPreviewGeneration += 1;
     this.queuedSpeechRate = undefined;
+    this.speechRateInFlight = false;
     this.inFlightCommands.clear();
     this.snapshot = Object.freeze({
       ...this.snapshot,
@@ -455,7 +485,12 @@ export class SettingsWorkspace {
             : { settings }
         );
         if (settings.status === "ready" && shouldInitializeRetention) {
-          this.updateVisit({ retentionDraft: settings.value.historyRetention });
+          const customModelSelected = !isBuiltInModel(settings.value.model);
+          this.updateVisit({
+            retentionDraft: settings.value.historyRetention,
+            customModelDraft: customModelSelected ? settings.value.model : "",
+            customModelSelected
+          });
         }
       }
     );
@@ -510,18 +545,19 @@ export class SettingsWorkspace {
   private async flushSpeechRate(): Promise<void> {
     const speechRate = this.queuedSpeechRate;
     if (speechRate === undefined || this.snapshot.disposed) return;
+    const generation = this.visitGeneration;
     this.queuedSpeechRate = undefined;
     this.speechRateInFlight = true;
     try {
       const settings = await this.capabilities.setSpeechRate(speechRate);
-      if (this.snapshot.disposed) return;
+      if (!this.acceptsVisit(generation)) return;
       this.acceptSpeechRate(settings.speechRate);
       this.clearFeedback("speechRate");
       if (this.queuedSpeechRate === undefined) {
         this.replaceSnapshot({ presentation: Object.freeze({ speechRate: settings.speechRate }) });
       }
     } catch {
-      if (this.snapshot.disposed) return;
+      if (!this.acceptsVisit(generation)) return;
       this.setFeedback("speechRate", "语速更新失败，请稍后重试。");
       if (this.queuedSpeechRate === undefined && this.snapshot.settings.status === "ready") {
         this.replaceSnapshot({
@@ -529,8 +565,8 @@ export class SettingsWorkspace {
         });
       }
     } finally {
+      if (!this.acceptsVisit(generation)) return;
       this.speechRateInFlight = false;
-      if (this.snapshot.disposed) return;
       if (this.queuedSpeechRate !== undefined) {
         void this.flushSpeechRate();
       } else {
@@ -595,13 +631,14 @@ export class SettingsWorkspace {
   }
 
   private async refreshAccountSettings(): Promise<void> {
+    const generation = this.visitGeneration;
     const accountSettings = this.capabilities
       .getSettings()
       .then((settings) => {
-        if (!this.snapshot.disposed) this.acceptAccountSettings(settings);
+        if (this.acceptsVisit(generation)) this.acceptAccountSettings(settings);
       })
       .catch(() => {
-        if (!this.snapshot.disposed) this.setFeedback("setup", "账户状态刷新失败，请稍后重试。");
+        if (this.acceptsVisit(generation)) this.setFeedback("setup", "账户状态刷新失败，请稍后重试。");
       });
     await Promise.all([accountSettings, this.loadMiniMaxCredential()]);
   }
@@ -661,18 +698,21 @@ export class SettingsWorkspace {
         this.setFeedback("historyError", "保留期限更新失败，现有历史记录未变更。");
       }
     } finally {
+      if (!this.acceptsRetention(generation)) return;
       this.inFlightCommands.delete("retention");
-      if (this.acceptsRetention(generation)) {
-        if (this.snapshot.visit.retentionPhase === "applying") {
-          this.updateVisit({ retentionPhase: "idle" });
-        }
-        this.setPending("retention", false);
+      if (this.snapshot.visit.retentionPhase === "applying") {
+        this.updateVisit({ retentionPhase: "idle" });
       }
+      this.setPending("retention", false);
     }
   }
 
   private acceptsRetention(generation: number): boolean {
     return !this.snapshot.disposed && this.retentionPreviewGeneration === generation;
+  }
+
+  private acceptsVisit(generation: number): boolean {
+    return !this.snapshot.disposed && this.visitGeneration === generation;
   }
 
   private restoreRetentionDraft(): void {
@@ -701,20 +741,20 @@ export class SettingsWorkspace {
     accept: (result: T) => Promise<void> | void
   ): Promise<void> {
     if (!this.snapshot.canWrite || this.snapshot.disposed || this.inFlightCommands.has(command)) return;
+    const generation = this.visitGeneration;
     this.inFlightCommands.add(command);
     this.setPending(command, true);
     try {
       const result = await execute();
-      if (this.snapshot.disposed) return;
+      if (!this.acceptsVisit(generation)) return;
       this.clearFeedback(feedback);
       await accept(result);
     } catch {
-      if (!this.snapshot.disposed) this.setFeedback(feedback, failureMessage);
+      if (this.acceptsVisit(generation)) this.setFeedback(feedback, failureMessage);
     } finally {
+      if (!this.acceptsVisit(generation)) return;
       this.inFlightCommands.delete(command);
-      if (!this.snapshot.disposed) {
-        this.setPending(command, false);
-      }
+      this.setPending(command, false);
     }
   }
 
@@ -770,6 +810,7 @@ function createInitialVisitSnapshot(): SettingsVisitSnapshot {
   return Object.freeze({
     apiKeyDraft: "",
     customModelDraft: "",
+    customModelSelected: false,
     isRecordingShortcut: false,
     confirmClearHistory: false,
     retentionDraft: "1m",
@@ -781,6 +822,10 @@ function createInitialVisitSnapshot(): SettingsVisitSnapshot {
 
 function freezeImpact(impact: HistoryRetentionImpact): DeepReadonly<HistoryRetentionImpact> {
   return deepFreeze(structuredClone(impact));
+}
+
+function isBuiltInModel(model: string): boolean {
+  return MODEL_OPTIONS.some((option) => option.id === model);
 }
 
 function clearFeedback(

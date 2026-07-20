@@ -108,6 +108,80 @@ describe("SettingsWorkspace", () => {
     expect(workspace.getSnapshot()).toMatchObject({ settings: { status: "loading" }, disposed: true });
   });
 
+  it("restarts a disposed visit without accepting commands from the previous visit", async () => {
+    const lateModel = deferred<AppSettings>();
+    const nextSettings = { ...SETTINGS, model: "speech-2.8-hd" };
+    const capabilities = createCapabilities();
+    capabilities.getSettings.mockResolvedValueOnce(SETTINGS).mockResolvedValueOnce(nextSettings);
+    capabilities.setModel.mockReturnValueOnce(lateModel.promise);
+    const workspace = new SettingsWorkspace(capabilities);
+
+    workspace.start();
+    await settlePromises();
+    const pendingModel = workspace.setModel("late-custom-model");
+    workspace.dispose();
+    workspace.start();
+    await settlePromises();
+
+    lateModel.resolve({ ...SETTINGS, model: "late-custom-model" });
+    await pendingModel;
+
+    expect(workspace.getSnapshot()).toMatchObject({
+      disposed: false,
+      settings: { status: "ready", value: { model: "speech-2.8-hd" } },
+      visit: { customModelSelected: false }
+    });
+  });
+
+  it("does not let an old retention completion unlock the restarted visit lane", async () => {
+    const oldApply = deferred<{
+      applied: true;
+      impact: { historyRetention: "3m"; deleteCount: number; remainingCount: number };
+      settings: AppSettings;
+    }>();
+    const newApply = deferred<{
+      applied: true;
+      impact: { historyRetention: "7d"; deleteCount: number; remainingCount: number };
+      settings: AppSettings;
+    }>();
+    const capabilities = createCapabilities();
+    capabilities.previewReadingHistoryRetention
+      .mockResolvedValueOnce({ historyRetention: "3m", deleteCount: 0, remainingCount: 7 })
+      .mockResolvedValueOnce({ historyRetention: "7d", deleteCount: 2, remainingCount: 5 });
+    capabilities.applyReadingHistoryRetention
+      .mockReturnValueOnce(oldApply.promise)
+      .mockReturnValueOnce(newApply.promise);
+    const workspace = new SettingsWorkspace(capabilities);
+
+    workspace.start();
+    await settlePromises();
+    const oldRequest = workspace.requestRetentionChange("3m");
+    await settlePromises();
+    workspace.dispose();
+    workspace.start();
+    await settlePromises();
+    await workspace.requestRetentionChange("7d");
+    const newRequest = workspace.confirmRetentionChange();
+    await settlePromises();
+
+    oldApply.resolve({
+      applied: true,
+      impact: { historyRetention: "3m", deleteCount: 0, remainingCount: 7 },
+      settings: { ...SETTINGS, historyRetention: "3m" }
+    });
+    await oldRequest;
+    void workspace.confirmRetentionChange();
+    await settlePromises();
+
+    expect(capabilities.applyReadingHistoryRetention).toHaveBeenCalledTimes(2);
+    newApply.resolve({
+      applied: true,
+      impact: { historyRetention: "7d", deleteCount: 2, remainingCount: 5 },
+      settings: { ...SETTINGS, historyRetention: "7d" }
+    });
+    await newRequest;
+  });
+
   it("copies and deeply freezes the authoritative settings snapshot", async () => {
     const capabilities = createCapabilities();
     const workspace = new SettingsWorkspace(capabilities);

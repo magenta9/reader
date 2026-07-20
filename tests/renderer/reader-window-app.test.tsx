@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -579,6 +580,9 @@ describe("ReaderWindowApp", () => {
 
     await userEvent.selectOptions(screen.getByLabelText("Model"), "speech-2.8-hd");
     await waitFor(() => expect(setModel).toHaveBeenCalledWith("speech-2.8-hd"));
+
+    await userEvent.selectOptions(screen.getByLabelText("Model"), "custom");
+    expect(screen.getByLabelText("自定义 Model ID")).toHaveValue("custom-model-v2");
   });
 
   it("keeps the Settings layout stable while settings are loading", async () => {
@@ -602,6 +606,75 @@ describe("ReaderWindowApp", () => {
 
     await waitFor(() => expect(panel).toHaveAttribute("aria-busy", "false"));
     expect(screen.getByRole("button", { name: "开启登录时启动" })).toBeEnabled();
+  });
+
+  it("keeps the route-scoped Settings workspace usable through StrictMode effect replay", async () => {
+    const settings = createVerifiedSettings();
+    const readerBridge = createReaderBridge({ bootstrapRoute: "settings", settings });
+    render(
+      <StrictMode>
+        <ReaderWindowApp readerBridge={readerBridge} />
+      </StrictMode>
+    );
+
+    const panel = await screen.findByRole("region", { name: "设置" });
+    await waitFor(() => expect(panel).toHaveAttribute("aria-busy", "false"));
+    expect(screen.getByRole("button", { name: "开启登录时启动" })).toBeEnabled();
+  });
+
+  it("isolates auxiliary Settings failures and retries only the failed resource", async () => {
+    const hasMiniMaxApiKey = vi.fn().mockRejectedValue(new Error("credential unavailable"));
+    const getSettings = vi.fn(async () => createVerifiedSettings());
+    renderReaderWindow({
+      bootstrapRoute: "settings",
+      readerPatch: { getSettings, hasMiniMaxApiKey },
+      settings: createVerifiedSettings()
+    });
+
+    expect(await screen.findByText("API Key 状态读取失败")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开启登录时启动" })).toBeEnabled();
+    const settingsReadCount = getSettings.mock.calls.length;
+    const credentialReadCount = hasMiniMaxApiKey.mock.calls.length;
+
+    hasMiniMaxApiKey.mockResolvedValue(true);
+    await userEvent.click(screen.getByRole("button", { name: "重试 API Key 状态" }));
+
+    await waitFor(() => expect(screen.getByText("API Key 状态：已验证")).toBeInTheDocument());
+    expect(hasMiniMaxApiKey).toHaveBeenCalledTimes(credentialReadCount + 1);
+    expect(getSettings).toHaveBeenCalledTimes(settingsReadCount);
+  });
+
+  it("retries core Settings independently and creates a fresh workspace on re-entry", async () => {
+    const settings = createVerifiedSettings();
+    const getSettings = vi.fn().mockRejectedValue(new Error("settings unavailable"));
+    renderReaderWindow({
+      bootstrapRoute: "settings",
+      history: [createHistoryRecord({ id: "blocked-write" })],
+      readerPatch: { getSettings, getErrorLogCount: async () => 2 },
+      settings
+    });
+
+    expect(await screen.findByText("无法读取设置")).toBeInTheDocument();
+    expect(screen.getByText("API Key 状态：已保存，验证状态不可用")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开启登录时启动" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "清空历史记录" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "清空" })).toBeDisabled();
+
+    getSettings.mockResolvedValue(settings);
+    await userEvent.click(screen.getByRole("button", { name: "重试设置" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "开启登录时启动" })).toBeEnabled());
+
+    const apiKey = screen.getByLabelText("MiniMax API Key");
+    await userEvent.type(apiKey, "sensitive-draft");
+    expect(apiKey).toHaveValue("sensitive-draft");
+    const settingsReadCount = getSettings.mock.calls.length;
+
+    await userEvent.click(screen.getByRole("button", { name: "主页" }));
+    await screen.findByRole("heading", { name: "朗读当前选区" });
+    await userEvent.click(screen.getByRole("button", { name: "设置" }));
+
+    expect(await screen.findByLabelText("MiniMax API Key")).toHaveValue("");
+    await waitFor(() => expect(getSettings.mock.calls.length).toBeGreaterThan(settingsReadCount));
   });
 
   it("requires an inline confirmation before clearing all Reading History", async () => {
