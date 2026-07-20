@@ -158,6 +158,7 @@ function validateRelationTargets(records) {
 }
 
 function renderCatalog(records) {
+  const targetFiles = new Map(records.map(({ id, fileName }) => [id, fileName]));
   const rows = records.map(({ id, fileName, title, status, relations }) => {
     const groupedRelations = Map.groupBy(relations, ({ type }) => type);
     const renderedRelations = relations.length
@@ -166,7 +167,7 @@ function renderCatalog(records) {
             (type) =>
               `${type}: ${groupedRelations
                 .get(type)
-                .map(({ target }) => target)
+                .map(({ target }) => `[${target}](${targetFiles.get(target)})`)
                 .join(", ")}`
           )
           .join("; ")

@@ -66,13 +66,13 @@ Issue 使用 Linear 原生状态和依赖关系；标签含义见 `docs/agents/t
 - Renderer Settings 交互与工作流变更必须通过 `src/renderer/settings-workspace.ts` 的 snapshot 与 semantic intents 表达；main 继续拥有语义命令和持久化权威。`App.tsx` 只负责渲染、DOM keyboard event 转换和 focus adapter，不得重新持有 authoritative Settings、bridge promise coordination、访问草稿、确认或反馈状态。
 - Renderer 只能通过 preload bridge 调用受控能力，不直接使用 Node 或 Electron main API。
 - 用户可见文案默认使用中文；领域概念使用 `CONTEXT.md` 中定义的术语。
-- 涉及产品行为、隐私边界、本地持久化或架构选择时，先检查 `docs/adr/` 是否已有决策。
+- 涉及产品行为、隐私边界、本地持久化或架构选择时，先从 `docs/adr/CATALOG.md` 确认已有决策的状态与关系，再阅读具体 ADR。
 - 不提交 `dist/`、`release/`、`.tmp/`、`node_modules/` 或本机数据文件。
 
 ## 提交流程
 
 1. 从最新主线创建短分支，分支名建议使用 `feat/`、`fix/`、`docs/`、`refactor/` 等前缀。
-2. 阅读相关 PRD、issue、`CONTEXT.md` 和 ADR。
+2. 阅读相关 PRD、issue、`CONTEXT.md`，先从 `docs/adr/CATALOG.md` 确认决策状态与关系，再阅读相关 ADR。
 3. 实现改动，并尽量让每个 commit 只覆盖一个清晰目的。
 4. 运行适合改动范围的验证。一般文档改动至少检查链接和命令是否仍然准确；代码改动默认运行 `make verify`。
 5. 更新对应 issue 的状态或评论，说明完成内容和验证结果。

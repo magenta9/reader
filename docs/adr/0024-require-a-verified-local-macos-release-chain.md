@@ -1,3 +1,8 @@
+---
+status: accepted
+refined-by: ADR-0029
+---
+
 # Require a verified local macOS release chain
 
 VoiceReader's supported local release workflow will extend beyond artifact creation: it will verify the Bun installation and clean build, produce an Apple Silicon `.app` and DMG, launch the final packaged application with isolated temporary user data until an explicit readiness signal proves SQLite migration and native-addon loading, then safely replace `/Applications/VoiceReader.app` and verify the installed copy. Packaging remains separate from deployment; deployment refuses to terminate a running VoiceReader process, preserves the previous application until replacement succeeds, restores it on failure, and never deletes or migrates the user's real database or settings. We chose this end-to-end gate because a successful dependency migration or bundle copy does not prove that the installed Electron application can start with its actual runtime boundaries.

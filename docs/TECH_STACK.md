@@ -72,6 +72,7 @@ src/
 - `scripts/run-dist-contract-tests.mjs`：构建后检查 `dist/` 产物和跨进程边界合同。
 - `scripts/electron-runtime.mjs`：在真实 Electron 中验证 `node:sqlite` 和 Selected Text addon。
 - `scripts/release-identity.mjs`：从根 `package.json` 校验并派生不可变 macOS Release Identity，独占版本、app/DMG 名称、bundle/helper identifiers、bundle layout 与签名 expectation。
+- `scripts/adr-catalog.mjs`：从 ADR flat frontmatter 校验状态与关系并确定性生成 `docs/adr/CATALOG.md`；frontmatter 是唯一机器权威，catalog 只是提交的派生读取入口。
 - `scripts/package-mac.mjs`：用自有 packager 消费一个 Release Identity snapshot，生成 ARM64 `VoiceReader.app` 和 DMG；直接验证 app metadata、resources、Build Product、架构和签名 requirement，并挂载检查 DMG 内的唯一 app。
 - `scripts/verify-mac-app.mjs`：独立消费 Release Identity 与最终 `.app`，不读取 packager 实现或从 artifact 反推 expected identity。
 - `scripts/packaged-smoke.mjs`：先按同一 Release Identity 验证最终 artifact，再以隔离 userData 执行 fresh、三表 legacy、无版本 current 和 future negative 矩阵，验证精确 SQLite v1、数据保留、兼容规范化与 addon readiness。

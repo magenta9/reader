@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Let Reading Target Acquisition Own Trigger Preparation
 
 VoiceReader will resolve a current Reading Target through one main-owned `ReadingTargetAcquirer.acquire(trigger)` interface. The interface owns the full capture transaction: trigger preparation、clipboard snapshot、Selected Text accessibility read、Cmd-C fallback and polling、Clipboard Text fallback、unconditional restoration after temporary clipboard replacement and safe Error Log reporting. Callers must supply exactly one of `reader_window`、`menu_bar` or `activation_shortcut`; there is no no-trigger default or separate reveal phase.

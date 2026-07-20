@@ -1,3 +1,8 @@
+---
+status: accepted
+partially-superseded-by: ADR-0036
+---
+
 # Use Role-scoped Executable Bridge Contracts
 
 VoiceReader will declare each cross-process capability once as a role-scoped executable bridge contract. The contract binds the public method name, fixed IPC channel, invoke/event direction, arguments, result, and owning runtime role. Reader Window、Playback Renderer 与 Playback Overlay 组成显式 allow-list；同一原始 channel 只有在方向不同且语义明确时才可复用，例如 renderer→main 的 Overlay Metric command 与 main→Overlay 的 metric event。

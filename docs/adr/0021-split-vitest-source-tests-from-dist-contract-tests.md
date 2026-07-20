@@ -1,3 +1,9 @@
+---
+status: accepted
+partially-superseded-by: ADR-0036
+refined-by: ADR-0032
+---
+
 # Split Vitest Source Tests From Dist Contract Tests
 
 VoiceReader uses four independent verification layers. Vitest owns source-level behavior and jsdom React UI tests at public module seams. The Build Verifier consumes only `dist/` and owns the exact runtime product manifest, HTML/CSP/resource relationships, native-addon presence and executable production-preload role behavior. macOS package verification owns the final `.app`/DMG layout, architecture and signature. Packaged smoke owns real Electron startup, dynamic HTML/preload paths, native-addon readiness and isolated SQLite migration scenarios.

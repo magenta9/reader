@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Use Semantic Commands for Renderer Settings Writes
 
 VoiceReader will not expose a generic `Partial<AppSettings>` write operation to the Reader Window. The Reader Window bridge expresses only the settings actions the UI can actually perform: `setSpeechRate`, `setModel`, `setLaunchAtLogin`, `setActivationShortcut`, MiniMax account and Preferred Voice commands, and the preview/apply Reading History retention workflow.

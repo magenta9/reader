@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Let Settings Workspace Own the Renderer Settings Workflow
 
 VoiceReader will place the Reader Window's Settings loading, transient drafts, confirmations, feedback and write coordination behind one route-scoped Settings Workspace model. The persisted Settings snapshot remains authoritative: a failure to load it blocks Settings writes and offers retry, while MiniMax credential status、Error Log count and Reading History count fail and retry within their own sections so auxiliary data cannot disable unrelated settings.

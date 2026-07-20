@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Make the Build Product the Verifier Boundary
 
 VoiceReader will treat `dist/` as the single publishable Build Product and verify it through one structured `verifyBuiltVoiceReader(distRoot)` interface. The verifier owns the runtime artifact manifest、legacy artifact absence、HTML/CSP/entrypoint relationships、resource placement and executable production preload behavior. Its CLI adapter may build first or reuse an existing product, but the verifier itself consumes only the supplied Build Product and returns categorized artifact、role or behavior findings.

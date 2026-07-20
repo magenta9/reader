@@ -54,7 +54,7 @@ describe("ADR Catalog", () => {
 
 | ADR | Title | Status | Relations |
 | --- | --- | --- | --- |
-| [ADR-0001](0001-first.md) | First decision | accepted | refined-by: ADR-0002 |
+| [ADR-0001](0001-first.md) | First decision | accepted | refined-by: [ADR-0002](0002-second.md) |
 | [ADR-0002](0002-second.md) | Second decision | accepted | — |
 `);
   });
@@ -94,7 +94,7 @@ describe("ADR Catalog", () => {
       { type: "refined-by", target: "ADR-0005" }
     ]);
     expect(catalog.markdown).toContain(
-      "partially-superseded-by: ADR-0003; refined-by: ADR-0004, ADR-0005"
+      "partially-superseded-by: [ADR-0003](0003-partial.md); refined-by: [ADR-0004](0004-superseded.md), [ADR-0005](0005-historical.md)"
     );
   });
 

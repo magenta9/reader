@@ -1,3 +1,8 @@
+---
+status: accepted
+partially-superseded-by: ADR-0036
+---
+
 # Let Reader App Shell Own Window and Navigation Lifecycle
 
 VoiceReader will use one main-owned Reader App Shell controller as the authority for the Reader Window, desired route and its ordering, Menu Bar Menu commands, application activation, close-to-hide and quit state, App presence, and Reader Window sender identity. The Electron entrypoint remains the composition root; executable role contracts continue to own IPC declaration and transport wiring, not App Shell policy.

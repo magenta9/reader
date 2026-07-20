@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Version the SQLite App Data Schema Atomically
 
 VoiceReader opens its local database only through `AppDataStore.open(path)`. That seam owns a versioned SQLite lifecycle: it acquires `BEGIN IMMEDIATE`, classifies the database, applies a known migration, validates the exact schema contract, writes `PRAGMA user_version`, commits, and only then applies Reading History retention. A failed lifecycle rolls back, closes the SQLite handle, and fails startup rather than guessing how to repair data.

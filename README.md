@@ -70,7 +70,7 @@ bun run start
 - [产品说明](PRODUCT.md)
 - [领域词汇](CONTEXT.md)
 - [macOS MVP PRD](docs/prd/macos-voicereader-mvp.md)
-- [ADR](docs/adr/)
+- [ADR Catalog](docs/adr/CATALOG.md)：先查看决策状态与关系，再阅读具体 ADR。
 - [Linear issue tracker 说明](docs/agents/issue-tracker.md)
 
 ## 当前计划

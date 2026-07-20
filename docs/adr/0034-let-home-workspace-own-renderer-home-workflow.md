@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Let Home Workspace Own the Renderer Home Workflow
 
 VoiceReader will place the Reader Window's Home setup aggregation, language and Voice projection, recovery actions, Reading Target start or skip feedback and command coordination behind one route-scoped Home Workspace model. The workspace reads saved Settings and MiniMax credential presence as one preparation snapshot, derives readiness and recovery from that authoritative state, and exposes an immutable presentation snapshot plus semantic intents. The React Home view only renders that snapshot, converts DOM events to intents, and maps an open-Settings recovery result to navigation. Playback Session activity and terminal feedback remain main-owned and continue to route through the session's named Feedback Surface under ADR-0026.

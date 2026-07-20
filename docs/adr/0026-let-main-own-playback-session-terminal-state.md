@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Let the Main Process Own Playback Session Terminal State
 
 VoiceReader will treat MiniMax generation completion as the point when no more audio will be appended, not as Playback Session completion. The hidden Playback Renderer remains the browser-audio adapter: after the queue and playback tail finish, it reports an explicit `completed` or `failed` Audio Outcome carrying the Playback Session identity. The Electron main process is the only owner of the active Playback Session and its user-visible terminal state; it ignores outcomes for stopped, replaced, or stale session identities and routes the accepted terminal event to the session's named Feedback Surface.

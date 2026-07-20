@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Let Release Identity Own macOS Artifact Identity
 
 VoiceReader will derive every machine-consumed macOS release identity value through `scripts/release-identity.mjs`. The root `package.json` is the authority for package metadata and release version; Release Identity validates that metadata fail-closed, combines it with the fixed VoiceReader product、bundle、helper、platform and architecture contract, and returns one immutable snapshot containing artifact names、bundle metadata、application layout and signing requirements. Packaging、final verification、packaged smoke and local installation must pass that same snapshot through their full operation instead of re-reading or rebuilding individual identity values.

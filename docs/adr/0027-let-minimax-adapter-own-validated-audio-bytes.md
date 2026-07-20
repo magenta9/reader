@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Let the MiniMax Adapter Own Validated Audio Bytes
 
 VoiceReader will treat MiniMax as a true external dependency behind a vendor-neutral Speech Audio Stream port owned by a provider-independent shared contract. The production MiniMax adapter implements that port and is injected into Playback at the application composition root. The adapter owns endpoint fallback, HTTP and `base_resp` errors, JSON/SSE envelopes, incremental versus final aggregate semantics, and hex decoding. Its callback only emits validated, non-empty MP3 byte chunks, and a resolved stream guarantees that at least one chunk was emitted. Empty audio responses, odd-length or non-hex payloads, parsing failures, and MiniMax error statuses reject at this boundary instead of leaking wire-format knowledge into Playback.
