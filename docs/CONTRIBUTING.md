@@ -59,6 +59,7 @@ Issue 使用 Linear 原生状态和依赖关系；标签含义见 `docs/agents/t
 - 使用 TypeScript strict mode，避免引入 `any` 和未建模的跨进程对象。
 - 共享类型优先放在 `src/shared/`；应用数据 payload 优先更新 `src/shared/app-contracts.ts`。跨 renderer/main 能力先更新 `src/shared/role-bridge-contracts.ts` 中已有角色的 endpoint，并复用 `src/shared/bridge-contracts/` 的 channel 常量与 `src/shared/app-contracts.ts` 的 payload 类型；不得另写一套 preload/main channel wiring。
 - App Shell endpoint、Selection Capture sender 判断与 Reader feedback 必须委托 `ReaderAppShellController` 的语义接口；不得在 `main.ts` 或 handler dependency bag 重新持有 Reader Window、route、Tray 或 quit 状态。
+- Renderer Settings 交互与工作流变更必须通过 `src/renderer/settings-workspace.ts` 的 snapshot 与 semantic intents 表达；main 继续拥有语义命令和持久化权威。`App.tsx` 只负责渲染、DOM keyboard event 转换和 focus adapter，不得重新持有 authoritative Settings、bridge promise coordination、访问草稿、确认或反馈状态。
 - Renderer 只能通过 preload bridge 调用受控能力，不直接使用 Node 或 Electron main API。
 - 用户可见文案默认使用中文；领域概念使用 `CONTEXT.md` 中定义的术语。
 - 涉及产品行为、隐私边界、本地持久化或架构选择时，先检查 `docs/adr/` 是否已有决策。
@@ -87,6 +88,7 @@ feat: add language-scoped voice preference
 - 用户可见行为、文案、隐私边界已经写清楚。
 - 新增跨进程能力已更新已有 role-scoped executable contract、main-owned implementation 和调用方；loopback 验证行为，构建后的对应 preload VM probe 验证最小权限，且没有 URL/pathname 角色推断或手写 IPC 镜像。
 - Reader Window、Menu Bar、导航、应用生命周期、presence、sender identity 与 Reader feedback 仍由 Reader App Shell 独占；相关 source 行为由 Shell/adapter 测试验证，dist contract 不镜像 Shell 源码结构。
+- Settings 的核心与辅助资源仍按 ADR-0033 分级降级；连续、离散及校验/两阶段命令仍由 Settings Workspace 协调，视图没有直接 bridge 异步工作流或通用 settings patch。
 - 本地数据结构变更通过 `AppDataStore.open(path)` 的版本化 lifecycle，有真实历史 SQLite fixture、原子 rollback 与 packaged upgrade smoke。
 - 已运行并记录相关验证命令。
 - 没有提交构建产物、密钥、SQLite 数据库或临时文件。
