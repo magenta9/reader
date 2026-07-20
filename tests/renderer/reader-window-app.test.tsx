@@ -118,6 +118,33 @@ describe("ReaderWindowApp", () => {
     expect(document.querySelectorAll(".home-status-line")).toHaveLength(1);
   });
 
+  it("routes Home verification recovery through a semantic intent", async () => {
+    const verifiedSettings = createVerifiedSettings();
+    const verifyMiniMaxKey = vi.fn(async () => ({ ok: true, settings: verifiedSettings }));
+    renderReaderWindow({
+      readerPatch: { verifyMiniMaxKey },
+      settings: createVerifiedSettings({ apiKeyStatus: "failed" })
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: "验证连接" }));
+    expect(verifyMiniMaxKey).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("连接验证成功")).toBeInTheDocument();
+  });
+
+  it("routes Home Voice refresh recovery through a semantic intent", async () => {
+    const verifiedSettings = createVerifiedSettings();
+    const refreshVoices = vi.fn(async () => ({ ok: true, settings: verifiedSettings }));
+    renderReaderWindow({
+      readerPatch: { refreshVoices },
+      settings: createVerifiedSettings({ voices: [], preferredVoicesByLanguage: {} })
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: "刷新 Voice" }));
+    expect(refreshVoices).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Voice 列表已刷新")).toBeInTheDocument();
+    expect(screen.getByText("中文 · 中文 Voice")).toBeInTheDocument();
+  });
+
   it("starts verified playback through the bridge and shows successful feedback", async () => {
     const playReadingTarget = vi.fn(async () => ({ started: true, sessionId: 42 }));
     renderReaderWindow({
@@ -233,6 +260,104 @@ describe("ReaderWindowApp", () => {
     expect((screen.getByRole("option", { name: "中文 B" }) as HTMLOptionElement).selected).toBe(true);
   });
 
+  it("coalesces rapid Home Voice intents through the visible select control", async () => {
+    const settings = createVerifiedSettings({
+      voices: [
+        { voice_id: "voice-zh-a", display_name: "中文 A", language: "zh" },
+        { voice_id: "voice-zh-b", display_name: "中文 B", language: "zh" },
+        { voice_id: "voice-zh-c", display_name: "中文 C", language: "zh" },
+        { voice_id: "voice-zh-d", display_name: "中文 D", language: "zh" }
+      ],
+      preferredVoicesByLanguage: { zh: "voice-zh-a" }
+    });
+    const firstWrite = deferred<AppSettings>();
+    const lastWrite = deferred<AppSettings>();
+    const setPreferredVoice = vi
+      .fn<ReaderWindowRoleBridge["setPreferredVoice"]>()
+      .mockReturnValueOnce(firstWrite.promise)
+      .mockReturnValueOnce(lastWrite.promise);
+    renderReaderWindow({ readerPatch: { setPreferredVoice }, settings });
+
+    await userEvent.click(await screen.findByText("朗读选项"));
+    const select = await screen.findByRole("combobox", { name: "Voice" });
+    fireEvent.change(select, { target: { value: "voice-zh-b" } });
+    fireEvent.change(select, { target: { value: "voice-zh-c" } });
+    fireEvent.change(select, { target: { value: "voice-zh-d" } });
+
+    expect(setPreferredVoice).toHaveBeenCalledTimes(1);
+    expect(select).toHaveValue("voice-zh-d");
+    firstWrite.resolve({
+      ...settings,
+      preferredVoicesByLanguage: { zh: "voice-zh-b" }
+    });
+    await waitFor(() => expect(setPreferredVoice).toHaveBeenCalledTimes(2));
+    expect(setPreferredVoice).toHaveBeenLastCalledWith("zh", "voice-zh-d");
+
+    lastWrite.resolve({
+      ...settings,
+      preferredVoicesByLanguage: { zh: "voice-zh-d" }
+    });
+    await waitFor(() => expect(select).toHaveValue("voice-zh-d"));
+  });
+
+  it("keeps the newest Home setup after StrictMode effect replay", async () => {
+    const staleSettings = createVerifiedSettings({
+      voices: [{ voice_id: "voice-stale", display_name: "旧 Voice", language: "zh" }],
+      preferredVoicesByLanguage: { zh: "voice-stale" }
+    });
+    const currentSettings = createVerifiedSettings({
+      voices: [{ voice_id: "voice-current", display_name: "新 Voice", language: "zh" }],
+      preferredVoicesByLanguage: { zh: "voice-current" }
+    });
+    const staleRead = deferred<AppSettings>();
+    const currentRead = deferred<AppSettings>();
+    const getSettings = vi
+      .fn<ReaderWindowRoleBridge["getSettings"]>()
+      .mockReturnValueOnce(staleRead.promise)
+      .mockReturnValueOnce(currentRead.promise);
+    const readerBridge = createReaderBridge({
+      settings: currentSettings,
+      readerPatch: { getSettings }
+    });
+    render(
+      <StrictMode>
+        <ReaderWindowApp readerBridge={readerBridge} />
+      </StrictMode>
+    );
+
+    await act(async () => currentRead.resolve(currentSettings));
+    expect(await screen.findByText("中文 · 新 Voice")).toBeInTheDocument();
+    await act(async () => staleRead.resolve(staleSettings));
+
+    expect(screen.getByText("中文 · 新 Voice")).toBeInTheDocument();
+    expect(screen.queryByText("中文 · 旧 Voice")).not.toBeInTheDocument();
+  });
+
+  it("ignores a previous Home visit command after route re-entry", async () => {
+    const oldPlayback = deferred<Awaited<ReturnType<ReaderWindowRoleBridge["playReadingTarget"]>>>();
+    const playReadingTarget = vi
+      .fn<ReaderWindowRoleBridge["playReadingTarget"]>()
+      .mockReturnValueOnce(oldPlayback.promise)
+      .mockResolvedValue({ started: true, sessionId: 9 });
+    renderReaderWindow({
+      readerPatch: { playReadingTarget },
+      settings: createVerifiedSettings()
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: "播放" }));
+    expect(screen.getByText("正在读取选区")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "历史记录" }));
+    await screen.findByRole("heading", { name: "历史记录" });
+    await userEvent.click(screen.getByRole("button", { name: "主页" }));
+    expect(await screen.findByText("Control+Command+R")).toBeInTheDocument();
+
+    await act(async () => {
+      oldPlayback.resolve({ started: true, sessionId: 8, stopShortcutAvailable: false });
+    });
+    expect(screen.queryByText("已开始朗读；Esc 不可用，请从菜单栏停止")).not.toBeInTheDocument();
+    expect(screen.getByText("Control+Command+R")).toBeInTheDocument();
+  });
+
   it("defaults Voice options to the first language that actually has a Voice", async () => {
     renderReaderWindow({
       settings: createVerifiedSettings({
@@ -245,6 +370,29 @@ describe("ReaderWindowApp", () => {
     await userEvent.click(screen.getByText("朗读选项"));
     expect(screen.getByRole("button", { name: "英文" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("button", { name: "中文" })).not.toBeInTheDocument();
+  });
+
+  it("keeps Latin and unknown Voice groups available through the Home picker", async () => {
+    renderReaderWindow({
+      settings: createVerifiedSettings({
+        voices: [
+          { voice_id: "voice-en", display_name: "English Voice", language: "en" },
+          { voice_id: "voice-latin", display_name: "Latin Voice", language: "latin" },
+          { voice_id: "voice-unknown", display_name: "Unknown Voice", language: "unknown" }
+        ],
+        preferredVoicesByLanguage: {
+          en: "voice-en",
+          latin: "voice-latin",
+          unknown: "voice-unknown"
+        }
+      })
+    });
+
+    await userEvent.click(await screen.findByText("朗读选项"));
+    await userEvent.click(screen.getByRole("button", { name: "其他拉丁语" }));
+    expect(screen.getByRole("combobox", { name: "Voice" })).toHaveValue("voice-latin");
+    await userEvent.click(screen.getByRole("button", { name: "未知" }));
+    expect(screen.getByRole("combobox", { name: "Voice" })).toHaveValue("voice-unknown");
   });
 
   it("shows the Reading History empty state", async () => {
@@ -968,4 +1116,18 @@ function createFavoriteRecord(patch: Partial<FavoriteRecord> = {}): FavoriteReco
     source: "selected_text",
     ...patch
   };
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  reject: (reason?: unknown) => void;
+  resolve: (value: T) => void;
+} {
+  let reject!: (reason?: unknown) => void;
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    reject = rejectPromise;
+    resolve = resolvePromise;
+  });
+  return { promise, reject, resolve };
 }

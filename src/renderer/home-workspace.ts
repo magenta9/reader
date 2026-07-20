@@ -46,7 +46,6 @@ export interface HomeWorkspaceSnapshot {
   readonly canPlay: boolean;
   readonly recoveryAction?: HomeRecoveryAction;
   readonly feedback: string;
-  readonly hasPlaybackFeedback: boolean;
   readonly showShortcutStatus: boolean;
   readonly pending: Readonly<{
     preferredVoice: boolean;
@@ -74,7 +73,9 @@ const LANGUAGE_GROUPS = Object.freeze([
   Object.freeze({ language: "zh" as const, label: "中文" }),
   Object.freeze({ language: "en" as const, label: "英文" }),
   Object.freeze({ language: "ja" as const, label: "日文" }),
-  Object.freeze({ language: "ko" as const, label: "韩文" })
+  Object.freeze({ language: "ko" as const, label: "韩文" }),
+  Object.freeze({ language: "latin" as const, label: "其他拉丁语" }),
+  Object.freeze({ language: "unknown" as const, label: "未知" })
 ]);
 
 const LOADING_SETUP = Object.freeze({ status: "loading" } as const);
@@ -431,7 +432,6 @@ function projectSnapshot(
         ? Object.freeze({ kind: "retry-setup" as const, label: "重试" })
         : undefined,
       feedback,
-      hasPlaybackFeedback: Boolean(feedback),
       showShortcutStatus: false,
       pending,
       statusLabel: error ? feedback || setup.message : "正在检查朗读配置"
@@ -468,7 +468,6 @@ function projectSnapshot(
     canPlay: readiness.canPlay,
     recoveryAction: readiness.recoveryAction,
     feedback,
-    hasPlaybackFeedback: Boolean(feedback),
     showShortcutStatus: readiness.canPlay && !feedback,
     pending,
     statusLabel: feedback || readiness.statusLabel

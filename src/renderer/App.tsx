@@ -17,8 +17,8 @@ import type {
 } from "./bridge.js";
 import { DEFAULT_ACTIVATION_SHORTCUT } from "../shared/app-contracts.js";
 import type { HistoryRetention } from "../shared/app-contracts.js";
-import type { DetectedLanguage, MiniMaxVoice } from "../shared/types.js";
 import { MODEL_OPTIONS } from "../shared/models.js";
+import { HomeWorkspace } from "./home-workspace.js";
 import { historyRetentionLabel } from "./history-retention.js";
 import { RecordBrowser, type RecordUndoRequest } from "./record-browser.js";
 import { SettingsWorkspace } from "./settings-workspace.js";
@@ -45,15 +45,6 @@ const NAV_ITEMS: Array<{ route: AppRoute; label: string; description: string; ma
   { route: "settings", label: "设置", description: "管理连接、朗读偏好与本机数据。", mark: "⚙" }
 ];
 
-const LANGUAGE_GROUPS: Array<{ language: DetectedLanguage; label: string }> = [
-  { language: "zh", label: "中文" },
-  { language: "en", label: "英文" },
-  { language: "ja", label: "日文" },
-  { language: "ko", label: "韩文" },
-  { language: "latin", label: "其他拉丁语" },
-  { language: "unknown", label: "未知" }
-];
-
 const SETTINGS_GROUPS = ["账户与连接", "快捷键", "朗读", "通用", "历史记录"] as const;
 
 const SETTINGS_GROUP_IDS: Record<(typeof SETTINGS_GROUPS)[number], string> = {
@@ -71,14 +62,6 @@ const SETTINGS_GROUP_DESCRIPTIONS: Record<(typeof SETTINGS_GROUPS)[number], stri
   历史记录: "控制本机全文历史的保留方式。",
   通用: "低频维护和启动选项。"
 };
-
-const DEFAULT_HOME_PLAYBACK_MESSAGE = "准备朗读当前选区";
-
-type SetupRecoveryAction =
-  | { kind: "open-settings"; label: string }
-  | { kind: "retry-setup"; label: string }
-  | { kind: "verify-key"; label: string }
-  | { kind: "refresh-voices"; label: string };
 
 const DELETION_UNDO_WINDOW_MS = 10_000;
 
@@ -239,125 +222,18 @@ function useAppDependencies(): ReaderWindowAppProps {
 
 function Home({ onNavigate }: { onNavigate: (route: AppRoute) => void }): ReactElement {
   const { readerBridge } = useAppDependencies();
-  const [settings, setSettings] = useState<AppSettings | undefined>();
-  const [hasApiKey, setHasApiKey] = useState(false);
-  const [selectedLanguage, setSelectedLanguage] = useState<DetectedLanguage>("zh");
-  const [playbackMessage, setPlaybackMessage] = useState(DEFAULT_HOME_PLAYBACK_MESSAGE);
-  const [isLoadingSetup, setIsLoadingSetup] = useState(true);
-  const [isStartingPlayback, setIsStartingPlayback] = useState(false);
-  const [isResolvingSetup, setIsResolvingSetup] = useState(false);
-
-  const loadSetup = useCallback(async (): Promise<void> => {
-    setIsLoadingSetup(true);
-    try {
-      const [nextSettings, nextHasApiKey] = await Promise.all([
-        readerBridge.getSettings(),
-        readerBridge.hasMiniMaxApiKey()
-      ]);
-      setSettings(nextSettings);
-      setHasApiKey(nextHasApiKey);
-      setPlaybackMessage(DEFAULT_HOME_PLAYBACK_MESSAGE);
-    } catch {
-      setSettings(undefined);
-      setHasApiKey(false);
-      setPlaybackMessage("无法读取朗读配置");
-    } finally {
-      setIsLoadingSetup(false);
-    }
-  }, [readerBridge]);
+  const workspace = useMemo(() => new HomeWorkspace(readerBridge), [readerBridge]);
+  const snapshot = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot, workspace.getSnapshot);
+  const settings = snapshot.setup.status === "ready" ? snapshot.setup.value.settings : undefined;
 
   useEffect(() => {
-    void loadSetup();
-  }, [loadSetup]);
-
-  const availableLanguageGroups = LANGUAGE_GROUPS.filter(
-    (group) => voicesForLanguage(settings?.voices ?? [], group.language).length > 0
-  );
-  const activeLanguage = availableLanguageGroups.some((group) => group.language === selectedLanguage)
-    ? selectedLanguage
-    : availableLanguageGroups[0]?.language ?? selectedLanguage;
-  const voices = voicesForLanguage(settings?.voices ?? [], activeLanguage);
-  const preferredVoice = settings?.preferredVoicesByLanguage[activeLanguage] ?? "";
-  const selectedVoice = voices.find((voice) => voice.voice_id === preferredVoice) ?? voices[0];
-  const selectedLanguageLabel = LANGUAGE_GROUPS.find((group) => group.language === activeLanguage)?.label ?? "未知";
-
-  const savePreferredVoice = async (voiceId: string): Promise<void> => {
-    const next = await readerBridge.setPreferredVoice(activeLanguage, voiceId);
-    setSettings(next);
-  };
-  const canPlay = Boolean(hasApiKey && settings?.apiKeyStatus === "verified" && settings.voices.length);
-  const setupRecoveryAction = isLoadingSetup ? undefined : getSetupRecoveryAction(hasApiKey, settings);
-  const hasPlaybackFeedback = playbackMessage !== DEFAULT_HOME_PLAYBACK_MESSAGE;
-  const showShortcutStatus = Boolean(!isLoadingSetup && canPlay && !hasPlaybackFeedback);
-  const statusLabel = isLoadingSetup
-    ? "正在检查朗读配置"
-    : !settings
-      ? playbackMessage
-      : hasPlaybackFeedback
-        ? playbackMessage
-        : canPlay
-          ? ""
-          : setupBlockerLabel(hasApiKey, settings);
-
-  const playReadingTarget = async (): Promise<void> => {
-    if (isStartingPlayback) return;
-    setIsStartingPlayback(true);
-    setPlaybackMessage("正在读取选区");
-    try {
-      const result = await readerBridge.playReadingTarget();
-      if (result.started) {
-        setPlaybackMessage(
-          result.stopShortcutAvailable === false
-            ? "已开始朗读；Esc 不可用，请从菜单栏停止"
-            : "已开始朗读"
-        );
-      } else {
-        setPlaybackMessage(playbackSkippedLabel(result.skipped));
-      }
-    } catch {
-      setPlaybackMessage("朗读未开始，请检查连接和朗读设置后重试");
-    } finally {
-      setIsStartingPlayback(false);
-    }
-  };
+    workspace.start();
+    return () => workspace.dispose();
+  }, [workspace]);
 
   const resolveSetupBlocker = async (): Promise<void> => {
-    if (!setupRecoveryAction || isResolvingSetup) return;
-    if (setupRecoveryAction.kind === "open-settings") {
-      onNavigate("settings");
-      return;
-    }
-    setIsResolvingSetup(true);
-    try {
-      if (setupRecoveryAction.kind === "retry-setup") {
-        await loadSetup();
-        return;
-      }
-      if (setupRecoveryAction.kind === "verify-key") {
-        setPlaybackMessage("正在验证连接");
-        const result = await readerBridge.verifyMiniMaxKey();
-        setSettings(result.settings);
-        setHasApiKey(await readerBridge.hasMiniMaxApiKey());
-        setPlaybackMessage(result.ok ? "连接验证成功" : result.error ?? "连接验证失败");
-        return;
-      }
-      if (setupRecoveryAction.kind === "refresh-voices") {
-        setPlaybackMessage("正在刷新 Voice");
-        const result = await readerBridge.refreshVoices();
-        setSettings(result.settings);
-        setPlaybackMessage(
-          result.usedCachedVoices
-            ? `刷新失败，继续使用本地 Voice 缓存：${result.error}`
-            : result.ok
-              ? "Voice 列表已刷新"
-              : result.error ?? "Voice 列表刷新失败"
-        );
-      }
-    } catch {
-      setPlaybackMessage("处理失败，请前往设置重试");
-    } finally {
-      setIsResolvingSetup(false);
-    }
+    const route = await workspace.runRecovery();
+    if (route) onNavigate(route);
   };
 
   return (
@@ -371,14 +247,14 @@ function Home({ onNavigate }: { onNavigate: (route: AppRoute) => void }): ReactE
           <div className="command-actions">
             <button
               className="primary-action"
-              disabled={!canPlay || isStartingPlayback}
-              onClick={playReadingTarget}
+              disabled={!snapshot.canPlay || snapshot.pending.playback}
+              onClick={() => void workspace.playReadingTarget()}
               type="button"
             >
-              {isStartingPlayback ? "读取中" : "播放"}
+              {snapshot.pending.playback ? "读取中" : "播放"}
             </button>
             <div className="home-status-line">
-              {showShortcutStatus ? (
+              {snapshot.showShortcutStatus ? (
                 <span
                   aria-label={
                     settings?.shortcutRegistrationError
@@ -401,20 +277,20 @@ function Home({ onNavigate }: { onNavigate: (route: AppRoute) => void }): ReactE
                 </span>
               ) : (
                 <span className="playback-status" role="status">
-                  {statusLabel}
+                  {snapshot.statusLabel}
                 </span>
               )}
-              {setupRecoveryAction ? (
+              {snapshot.recoveryAction ? (
                 <button
                   className="setup-action"
-                  disabled={isResolvingSetup}
-                  onClick={resolveSetupBlocker}
+                  disabled={snapshot.pending.setup}
+                  onClick={() => void resolveSetupBlocker()}
                   type="button"
                 >
-                  {isResolvingSetup ? "处理中" : setupRecoveryAction.label}
+                  {snapshot.pending.setup ? "处理中" : snapshot.recoveryAction.label}
                 </button>
               ) : null}
-              {showShortcutStatus && settings?.shortcutRegistrationError ? (
+              {snapshot.showShortcutStatus && settings?.shortcutRegistrationError ? (
                 <button className="text-action" onClick={() => onNavigate("settings")} type="button">
                   修复快捷键
                 </button>
@@ -429,32 +305,32 @@ function Home({ onNavigate }: { onNavigate: (route: AppRoute) => void }): ReactE
           <summary>
             <span>朗读选项</span>
             <span className="home-options-summary">
-              {selectedLanguageLabel} · {selectedVoice?.display_name ?? "选择 Voice"}
+              {snapshot.activeLanguageLabel} · {snapshot.selectedVoice?.display_name ?? "选择 Voice"}
             </span>
           </summary>
           <div className="home-options-body">
             <div className="language-tabs" role="group" aria-label="语言组">
-              {availableLanguageGroups.map((group) => (
+              {snapshot.availableLanguageGroups.map((group) => (
                 <button
-                  aria-pressed={activeLanguage === group.language}
-                  className={activeLanguage === group.language ? "tab is-active" : "tab"}
+                  aria-pressed={snapshot.activeLanguage === group.language}
+                  className={snapshot.activeLanguage === group.language ? "tab is-active" : "tab"}
                   key={group.language}
-                  onClick={() => setSelectedLanguage(group.language)}
+                  onClick={() => workspace.selectLanguage(group.language)}
                   type="button"
                 >
                   {group.label}
                 </button>
               ))}
             </div>
-            {voices.length ? (
+            {snapshot.voices.length ? (
               <label className="field-label home-voice-field">
                 Voice
                 <select
                   className="voice-select"
-                  onChange={(event) => void savePreferredVoice(event.target.value)}
-                  value={selectedVoice?.voice_id ?? ""}
+                  onChange={(event) => workspace.selectPreferredVoice(event.target.value)}
+                  value={snapshot.selectedVoice?.voice_id ?? ""}
                 >
-                  {voices.map((voice) => (
+                  {snapshot.voices.map((voice) => (
                     <option key={voice.voice_id} value={voice.voice_id}>
                       {voice.display_name}
                     </option>
@@ -531,14 +407,6 @@ function UndoNotice({
       </button>
     </div>
   );
-}
-
-function getSetupRecoveryAction(hasApiKey: boolean, settings: AppSettings | undefined): SetupRecoveryAction | undefined {
-  if (!settings) return { kind: "retry-setup", label: "重试" };
-  if (!hasApiKey) return { kind: "open-settings", label: "去设置 API Key" };
-  if (settings.apiKeyStatus !== "verified") return { kind: "verify-key", label: "验证连接" };
-  if (!settings.voices.length) return { kind: "refresh-voices", label: "刷新 Voice" };
-  return undefined;
 }
 
 function Settings(): ReactElement {
@@ -992,21 +860,6 @@ function apiKeyStatusLabel(status: AppSettings["apiKeyStatus"] | undefined): str
   return "未配置";
 }
 
-function setupBlockerLabel(hasApiKey: boolean, settings: AppSettings | undefined): string {
-  if (!hasApiKey) return "需要 API Key";
-  if (settings?.apiKeyStatus !== "verified") return "需要验证连接";
-  if (!settings.voices.length) return "需要 Voice 列表";
-  return "暂不可播放";
-}
-
-function playbackSkippedLabel(skipped: string | undefined): string {
-  if (skipped === "empty_clipboard") return "没有检测到选区或剪切板文本";
-  if (skipped === "missing_api_key") return "需要 API Key";
-  if (skipped === "unverified_api_key") return "需要验证连接";
-  if (skipped === "missing_voice") return "需要选择 Voice";
-  return "未开始播放";
-}
-
 function acceleratorFromKeyboardEvent(event: KeyboardEvent): string | undefined {
   const key = normalizeAcceleratorKey(event.key);
   if (!key) return undefined;
@@ -1036,11 +889,4 @@ function normalizeAcceleratorKey(key: string): string | undefined {
     Tab: "Tab"
   };
   return map[key] ?? key;
-}
-
-function voicesForLanguage(voices: MiniMaxVoice[], language: DetectedLanguage): MiniMaxVoice[] {
-  const direct = voices.filter((voice) => voice.language === language);
-  if (direct.length) return direct;
-  if (language === "en") return voices.filter((voice) => voice.language === "latin");
-  return [];
 }
