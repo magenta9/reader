@@ -1,36 +1,33 @@
 import { existsSync, lstatSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, relative, resolve, join } from "node:path";
+import { basename, dirname, resolve, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runElectronRuntimeProbe } from "./electron-runtime.mjs";
+import { loadMacReleaseIdentity } from "./release-identity.mjs";
 import { assertCommand, spawnCommand } from "./spawn-command.mjs";
 import { verifyMacApplicationStructure } from "./verify-mac-app.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const releaseDir = resolve(root, "release/mac");
-const appName = "VoiceReader";
-const appVersion = "0.1.0";
-const appPath = join(releaseDir, `${appName}.app`);
-const dmgPath = join(releaseDir, `${appName}-${appVersion}-arm64.dmg`);
-const installedAppPath = "/Applications/VoiceReader.app";
-const electronAppPath = resolve(root, "node_modules/electron/dist/Electron.app");
-const iconsetPath = join(releaseDir, "VoiceReader.iconset");
-const iconPath = join(releaseDir, "VoiceReader.icns");
-const appIconSvgPath = resolve(root, "assets/voicereader-icon.svg");
-const appBundleIdentifier = "com.local.voicereader";
-const appDesignatedRequirement = `=designated => identifier "${appBundleIdentifier}"`;
+const releaseIdentity = await loadMacReleaseIdentity({ root });
+const releaseDir = releaseIdentity.paths.releaseDirectory;
+const appPath = releaseIdentity.paths.application;
+const dmgPath = releaseIdentity.paths.diskImage;
+const installedAppPath = releaseIdentity.installedAppPath;
+const electronAppPath = releaseIdentity.paths.electronApplication;
+const iconsetPath = releaseIdentity.paths.iconset;
+const iconPath = releaseIdentity.paths.icon;
+const appIconSvgPath = releaseIdentity.paths.iconSource;
+const packagedApplicationRoot = dirname(
+  join(appPath, releaseIdentity.applicationPaths.packagedDescriptor)
+);
 const plistScalarValuePattern = String.raw`<(?:string|true|false|integer|real)(?:\s*/>|>[^<]*</(?:string|integer|real)>)`;
 
-export const PACKAGING_PLAN = {
-  platform: "darwin",
-  arch: "arm64",
-  app: relative(root, appPath),
-  dmg: relative(root, dmgPath),
-  dmgTool: "/usr/bin/hdiutil",
-  customPackager: true,
-  installsApplication: false
-};
+export function createPackagingPlan(identity) {
+  return Object.freeze({ ...identity.packagingPlan, dmgTool: "/usr/bin/hdiutil" });
+}
+
+export const PACKAGING_PLAN = createPackagingPlan(releaseIdentity);
 
 export async function packageMac() {
   assertSupportedPlatform();
@@ -39,30 +36,22 @@ export async function packageMac() {
   await run(process.execPath, [resolve(root, "scripts/build.mjs")], root);
   await mkdir(releaseDir, { recursive: true });
   await cp(electronAppPath, appPath, { recursive: true, verbatimSymlinks: true });
-  await rm(join(appPath, "Contents/Resources/default_app.asar"), { force: true });
+  await rm(join(appPath, releaseIdentity.applicationPaths.defaultApplication), { force: true });
 
   await generateIcon();
-  await cp(iconPath, join(appPath, "Contents/Resources/VoiceReader.icns"));
+  await cp(iconPath, join(appPath, releaseIdentity.applicationPaths.icon));
 
-  await rm(join(appPath, "Contents/Resources/app"), { recursive: true, force: true });
-  await mkdir(join(appPath, "Contents/Resources/app"), { recursive: true });
-  await cp(resolve(root, "dist"), join(appPath, "Contents/Resources/app/dist"), { recursive: true });
+  await rm(packagedApplicationRoot, { recursive: true, force: true });
+  await mkdir(packagedApplicationRoot, { recursive: true });
+  await cp(resolve(root, "dist"), join(appPath, releaseIdentity.applicationPaths.buildProduct), {
+    recursive: true
+  });
   await writeFile(
-    join(appPath, "Contents/Resources/app/package.json"),
-    JSON.stringify(
-      {
-        name: "voicereader",
-        productName: appName,
-        version: appVersion,
-        type: "module",
-        main: "dist/main/main.js"
-      },
-      null,
-      2
-    )
+    join(appPath, releaseIdentity.applicationPaths.packagedDescriptor),
+    JSON.stringify(releaseIdentity.packagedDescriptor, null, 2)
   );
 
-  await rename(join(appPath, "Contents/MacOS/Electron"), join(appPath, `Contents/MacOS/${appName}`));
+  await rename(join(appPath, "Contents/MacOS/Electron"), join(appPath, releaseIdentity.applicationPaths.executable));
   await updateInfoPlist();
   await updateHelperInfoPlists();
   await rm(iconsetPath, { recursive: true, force: true });
@@ -72,7 +61,7 @@ export async function packageMac() {
   await verifyDmgOutput();
 
   if (snapshotInstalledApplication() !== installedBefore) {
-    throw new Error("Artifact-only packaging modified /Applications/VoiceReader.app");
+    throw new Error(`Artifact-only packaging modified ${installedAppPath}`);
   }
   return { application: appPath, dmg: dmgPath };
 }
@@ -80,7 +69,7 @@ export async function packageMac() {
 function assertSupportedPlatform() {
   if (process.platform !== PACKAGING_PLAN.platform || process.arch !== PACKAGING_PLAN.arch) {
     throw new Error(
-      `VoiceReader packaging supports darwin arm64 only; received ${process.platform} ${process.arch}`
+      `${releaseIdentity.productName} packaging supports ${releaseIdentity.platform} ${releaseIdentity.architecture} only; received ${process.platform} ${process.arch}`
     );
   }
 }
@@ -104,7 +93,17 @@ async function createDmg() {
   try {
     await run(
       PACKAGING_PLAN.dmgTool,
-      ["create", "-volname", appName, "-srcfolder", dmgRoot, "-ov", "-format", "UDZO", dmgPath],
+      [
+        "create",
+        "-volname",
+        releaseIdentity.productName,
+        "-srcfolder",
+        dmgRoot,
+        "-ov",
+        "-format",
+        "UDZO",
+        dmgPath
+      ],
       root
     );
   } finally {
@@ -137,10 +136,12 @@ export async function verifyMacDiskImage(
     );
     mounted = true;
     const applications = (await readdir(mountPoint)).filter((name) => name.endsWith(".app"));
-    if (applications.length !== 1 || applications[0] !== `${appName}.app`) {
-      throw new Error(`Expected DMG to contain exactly ${appName}.app; found ${applications.join(", ") || "none"}`);
+    if (applications.length !== 1 || applications[0] !== releaseIdentity.appFileName) {
+      throw new Error(
+        `Expected DMG to contain exactly ${releaseIdentity.appFileName}; found ${applications.join(", ") || "none"}`
+      );
     }
-    await verifyApplication(join(mountPoint, `${appName}.app`));
+    await verifyApplication(join(mountPoint, releaseIdentity.appFileName));
   } catch (error) {
     verificationFailure = error;
   }
@@ -180,7 +181,7 @@ async function generateIcon() {
   await rm(iconsetPath, { recursive: true, force: true });
   await rm(iconPath, { force: true });
   await mkdir(iconsetPath, { recursive: true });
-  const renderedSource = join(releaseDir, "VoiceReader-icon-source.png");
+  const renderedSource = join(releaseDir, `${releaseIdentity.productName}-icon-source.png`);
   await renderAppIconSource(renderedSource);
   const sizes = [
     [16, "icon_16x16.png"],
@@ -202,47 +203,42 @@ async function generateIcon() {
 }
 
 async function renderAppIconSource(renderedSource) {
-  const quickLookOutput = join(releaseDir, "voicereader-icon.svg.png");
+  const quickLookOutput = join(releaseDir, `${basename(appIconSvgPath)}.png`);
   await rm(quickLookOutput, { force: true });
   await run("/usr/bin/qlmanage", ["-t", "-s", "1024", "-o", releaseDir, appIconSvgPath], root);
   await rename(quickLookOutput, renderedSource);
 }
 
 async function updateInfoPlist() {
-  const plistPath = join(appPath, "Contents/Info.plist");
+  const plistPath = join(appPath, releaseIdentity.applicationPaths.infoPlist);
   let plist = await readFile(plistPath, "utf8");
-  plist = replacePlistValue(plist, "CFBundleDisplayName", appName);
-  plist = replacePlistValue(plist, "CFBundleExecutable", appName);
-  plist = replacePlistValue(plist, "CFBundleIconFile", "VoiceReader.icns");
-  plist = replacePlistValue(plist, "CFBundleIdentifier", appBundleIdentifier);
-  plist = replacePlistValue(plist, "CFBundleName", appName);
-  plist = replacePlistValue(plist, "CFBundleShortVersionString", appVersion);
-  plist = replacePlistValue(plist, "CFBundleVersion", appVersion);
+  for (const [key, value] of Object.entries(releaseIdentity.infoPlist)) {
+    plist = replacePlistValue(plist, key, value);
+  }
   plist = removePlistEntry(plist, "LSUIElement");
   await writeFile(plistPath, plist);
 }
 
 async function updateHelperInfoPlists() {
-  const frameworksPath = join(appPath, "Contents/Frameworks");
+  const frameworksPath = join(appPath, releaseIdentity.applicationPaths.frameworks);
   const helperApps = await readdir(frameworksPath);
   for (const helperApp of helperApps.filter((name) => name.startsWith("Electron Helper") && name.endsWith(".app"))) {
     const plistPath = join(frameworksPath, helperApp, "Contents/Info.plist");
     let plist = await readFile(plistPath, "utf8");
-    plist = replacePlistValue(plist, "CFBundleIdentifier", helperBundleIdentifier(helperApp));
+    const identifier = releaseIdentity.helperBundleIdentifiers[helperApp];
+    if (!identifier) throw new Error(`Unexpected Electron helper application: ${helperApp}`);
+    plist = replacePlistValue(plist, "CFBundleIdentifier", identifier);
     await writeFile(plistPath, plist);
   }
 }
 
-function helperBundleIdentifier(helperApp) {
-  if (helperApp.includes("(Renderer)")) return "com.local.voicereader.helper.renderer";
-  if (helperApp.includes("(GPU)")) return "com.local.voicereader.helper.gpu";
-  if (helperApp.includes("(Plugin)")) return "com.local.voicereader.helper.plugin";
-  return "com.local.voicereader.helper";
-}
-
 async function signAppBundle() {
   await run("/usr/bin/codesign", ["--deep", "--force", "--sign", "-", appPath], root);
-  await run("/usr/bin/codesign", ["--force", "--sign", "-", "--requirements", appDesignatedRequirement, appPath], root);
+  await run(
+    "/usr/bin/codesign",
+    ["--force", "--sign", "-", "--requirements", releaseIdentity.signing.designatedRequirement, appPath],
+    root
+  );
 }
 
 function replacePlistValue(plist, key, value) {

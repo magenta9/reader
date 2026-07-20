@@ -3,7 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { verifyMacDiskImage } from "../../scripts/package-mac.mjs";
+import { createPackagingPlan, verifyMacDiskImage } from "../../scripts/package-mac.mjs";
+import {
+  createMacReleaseIdentity,
+  loadMacReleaseIdentity
+} from "../../scripts/release-identity.mjs";
 
 const temporaryRoots = [];
 
@@ -11,18 +15,33 @@ afterEach(() => {
   for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-it("declares artifact-only ARM64 app and DMG packaging at the public command seam", () => {
+it("declares identity-derived artifact-only packaging at the public command seam", async () => {
   const output = execFileSync(process.execPath, [resolve("scripts/package-mac.mjs"), "plan"], {
     cwd: resolve("."),
     encoding: "utf8"
   });
   const plan = JSON.parse(output.trim().split("\n").at(-1));
 
-  expect(plan).toEqual({
+  expect(plan).toEqual(createPackagingPlan(await loadMacReleaseIdentity()));
+});
+
+it("moves the public DMG plan when package metadata version changes", () => {
+  const identity = createMacReleaseIdentity(
+    {
+      name: "voicereader",
+      version: "3.2.1",
+      private: true,
+      type: "module",
+      main: "dist/main/main.js"
+    },
+    { root: resolve(".") }
+  );
+
+  expect(createPackagingPlan(identity)).toEqual({
     platform: "darwin",
     arch: "arm64",
     app: "release/mac/VoiceReader.app",
-    dmg: "release/mac/VoiceReader-0.1.0-arm64.dmg",
+    dmg: "release/mac/VoiceReader-3.2.1-arm64.dmg",
     dmgTool: "/usr/bin/hdiutil",
     customPackager: true,
     installsApplication: false
