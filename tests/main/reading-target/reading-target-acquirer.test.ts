@@ -9,6 +9,76 @@ import type {
 } from "../../../src/main/reading-target/reading-target-acquirer.js";
 
 describe("ReadingTargetAcquirer", () => {
+  it("owns Reader Window preparation and leaves the previous app active after capture", async () => {
+    const events: string[] = [];
+    const acquirer = createAcquirer({
+      hidePreviousAppForSelectionCapture: () => events.push("hide-reader"),
+      delay: async (milliseconds) => {
+        events.push(`delay:${milliseconds}`);
+      },
+      loadSelectionCopyAddon: () => ({
+        readSelectedText: () => {
+          events.push("capture-selection");
+          return "Reader Window 触发的选中文本";
+        },
+        copySelection: () => undefined
+      })
+    });
+
+    await expect(acquirer.acquire("reader_window")).resolves.toEqual({
+      text: "Reader Window 触发的选中文本",
+      source: "selected_text"
+    });
+    expect(events).toEqual(["hide-reader", "delay:300", "capture-selection"]);
+  });
+
+  it("captures the Menu Bar frontmost app before the first asynchronous yield", async () => {
+    const readSelectedText = vi.fn(() => "Menu Bar 触发的选中文本");
+    const acquirer = createAcquirer({
+      delay: async () => {
+        throw new Error("Menu Bar acquisition must not wait before capture");
+      },
+      loadSelectionCopyAddon: () => ({
+        readSelectedText,
+        copySelection: () => undefined
+      })
+    });
+
+    const acquisition = acquirer.acquire("menu_bar");
+    expect(readSelectedText).toHaveBeenCalledOnce();
+    await expect(acquisition).resolves.toEqual({
+      text: "Menu Bar 触发的选中文本",
+      source: "selected_text"
+    });
+  });
+
+  it("waits 350ms before capturing for the Activation Shortcut", async () => {
+    let releaseDelay: (() => void) | undefined;
+    const readSelectedText = vi.fn(() => "快捷键触发的选中文本");
+    const acquirer = createAcquirer({
+      delay: (milliseconds) => {
+        expect(milliseconds).toBe(350);
+        return new Promise<void>((resolve) => {
+          releaseDelay = resolve;
+        });
+      },
+      loadSelectionCopyAddon: () => ({
+        readSelectedText,
+        copySelection: () => undefined
+      })
+    });
+
+    const acquisition = acquirer.acquire("activation_shortcut");
+    expect(readSelectedText).not.toHaveBeenCalled();
+    releaseDelay?.();
+
+    await expect(acquisition).resolves.toEqual({
+      text: "快捷键触发的选中文本",
+      source: "selected_text"
+    });
+    expect(readSelectedText).toHaveBeenCalledOnce();
+  });
+
   it("falls back to Clipboard Text and logs safe Selected Text capture failures", async () => {
     const log: Array<{ message: string; hidden?: boolean }> = [];
     const clipboard = createClipboard({ text: "剪切板后备文本", html: "<p>html</p>" });
@@ -104,15 +174,52 @@ describe("ReadingTargetAcquirer", () => {
     expect(clipboard.snapshot()).toEqual({ text: "", html: "<p>Only HTML</p>", rtf: "", hasImage: true });
     expect(log.some((entry) => entry.message.startsWith("Selected Text capture failed:"))).toBe(true);
   });
+
+  it("restores the clipboard even when selection capture and safe Error Log both fail", async () => {
+    const clipboard = createClipboard({
+      text: "原剪切板",
+      html: "<p>原 HTML</p>",
+      rtf: "{\\rtf1 原 RTF}",
+      image: fakeImage(false)
+    });
+    const acquirer = createAcquirer({
+      clipboard,
+      createMarker: () => "__TEST_SELECTION_MARKER__",
+      errorLog: {
+        addErrorLog: () => {
+          throw new Error("error log unavailable");
+        }
+      },
+      loadSelectionCopyAddon: () => ({
+        readSelectedText: () => "",
+        copySelection: () => {
+          throw new Error("copy selection unavailable");
+        }
+      })
+    });
+
+    await expect(acquirer.acquire("menu_bar")).resolves.toEqual({
+      text: "原剪切板",
+      source: "clipboard"
+    });
+    expect(clipboard.snapshot()).toEqual({
+      text: "原剪切板",
+      html: "<p>原 HTML</p>",
+      rtf: "{\\rtf1 原 RTF}",
+      hasImage: true
+    });
+  });
 });
 
 function createAcquirer(options: {
   clipboard?: ReadingTargetClipboard;
   createMarker?: () => string;
+  delay?: (milliseconds: number) => Promise<void>;
   errorLog?: ReadingTargetErrorLog;
   hidePreviousAppForSelectionCapture?: () => void;
   loadSelectionCopyAddon?: () => SelectionCopyAddon;
 }): ReadingTargetAcquirer {
+  let now = 0;
   return new ReadingTargetAcquirer({
     clipboard: options.clipboard ?? createClipboard(),
     errorLog:
@@ -125,7 +232,12 @@ function createAcquirer(options: {
     hidePreviousAppForSelectionCapture: options.hidePreviousAppForSelectionCapture ?? (() => undefined),
     loadSelectionCopyAddon: options.loadSelectionCopyAddon,
     createMarker: options.createMarker,
-    delay: async () => undefined
+    delay:
+      options.delay ??
+      (async (milliseconds) => {
+        now += milliseconds;
+      }),
+    now: () => now
   });
 }
 
