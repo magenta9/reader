@@ -42,7 +42,9 @@ open release/mac/VoiceReader.app
 make deploy
 ```
 
-`make package-mac` 只生成 ARM64 `.app` 与 DMG，不修改 `/Applications`；它会直接验证最终 app 的 Info.plist、图标、helper identifiers、精确 Build Product、架构与签名 requirement，并校验、只读挂载 DMG 后对其中唯一的 `VoiceReader.app` 重跑相同验证。`make smoke-packaged` 会对最终 `.app` 运行 fresh、历史三表、无版本四表和 future negative 数据库矩阵；正向场景在隐藏窗口模式下完成真实 Reader App Shell 初始化，并创建隐藏 Playback Overlay 以加载最终包内的 HTML 与 preload，随后才报告 readiness、验证 exact v1 schema 与数据保留，future 场景继续验证 fail-closed。`make deploy` 会先执行完整验证和 candidate smoke；如果 `/Applications/VoiceReader.app` 正在运行，它会要求开发者正常退出应用并拒绝继续，不会自动结束进程。替换采用 staging/backup 流程，installed smoke 失败时恢复旧应用；所有 smoke 都使用临时 userData，不接触正常的本机数据。
+`make package-mac` 只生成 ARM64 `.app` 与 DMG，不修改 `/Applications`；它从根 `package.json` 加载并校验一个不可变 Release Identity snapshot，再验证最终 app 的 Info.plist、descriptor、图标、helper identifiers、精确 Build Product、架构与签名 requirement，并校验、只读挂载 DMG 后对其中唯一的 `VoiceReader.app` 重跑相同验证。`make smoke-packaged` 会先按 production Release Identity 复验最终 `.app`，再运行 fresh、历史三表、无版本四表和 future negative 数据库矩阵；正向场景在隐藏窗口模式下完成真实 Reader App Shell 初始化，并创建隐藏 Playback Overlay 以加载最终包内的 HTML 与 preload，随后才报告 readiness、验证 exact v1 schema 与数据保留，future 场景继续验证 fail-closed。`make deploy` 会先执行完整验证和 candidate smoke；如果 `/Applications/VoiceReader.app` 正在运行，它会要求开发者正常退出应用并拒绝继续，不会自动结束进程。替换采用 staging/backup 流程，installed smoke 失败时恢复旧应用；所有 smoke 都使用临时 userData，不接触正常的本机数据。
+
+发布版本只在根 `package.json` 的 `version` 字段提升。不要同步编辑 packager、Info.plist、verifier 或文档中的版本常量；Release Identity 会派生 descriptor/plist 版本和 `release/mac/VoiceReader-<package version>-arm64.dmg`。版本变更后必须重新运行 `make verify`、`make package-mac` 与 `make smoke-packaged`，以最终 artifact seam 证明 metadata 与产物一致。
 
 ## 选择任务
 

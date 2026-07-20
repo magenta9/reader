@@ -1,15 +1,17 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertApplicationNotRunning } from "./install-mac-app.mjs";
+import { loadMacReleaseIdentity } from "./release-identity.mjs";
 import { assertCommand, spawnCommand } from "./spawn-command.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDirectory, "..");
+const releaseIdentity = await loadMacReleaseIdentity({ root: projectRoot });
 
 export const DEPLOY_PLAN = {
-  platform: "darwin",
-  arch: "arm64",
-  destination: "/Applications/VoiceReader.app",
+  platform: releaseIdentity.platform,
+  arch: releaseIdentity.architecture,
+  destination: releaseIdentity.installedAppPath,
   steps: ["verify", "package-mac", "smoke-candidate", "safe-replace", "verify-installed"],
   refusesRunningApplication: true,
   preservesUserData: true,
@@ -21,9 +23,11 @@ export async function deployMac({
   runCommand = spawnCommand
 } = {}) {
   if (process.platform !== DEPLOY_PLAN.platform || process.arch !== DEPLOY_PLAN.arch) {
-    throw new Error(`Local deployment supports darwin arm64 only; received ${process.platform} ${process.arch}`);
+    throw new Error(
+      `Local deployment supports ${releaseIdentity.platform} ${releaseIdentity.architecture} only; received ${process.platform} ${process.arch}`
+    );
   }
-  assertNotRunning();
+  assertNotRunning(DEPLOY_PLAN.destination);
   assertCommand(await runCommand("/usr/bin/make", ["verify"], { cwd: projectRoot }), "Verification pipeline");
   assertCommand(await runCommand("/usr/bin/make", ["package-mac"], { cwd: projectRoot }), "Packaging pipeline");
   assertCommand(await runCommand("/usr/bin/make", ["smoke-packaged"], { cwd: projectRoot }), "Candidate smoke");

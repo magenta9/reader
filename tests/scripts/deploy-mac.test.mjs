@@ -14,7 +14,7 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { findApplicationProcesses } from "../../scripts/install-mac-app.mjs";
 import { safelyReplaceApplication } from "../../scripts/safe-app-replace.mjs";
-import { deployMac } from "../../scripts/deploy-mac.mjs";
+import { DEPLOY_PLAN, deployMac } from "../../scripts/deploy-mac.mjs";
 
 const deployScript = resolve("scripts/deploy-mac.mjs");
 const temporaryRoots = [];
@@ -59,9 +59,11 @@ describe("local VoiceReader deployment", () => {
 
   it("refuses a running application before invoking any deployment gate", async () => {
     const commands = [];
+    let inspectedApplication;
     await expect(
       deployMac({
-        assertNotRunning: () => {
+        assertNotRunning: (application) => {
+          inspectedApplication = application;
           throw new Error("VoiceReader is running");
         },
         runCommand: async (...command) => {
@@ -70,6 +72,7 @@ describe("local VoiceReader deployment", () => {
         }
       })
     ).rejects.toThrow("VoiceReader is running");
+    expect(inspectedApplication).toBe(DEPLOY_PLAN.destination);
     expect(commands).toEqual([]);
   });
 
