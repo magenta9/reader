@@ -12,12 +12,16 @@ make verify
 如果只需要快速检查某一类问题，可以单独运行：
 
 ```bash
+bun run docs:adr
+bun run check:adr
 bun run typecheck
 bun run test
 bun run test:watch
 bun run build
 bun run test:dist
 ```
+
+修改 ADR frontmatter 或新增 ADR 后，显式运行 `bun run docs:adr` 重建并提交 `docs/adr/CATALOG.md`；不要手工维护 Catalog。`bun run check:adr` 只读校验 metadata、关系与 freshness，不会修改仓库。`make verify` 会在构建与测试前运行相同检查并 fail closed。ADR lifecycle 属于工程治理词汇，不写入产品领域 `CONTEXT.md`。
 
 `bun run test` 运行快速 Vitest source-level 和 jsdom React UI 测试；`bun run test:watch` 用于本地迭代；`bun run test:dist` 只检查构建产物、HTML/CSP/资源、native addon 与三个 production preload 的可执行角色合同。完整提交前默认运行 `make verify`，它会从 frozen install 开始执行依赖脚本审计、一次包含 typecheck 的 clean build、Electron runtime probe、Vitest 和 Build Product checks。
 

@@ -3,11 +3,12 @@ ELECTRON_PROXY_ENV = ELECTRON_GET_USE_PROXY=1 HTTPS_PROXY="$${HTTPS_PROXY:-$${ht
 
 .DEFAULT_GOAL := help
 
-.PHONY: help preflight install build typecheck test test-watch test-dist test-electron verify package-mac smoke-packaged deploy clean
+.PHONY: help preflight install check-adr build typecheck test test-watch test-dist test-electron verify package-mac smoke-packaged deploy clean
 
 help:
 	@printf "Available targets:\n"
 	@printf "  make install      Install dependencies from the frozen Bun lockfile\n"
+	@printf "  make check-adr    Validate ADR metadata and catalog freshness without writing\n"
 	@printf "  make build        Build VoiceReader\n"
 	@printf "  make typecheck    Run TypeScript type checks\n"
 	@printf "  make test         Run Vitest suites\n"
@@ -30,6 +31,9 @@ install: preflight
 build:
 	$(BUN) run build
 
+check-adr:
+	$(BUN) run check:adr $(ADR_CHECK_OPTIONS)
+
 typecheck:
 	$(BUN) run typecheck
 
@@ -45,7 +49,7 @@ test-dist:
 test-electron:
 	$(BUN) run test:electron
 
-verify: install
+verify: install check-adr
 	$(BUN) run clean
 	$(BUN) run build
 	$(BUN) run test:electron

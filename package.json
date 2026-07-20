@@ -16,6 +16,8 @@
     "preinstall": "node scripts/toolchain-preflight.mjs",
     "check:toolchain": "node scripts/toolchain-preflight.mjs",
     "check:install": "node scripts/toolchain-preflight.mjs --verify-install",
+    "docs:adr": "bun run check:toolchain && node scripts/adr-catalog.mjs write",
+    "check:adr": "bun run check:toolchain && node scripts/adr-catalog.mjs check",
     "clean": "bun run check:toolchain && node scripts/clean.mjs",
     "build": "bun run check:toolchain && node scripts/build.mjs",
     "package:mac": "bun run check:toolchain && node scripts/package-mac.mjs",

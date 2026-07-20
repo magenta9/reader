@@ -48,6 +48,8 @@ bun run start
 常用脚本：
 
 - `bun run typecheck`：运行 TypeScript 类型检查。
+- `bun run docs:adr`：从 ADR frontmatter 显式重建并写入 `docs/adr/CATALOG.md`。
+- `bun run check:adr`：只读校验 ADR metadata、关系完整性与 Catalog freshness；不会修改文件。
 - `bun run test`：运行快速 Vitest source-level 测试和 jsdom React UI 测试。
 - `bun run test:watch`：以 watch 模式运行 Vitest，适合本地迭代。
 - `bun run test:dist`：构建后检查精确 `dist/` runtime manifest、三个 production preload、HTML/CSP、资源关系和 native addon；已手动 `bun run build` 后可用 `bun run test:dist -- --no-build` 复用构建产物。
@@ -57,7 +59,7 @@ bun run start
 - `make package-mac`：用自有 packager 构建 ARM64 `VoiceReader.app` 与 DMG，验证最终 app 的 metadata、资源、Build Product、架构和签名 requirement，并挂载验证 DMG 内容；不安装应用。
 - `make smoke-packaged`：先按 production Release Identity 验证最终 `.app`，再用四个隔离 userData 启动它，验证 fresh、历史三表、无版本四表到精确 SQLite v1 的迁移与数据保留、future-version fail-closed，以及 packaged addon。
 - `make deploy`：执行完整门禁，安全替换并验证 `/Applications/VoiceReader.app`；VoiceReader 正在运行时会拒绝部署且不会自动结束进程。
-- `make verify`：从 frozen install 开始，完成依赖脚本审计、一次包含 typecheck 的 clean build、Electron runtime probe、Vitest 和 Build Product checks。
+- `make verify`：从 frozen install 开始，完成 ADR Catalog 只读检查、依赖脚本审计、一次包含 typecheck 的 clean build、Electron runtime probe、Vitest 和 Build Product checks。
 
 仓库要求 Bun `1.3.14` 和 Node `>=24 <25`，推荐 Node `24.18.0`。macOS 上构建 Selected Text 原生采集模块和打包 app 需要 Xcode Command Line Tools。
 
