@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
-const TRANSACTION_STATE_DIRECTORY = join(".tmp", "local-release");
+const TRANSACTION_STATE_DIRECTORY = ".local-release";
 
 function describeError(error) {
   return error instanceof Error ? error.message : String(error);
@@ -70,7 +70,7 @@ export async function beginLocalReleaseTransaction({
 
   let lifecycle = "active";
   let releasePromise;
-  let applicationSwapCapability;
+  const swapCapabilities = new Map();
   const ownedResources = new Map();
   const resourceSuffix = `${id}-${token}`;
 
@@ -84,16 +84,50 @@ export async function beginLocalReleaseTransaction({
     }
   }
 
-  async function removeOwnedResource(role, { duringRelease = false } = {}) {
+  async function removeOwnedResource(
+    resourceKey,
+    { duringRelease = false, remove = (path) => rm(path, { recursive: true, force: true }) } = {}
+  ) {
     if (!duringRelease) assertActive();
     await assertCurrentOwner();
-    const resource = ownedResources.get(role);
-    if (!resource) throw new Error(`Unknown local release transaction resource: ${role}`);
+    const resource = ownedResources.get(resourceKey);
+    if (!resource) throw new Error(`Unknown local release transaction resource: ${resourceKey}`);
     if (resource.preserved) {
-      throw new Error(`Local release transaction resource is preserved and cannot be removed: ${role}`);
+      throw new Error(`Local release transaction resource is preserved and cannot be removed: ${resourceKey}`);
     }
-    await rm(resource.path, { recursive: true, force: true });
+    await remove(resource.path);
     resource.removed = true;
+  }
+
+  function createSwap(scope, destination) {
+    assertActive();
+    const swapKey = `${scope}:${resolve(destination)}`;
+    if (swapCapabilities.has(swapKey)) return swapCapabilities.get(swapKey);
+    const parent = dirname(destination);
+    const name = basename(destination);
+    const paths = Object.freeze({
+      staging: join(parent, `.${name}.staging-${resourceSuffix}`),
+      backup: join(parent, `.${name}.backup-${resourceSuffix}`),
+      failed: join(parent, `.${name}.failed-${resourceSuffix}`)
+    });
+    for (const [role, path] of Object.entries(paths)) {
+      ownedResources.set(`${swapKey}:${role}`, { path, preserved: false, removed: false });
+    }
+    const capability = Object.freeze({
+      paths,
+      remove(role, remove) {
+        return removeOwnedResource(`${swapKey}:${role}`, { remove });
+      },
+      async preserve(role) {
+        assertActive();
+        await assertCurrentOwner();
+        const resource = ownedResources.get(`${swapKey}:${role}`);
+        if (!resource) throw new Error(`Unknown local release transaction resource: ${role}`);
+        resource.preserved = true;
+      }
+    });
+    swapCapabilities.set(swapKey, capability);
+    return capability;
   }
 
   return Object.freeze({
@@ -101,41 +135,19 @@ export async function beginLocalReleaseTransaction({
     workspace,
     candidatePath: join(workspace, "candidate", "VoiceReader.app"),
     applicationSwap(destination) {
-      assertActive();
-      if (applicationSwapCapability) {
-        throw new Error("Local release transaction already owns an application swap");
-      }
-      const parent = dirname(destination);
-      const name = basename(destination);
-      const paths = Object.freeze({
-        staging: join(parent, `.${name}.staging-${resourceSuffix}`),
-        backup: join(parent, `.${name}.backup-${resourceSuffix}`),
-        failed: join(parent, `.${name}.failed-${resourceSuffix}`)
-      });
-      for (const [role, path] of Object.entries(paths)) {
-        ownedResources.set(role, { path, preserved: false, removed: false });
-      }
-      applicationSwapCapability = Object.freeze({
-        paths,
-        remove: removeOwnedResource,
-        async preserve(role) {
-          assertActive();
-          await assertCurrentOwner();
-          const resource = ownedResources.get(role);
-          if (!resource) throw new Error(`Unknown local release transaction resource: ${role}`);
-          resource.preserved = true;
-        }
-      });
-      return applicationSwapCapability;
+      return createSwap("application", destination);
+    },
+    publicationSwap(destination) {
+      return createSwap("publication", destination);
     },
     release() {
       if (releasePromise) return releasePromise;
       lifecycle = "releasing";
       releasePromise = (async () => {
         await assertCurrentOwner();
-        for (const [role, resource] of ownedResources) {
+        for (const [resourceKey, resource] of ownedResources) {
           if (!resource.preserved && !resource.removed) {
-            await removeOwnedResource(role, { duringRelease: true });
+            await removeOwnedResource(resourceKey, { duringRelease: true });
           }
         }
         await rm(workspace, { recursive: true, force: true });

@@ -28,6 +28,7 @@ release/*.crx
 release/*.pem
 release/*.zip
 release/mac/
+.local-release/
 
 # Go workspace file
 go.work

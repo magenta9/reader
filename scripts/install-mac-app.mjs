@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runPackagedSmoke } from "./packaged-smoke.mjs";
+import { withLocalReleaseTransaction } from "./local-release-transaction.mjs";
 import { loadMacReleaseIdentity } from "./release-identity.mjs";
 import { safelyReplaceApplication } from "./safe-app-replace.mjs";
 import { assertCommand, spawnCommand } from "./spawn-command.mjs";
@@ -11,7 +12,7 @@ import { verifyMacApplicationStructure } from "./verify-mac-app.mjs";
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDirectory, "..");
 const releaseIdentity = await loadMacReleaseIdentity({ root: projectRoot });
-const candidate = releaseIdentity.paths.application;
+const defaultCandidate = releaseIdentity.paths.application;
 export const installedApplication = releaseIdentity.installedAppPath;
 
 export function findApplicationProcesses(application, processList) {
@@ -37,7 +38,16 @@ export function assertApplicationNotRunning(application = installedApplication) 
   }
 }
 
-export async function installMacApplication() {
+export async function installMacApplication({
+  transaction,
+  candidate = defaultCandidate,
+  transactionRunner = withLocalReleaseTransaction
+} = {}) {
+  if (!transaction) {
+    return transactionRunner({ root: projectRoot }, (ownedTransaction) =>
+      installMacApplication({ transaction: ownedTransaction, candidate })
+    );
+  }
   if (process.platform !== releaseIdentity.platform || process.arch !== releaseIdentity.architecture) {
     throw new Error(
       `Local installation supports ${releaseIdentity.platform} ${releaseIdentity.architecture} only; received ${process.platform} ${process.arch}`
@@ -45,10 +55,12 @@ export async function installMacApplication() {
   }
   if (!existsSync(candidate)) throw new Error(`Verified candidate is missing: ${candidate}`);
   assertApplicationNotRunning();
+  const swap = transaction.applicationSwap(installedApplication);
 
   await safelyReplaceApplication({
     source: candidate,
     destination: installedApplication,
+    swap,
     copyApplication: async (source, destination) => {
       assertCommand(await spawnCommand("/usr/bin/ditto", [source, destination]), "Staging application copy");
     },

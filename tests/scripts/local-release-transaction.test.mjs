@@ -6,6 +6,7 @@ import {
   beginLocalReleaseTransaction,
   withLocalReleaseTransaction
 } from "../../scripts/local-release-transaction.mjs";
+import { cleanGeneratedArtifacts } from "../../scripts/clean.mjs";
 
 const temporaryRoots = [];
 
@@ -31,7 +32,7 @@ describe("Local Release Transaction", () => {
     writeFileSync(join(swap.paths.staging, "marker"), "staging");
     writeFileSync(join(swap.paths.backup, "marker"), "backup");
 
-    const lockPath = join(root, ".tmp", "local-release", "lock");
+    const lockPath = join(root, ".local-release", "lock");
 
     await expect(beginLocalReleaseTransaction({ root, id: "competing-release" })).rejects.toThrow(
       new RegExp(`Local release transaction is already active.*${lockPath.replaceAll("/", "\\/")}`)
@@ -72,12 +73,12 @@ describe("Local Release Transaction", () => {
     mkdirSync(transaction.candidatePath, { recursive: true });
     mkdirSync(swap.paths.staging, { recursive: true });
     writeFileSync(join(transaction.candidatePath, "marker"), "preserve");
-    const ownerPath = join(root, ".tmp", "local-release", "lock", "owner.json");
+    const ownerPath = join(root, ".local-release", "lock", "owner.json");
     writeFileSync(ownerPath, JSON.stringify({ id: "other", token: "other-token" }));
 
     await expect(swap.remove("staging")).rejects.toThrow("ownership changed");
     await expect(transaction.release()).rejects.toThrow("ownership changed");
-    expect(existsSync(join(root, ".tmp", "local-release", "lock"))).toBe(true);
+    expect(existsSync(join(root, ".local-release", "lock"))).toBe(true);
     expect(existsSync(swap.paths.staging)).toBe(true);
     expect(readFileSync(join(transaction.candidatePath, "marker"), "utf8")).toBe("preserve");
   });
@@ -133,7 +134,24 @@ describe("Local Release Transaction", () => {
     expect(existsSync(failedWorkspace)).toBe(false);
 
     const next = await beginLocalReleaseTransaction({ root, id: "next-release" });
-    expect(existsSync(join(root, ".tmp", "local-release", "lock"))).toBe(true);
+    expect(existsSync(join(root, ".local-release", "lock"))).toBe(true);
     await next.release();
+  });
+
+  it("survives the repository clean gate while keeping competitors excluded", async () => {
+    const root = createRoot();
+    const transaction = await beginLocalReleaseTransaction({ root, id: "verify-owner" });
+    mkdirSync(transaction.candidatePath, { recursive: true });
+    writeFileSync(join(transaction.candidatePath, "marker"), "candidate");
+    mkdirSync(join(root, ".tmp", "generated"), { recursive: true });
+
+    await cleanGeneratedArtifacts(root);
+
+    expect(existsSync(join(root, ".tmp"))).toBe(false);
+    expect(readFileSync(join(transaction.candidatePath, "marker"), "utf8")).toBe("candidate");
+    await expect(beginLocalReleaseTransaction({ root, id: "competitor" })).rejects.toThrow(
+      "already active"
+    );
+    await transaction.release();
   });
 });

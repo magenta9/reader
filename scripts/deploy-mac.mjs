@@ -1,6 +1,9 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { assertApplicationNotRunning } from "./install-mac-app.mjs";
+import { assertApplicationNotRunning, installMacApplication } from "./install-mac-app.mjs";
+import { withLocalReleaseTransaction } from "./local-release-transaction.mjs";
+import { packageMacInTransaction } from "./package-mac.mjs";
+import { runPackagedSmoke } from "./packaged-smoke.mjs";
 import { loadMacReleaseIdentity } from "./release-identity.mjs";
 import { assertCommand, spawnCommand } from "./spawn-command.mjs";
 
@@ -20,7 +23,11 @@ export const DEPLOY_PLAN = {
 
 export async function deployMac({
   assertNotRunning = assertApplicationNotRunning,
-  runCommand = spawnCommand
+  runCommand = spawnCommand,
+  transactionRunner = withLocalReleaseTransaction,
+  packageApplication = packageMacInTransaction,
+  smokeCandidate = runPackagedSmoke,
+  installApplication = installMacApplication
 } = {}) {
   if (process.platform !== DEPLOY_PLAN.platform || process.arch !== DEPLOY_PLAN.arch) {
     throw new Error(
@@ -28,13 +35,13 @@ export async function deployMac({
     );
   }
   assertNotRunning(DEPLOY_PLAN.destination);
-  assertCommand(await runCommand("/usr/bin/make", ["verify"], { cwd: projectRoot }), "Verification pipeline");
-  assertCommand(await runCommand("/usr/bin/make", ["package-mac"], { cwd: projectRoot }), "Packaging pipeline");
-  assertCommand(await runCommand("/usr/bin/make", ["smoke-packaged"], { cwd: projectRoot }), "Candidate smoke");
-  assertCommand(
-    await runCommand(process.execPath, [resolve(scriptDirectory, "install-mac-app.mjs")], { cwd: projectRoot }),
-    "Safe application replacement"
-  );
+  await transactionRunner({ root: projectRoot }, async (transaction) => {
+    assertCommand(await runCommand("/usr/bin/make", ["verify"], { cwd: projectRoot }), "Verification pipeline");
+    const packaged = await packageApplication(transaction);
+    await smokeCandidate(packaged.candidate, { identity: releaseIdentity });
+    await packaged.publish();
+    await installApplication({ transaction, candidate: packaged.candidate });
+  });
 }
 
 export async function main(argv = process.argv.slice(2)) {

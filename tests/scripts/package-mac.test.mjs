@@ -1,9 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { createPackagingPlan, verifyMacDiskImage } from "../../scripts/package-mac.mjs";
+import {
+  createPackagingPlan,
+  safelyPublishRelease,
+  verifyMacDiskImage
+} from "../../scripts/package-mac.mjs";
+import { beginLocalReleaseTransaction } from "../../scripts/local-release-transaction.mjs";
 import {
   createMacReleaseIdentity,
   loadMacReleaseIdentity
@@ -95,4 +100,39 @@ it("preserves the artifact failure when DMG detach also fails", async () => {
       }
     })
   ).rejects.toThrow("DMG verification failed: artifact invalid; cleanup failed: detach failed");
+});
+
+it("restores the previous verified release when publication commit fails", async () => {
+  const root = mkdtempSync(join(tmpdir(), "voicereader-release-publication-"));
+  temporaryRoots.push(root);
+  const sourceApplication = join(root, "candidate", "VoiceReader.app");
+  const sourceDiskImage = join(root, "candidate", "VoiceReader-0.1.0-arm64.dmg");
+  const destinationDirectory = join(root, "release", "mac");
+  mkdirSync(sourceApplication, { recursive: true });
+  mkdirSync(destinationDirectory, { recursive: true });
+  writeFileSync(join(sourceApplication, "version"), "new");
+  writeFileSync(sourceDiskImage, "new dmg");
+  writeFileSync(join(destinationDirectory, "version"), "old");
+  const transaction = await beginLocalReleaseTransaction({ root, id: "publication" });
+  const swap = transaction.publicationSwap(destinationDirectory);
+
+  await expect(
+    safelyPublishRelease({
+      sourceApplication,
+      sourceDiskImage,
+      destinationDirectory,
+      swap,
+      renamePath: async (source, destination) => {
+        if (source === swap.paths.staging && destination === destinationDirectory) {
+          throw new Error("simulated publication failure");
+        }
+        renameSync(source, destination);
+      }
+    })
+  ).rejects.toThrow("simulated publication failure");
+
+  expect(readFileSync(join(destinationDirectory, "version"), "utf8")).toBe("old");
+  expect(existsSync(swap.paths.staging)).toBe(false);
+  expect(existsSync(swap.paths.backup)).toBe(false);
+  await transaction.release();
 });

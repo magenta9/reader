@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, resolve, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runElectronRuntimeProbe } from "./electron-runtime.mjs";
+import { withLocalReleaseTransaction } from "./local-release-transaction.mjs";
 import { loadMacReleaseIdentity } from "./release-identity.mjs";
 import { assertCommand, spawnCommand } from "./spawn-command.mjs";
 import { verifyMacApplicationStructure } from "./verify-mac-app.mjs";
@@ -18,9 +19,6 @@ const electronAppPath = releaseIdentity.paths.electronApplication;
 const iconsetPath = releaseIdentity.paths.iconset;
 const iconPath = releaseIdentity.paths.icon;
 const appIconSvgPath = releaseIdentity.paths.iconSource;
-const packagedApplicationRoot = dirname(
-  join(appPath, releaseIdentity.applicationPaths.packagedDescriptor)
-);
 const plistScalarValuePattern = String.raw`<(?:string|true|false|integer|real)(?:\s*/>|>[^<]*</(?:string|integer|real)>)`;
 
 export function createPackagingPlan(identity) {
@@ -29,41 +27,76 @@ export function createPackagingPlan(identity) {
 
 export const PACKAGING_PLAN = createPackagingPlan(releaseIdentity);
 
-export async function packageMac() {
+function transactionPackagingPaths(transaction) {
+  const transactionReleaseDir = dirname(transaction.candidatePath);
+  return {
+    releaseDir: transactionReleaseDir,
+    appPath: transaction.candidatePath,
+    dmgPath: join(transactionReleaseDir, basename(dmgPath)),
+    iconsetPath: join(transactionReleaseDir, basename(iconsetPath)),
+    iconPath: join(transactionReleaseDir, basename(iconPath)),
+    packagedApplicationRoot: dirname(
+      join(transaction.candidatePath, releaseIdentity.applicationPaths.packagedDescriptor)
+    )
+  };
+}
+
+export async function packageMacInTransaction(transaction) {
   assertSupportedPlatform();
   const installedBefore = snapshotInstalledApplication();
-  await rm(releaseDir, { recursive: true, force: true });
+  const paths = transactionPackagingPaths(transaction);
   await run(process.execPath, [resolve(root, "scripts/build.mjs")], root);
-  await mkdir(releaseDir, { recursive: true });
-  await cp(electronAppPath, appPath, { recursive: true, verbatimSymlinks: true });
-  await rm(join(appPath, releaseIdentity.applicationPaths.defaultApplication), { force: true });
+  await mkdir(paths.releaseDir, { recursive: true });
+  await cp(electronAppPath, paths.appPath, { recursive: true, verbatimSymlinks: true });
+  await rm(join(paths.appPath, releaseIdentity.applicationPaths.defaultApplication), { force: true });
 
-  await generateIcon();
-  await cp(iconPath, join(appPath, releaseIdentity.applicationPaths.icon));
+  await generateIcon(paths);
+  await cp(paths.iconPath, join(paths.appPath, releaseIdentity.applicationPaths.icon));
 
-  await rm(packagedApplicationRoot, { recursive: true, force: true });
-  await mkdir(packagedApplicationRoot, { recursive: true });
-  await cp(resolve(root, "dist"), join(appPath, releaseIdentity.applicationPaths.buildProduct), {
+  await rm(paths.packagedApplicationRoot, { recursive: true, force: true });
+  await mkdir(paths.packagedApplicationRoot, { recursive: true });
+  await cp(resolve(root, "dist"), join(paths.appPath, releaseIdentity.applicationPaths.buildProduct), {
     recursive: true
   });
   await writeFile(
-    join(appPath, releaseIdentity.applicationPaths.packagedDescriptor),
+    join(paths.appPath, releaseIdentity.applicationPaths.packagedDescriptor),
     JSON.stringify(releaseIdentity.packagedDescriptor, null, 2)
   );
 
-  await rename(join(appPath, "Contents/MacOS/Electron"), join(appPath, releaseIdentity.applicationPaths.executable));
-  await updateInfoPlist();
-  await updateHelperInfoPlists();
-  await rm(iconsetPath, { recursive: true, force: true });
-  await signAppBundle();
-  await verifyPackagedApplication();
-  await createDmg();
-  await verifyDmgOutput();
+  await rename(
+    join(paths.appPath, "Contents/MacOS/Electron"),
+    join(paths.appPath, releaseIdentity.applicationPaths.executable)
+  );
+  await updateInfoPlist(paths.appPath);
+  await updateHelperInfoPlists(paths.appPath);
+  await rm(paths.iconsetPath, { recursive: true, force: true });
+  await signAppBundle(paths.appPath);
+  await verifyPackagedApplication(paths.appPath);
+  await createDmg(paths);
+  await verifyDmgOutput(paths);
 
   if (snapshotInstalledApplication() !== installedBefore) {
     throw new Error(`Artifact-only packaging modified ${installedAppPath}`);
   }
-  return { application: appPath, dmg: dmgPath };
+  let publication;
+  return {
+    application: appPath,
+    dmg: dmgPath,
+    candidate: paths.appPath,
+    publish() {
+      publication ??= publishVerifiedPackage(paths, transaction);
+      return publication;
+    }
+  };
+}
+
+export async function packageMac() {
+  return withLocalReleaseTransaction({ root }, async (transaction) => {
+    const packaged = await packageMacInTransaction(transaction);
+    await packaged.publish();
+    const { application, dmg } = packaged;
+    return { application, dmg };
+  });
 }
 
 function assertSupportedPlatform() {
@@ -80,18 +113,18 @@ function snapshotInstalledApplication() {
   return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}`;
 }
 
-async function verifyPackagedApplication() {
-  const { executable, addon } = await verifyMacApplicationStructure(appPath, {
+async function verifyPackagedApplication(application) {
+  const { executable, addon } = await verifyMacApplicationStructure(application, {
     identity: releaseIdentity
   });
   await runElectronRuntimeProbe({ electronExecutable: executable, addonPath: addon });
 }
 
-async function createDmg() {
-  const dmgRoot = join(releaseDir, ".dmg-root");
+async function createDmg(paths) {
+  const dmgRoot = join(paths.releaseDir, ".dmg-root");
   await rm(dmgRoot, { recursive: true, force: true });
   await mkdir(dmgRoot, { recursive: true });
-  await cp(appPath, join(dmgRoot, basename(appPath)), { recursive: true, verbatimSymlinks: true });
+  await cp(paths.appPath, join(dmgRoot, basename(paths.appPath)), { recursive: true, verbatimSymlinks: true });
   try {
     await run(
       PACKAGING_PLAN.dmgTool,
@@ -104,7 +137,7 @@ async function createDmg() {
         "-ov",
         "-format",
         "UDZO",
-        dmgPath
+        paths.dmgPath
       ],
       root
     );
@@ -113,12 +146,81 @@ async function createDmg() {
   }
 }
 
-async function verifyDmgOutput() {
-  const dmgFiles = (await readdir(releaseDir)).filter((name) => name.endsWith(".dmg"));
-  if (dmgFiles.length !== 1 || dmgFiles[0] !== basename(dmgPath)) {
-    throw new Error(`Expected exactly ${basename(dmgPath)}; found ${dmgFiles.join(", ") || "none"}`);
+async function verifyDmgOutput(paths) {
+  const dmgFiles = (await readdir(paths.releaseDir)).filter((name) => name.endsWith(".dmg"));
+  if (dmgFiles.length !== 1 || dmgFiles[0] !== basename(paths.dmgPath)) {
+    throw new Error(`Expected exactly ${basename(paths.dmgPath)}; found ${dmgFiles.join(", ") || "none"}`);
   }
-  await verifyMacDiskImage(dmgPath, { identity: releaseIdentity });
+  await verifyMacDiskImage(paths.dmgPath, { identity: releaseIdentity });
+}
+
+async function publishVerifiedPackage(paths, transaction) {
+  await safelyPublishRelease({
+    sourceApplication: paths.appPath,
+    sourceDiskImage: paths.dmgPath,
+    destinationDirectory: releaseDir,
+    swap: transaction.publicationSwap(releaseDir)
+  });
+}
+
+export async function safelyPublishRelease({
+  sourceApplication,
+  sourceDiskImage,
+  destinationDirectory,
+  swap,
+  copyPath = cp,
+  renamePath = rename,
+  removePath = (path) => rm(path, { recursive: true, force: true })
+}) {
+  const { staging, backup } = swap.paths;
+  await mkdir(staging, { recursive: true });
+  await copyPath(sourceApplication, join(staging, basename(sourceApplication)), {
+    recursive: true,
+    verbatimSymlinks: true
+  });
+  await copyPath(sourceDiskImage, join(staging, basename(sourceDiskImage)));
+
+  let previousMoved = false;
+  try {
+    if (existsSync(destinationDirectory)) {
+      await renamePath(destinationDirectory, backup);
+      previousMoved = true;
+    }
+    await renamePath(staging, destinationDirectory);
+    await swap.remove("staging", removePath);
+  } catch (error) {
+    const rollbackErrors = [];
+    if (previousMoved && !existsSync(destinationDirectory) && existsSync(backup)) {
+      try {
+        await renamePath(backup, destinationDirectory);
+        previousMoved = false;
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    try {
+      await swap.remove("staging", removePath);
+    } catch (cleanupError) {
+      rollbackErrors.push(cleanupError);
+    }
+    if (existsSync(backup)) await swap.preserve("backup");
+    const recovery = rollbackErrors.length > 0
+      ? ` Publication rollback also failed: ${rollbackErrors.map(safeErrorMessage).join("; ")}.`
+      : "";
+    throw new Error(`Unable to publish verified macOS artifacts: ${safeErrorMessage(error)}.${recovery}`);
+  }
+
+  if (previousMoved) {
+    try {
+      await swap.remove("backup", removePath);
+    } catch (error) {
+      await swap.preserve("backup");
+      throw new Error(
+        `Verified macOS artifacts are published at ${destinationDirectory}, but the previous release remains at ${backup}. ` +
+          `Cleanup error: ${safeErrorMessage(error)}`
+      );
+    }
+  }
 }
 
 export async function verifyMacDiskImage(
@@ -183,12 +285,12 @@ function safeErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function generateIcon() {
-  await rm(iconsetPath, { recursive: true, force: true });
-  await rm(iconPath, { force: true });
-  await mkdir(iconsetPath, { recursive: true });
-  const renderedSource = join(releaseDir, `${releaseIdentity.productName}-icon-source.png`);
-  await renderAppIconSource(renderedSource);
+async function generateIcon(paths) {
+  await rm(paths.iconsetPath, { recursive: true, force: true });
+  await rm(paths.iconPath, { force: true });
+  await mkdir(paths.iconsetPath, { recursive: true });
+  const renderedSource = join(paths.releaseDir, `${releaseIdentity.productName}-icon-source.png`);
+  await renderAppIconSource(renderedSource, paths.releaseDir);
   const sizes = [
     [16, "icon_16x16.png"],
     [32, "icon_16x16@2x.png"],
@@ -202,21 +304,21 @@ async function generateIcon() {
     [1024, "icon_512x512@2x.png"]
   ];
   for (const [size, fileName] of sizes) {
-    await run("/usr/bin/sips", ["-z", String(size), String(size), renderedSource, "--out", join(iconsetPath, fileName)], root);
+    await run("/usr/bin/sips", ["-z", String(size), String(size), renderedSource, "--out", join(paths.iconsetPath, fileName)], root);
   }
-  await writeIcnsFromIconset(iconsetPath, iconPath);
+  await writeIcnsFromIconset(paths.iconsetPath, paths.iconPath);
   await rm(renderedSource, { force: true });
 }
 
-async function renderAppIconSource(renderedSource) {
-  const quickLookOutput = join(releaseDir, `${basename(appIconSvgPath)}.png`);
+async function renderAppIconSource(renderedSource, transactionReleaseDir) {
+  const quickLookOutput = join(transactionReleaseDir, `${basename(appIconSvgPath)}.png`);
   await rm(quickLookOutput, { force: true });
-  await run("/usr/bin/qlmanage", ["-t", "-s", "1024", "-o", releaseDir, appIconSvgPath], root);
+  await run("/usr/bin/qlmanage", ["-t", "-s", "1024", "-o", transactionReleaseDir, appIconSvgPath], root);
   await rename(quickLookOutput, renderedSource);
 }
 
-async function updateInfoPlist() {
-  const plistPath = join(appPath, releaseIdentity.applicationPaths.infoPlist);
+async function updateInfoPlist(application) {
+  const plistPath = join(application, releaseIdentity.applicationPaths.infoPlist);
   let plist = await readFile(plistPath, "utf8");
   for (const [key, value] of Object.entries(releaseIdentity.infoPlist)) {
     plist = replacePlistValue(plist, key, value);
@@ -225,8 +327,8 @@ async function updateInfoPlist() {
   await writeFile(plistPath, plist);
 }
 
-async function updateHelperInfoPlists() {
-  const frameworksPath = join(appPath, releaseIdentity.applicationPaths.frameworks);
+async function updateHelperInfoPlists(application) {
+  const frameworksPath = join(application, releaseIdentity.applicationPaths.frameworks);
   const helperApps = await readdir(frameworksPath);
   for (const helperApp of helperApps.filter((name) => name.startsWith("Electron Helper") && name.endsWith(".app"))) {
     const plistPath = join(frameworksPath, helperApp, "Contents/Info.plist");
@@ -238,11 +340,11 @@ async function updateHelperInfoPlists() {
   }
 }
 
-async function signAppBundle() {
-  await run("/usr/bin/codesign", ["--deep", "--force", "--sign", "-", appPath], root);
+async function signAppBundle(application) {
+  await run("/usr/bin/codesign", ["--deep", "--force", "--sign", "-", application], root);
   await run(
     "/usr/bin/codesign",
-    ["--force", "--sign", "-", "--requirements", releaseIdentity.signing.designatedRequirement, appPath],
+    ["--force", "--sign", "-", "--requirements", releaseIdentity.signing.designatedRequirement, application],
     root
   );
 }
