@@ -3,7 +3,6 @@ import type { ImplementationFromContract } from "../../shared/role-bridge-regist
 import type { AppBridgeHandlerDependencies } from "./dependencies.js";
 
 export interface AppDataImplementationDependencies {
-  app: Pick<AppBridgeHandlerDependencies["app"], "setLoginItemSettings">;
   appDataStore: Pick<
     AppBridgeHandlerDependencies["appDataStore"],
     | "getSettings"
@@ -25,6 +24,7 @@ export interface AppDataImplementationDependencies {
     | "deleteFavoriteRecord"
     | "undoFavoriteDeletion"
   >;
+  launchAtLoginCommands: Pick<AppBridgeHandlerDependencies["launchAtLoginCommands"], "setLaunchAtLogin">;
   minimaxAccountService: Pick<
     AppBridgeHandlerDependencies["minimaxAccountService"],
     "verifyApiKey" | "refreshVoices" | "setPreferredVoice"
@@ -37,8 +37,8 @@ export interface AppDataImplementationDependencies {
 }
 
 export function createAppDataImplementation({
-  app,
   appDataStore,
+  launchAtLoginCommands,
   minimaxAccountService,
   playbackCommands,
   playbackPreferences
@@ -49,10 +49,7 @@ export function createAppDataImplementation({
     getSettings: () => appDataStore.getSettings(),
     setSpeechRate: (speechRate) => playbackPreferences.setSpeechRate(speechRate),
     setModel: (model) => playbackPreferences.setModel(model),
-    setLaunchAtLogin: (launchAtLogin) => {
-      app.setLoginItemSettings({ openAtLogin: launchAtLogin });
-      return appDataStore.updateSettings({ launchAtLogin });
-    },
+    setLaunchAtLogin: (launchAtLogin) => launchAtLoginCommands.setLaunchAtLogin(launchAtLogin),
     setActivationShortcut: (shortcut) => playbackCommands.setActivationShortcut(shortcut),
     setMiniMaxApiKey: (apiKey) => appDataStore.saveMiniMaxApiKey(apiKey),
     clearMiniMaxApiKey: () => appDataStore.clearMiniMaxApiKey(),

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { registerAppRoleBridges } from "./app-role-bridges.js";
 import { createElectronReaderAppShell } from "./electron-reader-app-shell.js";
 import { AppDataStore } from "./data/app-data-store.js";
+import { LaunchAtLoginCommands } from "./data/launch-at-login-commands.js";
 import { MiniMaxAccountService } from "./data/minimax-account-service.js";
 import { PlaybackPreferencesCommands } from "./data/playback-preferences-commands.js";
 import { PlaybackService } from "./playback/playback-service.js";
@@ -12,6 +13,7 @@ import { PlaybackOverlayController } from "./playback/playback-overlay-controlle
 import { PlaybackCommandController } from "./playback/playback-command-controller.js";
 import { streamMiniMaxSpeechAudio } from "../shared/minimax.js";
 import { ReadingTargetAcquirer } from "./reading-target/reading-target-acquirer.js";
+import { startReaderSurfaces } from "./reader-startup.js";
 import {
   enterPackagedSmokeMode,
   readPackagedSmokeConfiguration
@@ -43,6 +45,7 @@ async function bootstrap(): Promise<void> {
   const appDataStore = AppDataStore.open(databasePath);
   const minimaxAccountService = new MiniMaxAccountService(appDataStore);
   const playbackPreferences = new PlaybackPreferencesCommands(appDataStore);
+  const launchAtLoginCommands = new LaunchAtLoginCommands(app, appDataStore);
   const overlayController = new PlaybackOverlayController();
   let playbackCommands!: PlaybackCommandController;
   let playbackOutput!: ElectronPlaybackOutput;
@@ -101,19 +104,21 @@ async function bootstrap(): Promise<void> {
     (trigger) => readingTargetAcquirer.acquire(trigger)
   );
   registerAppRoleBridges({
-    app,
     appDataStore,
     clipboard,
     ipcMain,
+    launchAtLoginCommands,
     minimaxAccountService,
     playbackPreferences,
     overlayController,
     playbackCommands,
     readerAppShell
   });
-  app.setLoginItemSettings({ openAtLogin: appDataStore.getSettings().launchAtLogin });
-  playbackCommands.registerActivationShortcut();
-  const readerAppShellInitialization = readerAppShell.start();
+  const readerAppShellInitialization = startReaderSurfaces({
+    launchAtLoginCommands,
+    playbackCommands,
+    readerAppShell
+  });
   if (packagedSmoke.enabled) {
     await Promise.all([readerAppShellInitialization, overlayController.prepare()]);
     enterPackagedSmokeMode({

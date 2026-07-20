@@ -47,7 +47,9 @@ describe("Reader Window role bridge", () => {
       deleteFavoriteRecord: vi.fn(() => "favorite-undo"),
       undoFavoriteDeletion: vi.fn(() => true)
     };
-    const app = { setLoginItemSettings: vi.fn() };
+    const launchAtLoginCommands = {
+      setLaunchAtLogin: vi.fn(() => settings)
+    };
     const minimaxAccountService = {
       verifyApiKey: vi.fn(async () => ({ ok: true, settings })),
       refreshVoices: vi.fn(async () => ({ ok: true, settings })),
@@ -77,9 +79,9 @@ describe("Reader Window role bridge", () => {
     };
     const clipboard = { writeText: vi.fn() };
     const readerWindowDependencies = {
-      app,
       appDataStore,
       clipboard,
+      launchAtLoginCommands,
       minimaxAccountService,
       playbackCommands,
       playbackPreferences,
@@ -106,7 +108,7 @@ describe("Reader Window role bridge", () => {
     await expect(bridge.getSettings()).resolves.toBe(settings);
     await bridge.setSpeechRate(1.4);
     await bridge.setModel("speech-2.8-hd");
-    await bridge.setLaunchAtLogin(true);
+    await expect(bridge.setLaunchAtLogin(true)).resolves.toBe(settings);
     await bridge.setActivationShortcut("Command+J");
     await bridge.setMiniMaxApiKey("secret");
     await bridge.clearMiniMaxApiKey();
@@ -135,7 +137,7 @@ describe("Reader Window role bridge", () => {
 
     expect(playbackPreferences.setSpeechRate).toHaveBeenCalledWith(1.4);
     expect(playbackPreferences.setModel).toHaveBeenCalledWith("speech-2.8-hd");
-    expect(app.setLoginItemSettings).toHaveBeenCalledWith({ openAtLogin: true });
+    expect(launchAtLoginCommands.setLaunchAtLogin).toHaveBeenCalledWith(true);
     expect(playbackCommands.setActivationShortcut).toHaveBeenCalledWith("Command+J");
     expect(appDataStore.saveMiniMaxApiKey).toHaveBeenCalledWith("secret");
     expect(minimaxAccountService.setPreferredVoice).toHaveBeenCalledWith("zh", "voice-1");
