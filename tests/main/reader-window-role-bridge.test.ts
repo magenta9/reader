@@ -5,9 +5,7 @@ import {
   type ClipboardImplementationDependencies
 } from "../../src/main/app-bridge-handlers/clipboard.js";
 import {
-  createReaderWindowBeforeInvoke,
   createReaderWindowImplementation,
-  type ReaderWindowInvocationDependencies,
   type ReaderWindowImplementationDependencies
 } from "../../src/main/app-role-bridges.js";
 import { DEFAULT_APP_SETTINGS } from "../../src/main/data/app-data-store.js";
@@ -75,8 +73,7 @@ describe("Reader Window role bridge", () => {
         route: "history",
         revision: 1
       })),
-      setOnboardingComplete: vi.fn(),
-      isFocusedReaderSender: vi.fn(() => false)
+      setOnboardingComplete: vi.fn()
     };
     const clipboard = { writeText: vi.fn() };
     const readerWindowDependencies = {
@@ -172,20 +169,5 @@ describe("Reader Window role bridge", () => {
 
     const bridge = createRoleBridge(clipboardRoleContract, loopback);
     await expect(bridge.copyText("text")).rejects.toThrow("clipboard unavailable");
-  });
-
-  it("reveals the previous app only for eligible Reader Window senders", async () => {
-    const revealPreviousAppBeforeCapture = vi.fn(async () => undefined);
-    const dependencies = {
-      readingTargetAcquirer: { revealPreviousAppBeforeCapture },
-      readerAppShell: { isFocusedReaderSender: (senderId: number) => senderId === 8 }
-    } satisfies ReaderWindowInvocationDependencies;
-    const beforeInvoke = createReaderWindowBeforeInvoke(dependencies);
-
-    await beforeInvoke.playReadingTarget?.({ senderId: 7 });
-    await beforeInvoke.playReadingTarget?.({ senderId: 8 });
-    await beforeInvoke.playReadingTarget?.({});
-
-    expect(revealPreviousAppBeforeCapture).toHaveBeenCalledOnce();
   });
 });

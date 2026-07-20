@@ -11,9 +11,7 @@ export interface ReaderAppShellWindowCloseEvent {
 }
 
 export interface ReaderAppShellWindow {
-  readonly senderId: number;
   isDestroyed(): boolean;
-  isFocused(): boolean;
   isMinimized(): boolean;
   restore(): void;
   show(): void;
@@ -196,11 +194,6 @@ export class ReaderAppShellController {
   setOnboardingComplete(complete: boolean): void {
     this.options.state.setOnboardingComplete(complete);
     this.hasCompletedOnboarding = complete;
-  }
-
-  isFocusedReaderSender(senderId: number): boolean {
-    const window = this.getLiveWindow();
-    return Boolean(window && window.senderId === senderId && window.isFocused());
   }
 
   hideForSelectionCapture(): void {

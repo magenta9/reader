@@ -6,12 +6,8 @@ export interface RendererRoleBridgeTransport {
 export interface MainRoleHandlerTransport {
   handle(
     channel: string,
-    handler: (context: RoleInvokeContext, args: readonly unknown[]) => unknown
+    handler: (args: readonly unknown[]) => unknown
   ): void;
-}
-
-export interface RoleInvokeContext {
-  readonly senderId?: number;
 }
 
 export interface MainRoleEventTransport {
@@ -142,8 +138,7 @@ export function createRoleBridge<Contract extends AnyRoleBridgeContract>(
 export function registerRoleHandlers<Contract extends AnyRoleBridgeContract>(
   contract: Contract,
   implementation: ImplementationFromContract<Contract>,
-  transport: MainRoleHandlerTransport,
-  beforeInvoke: BeforeInvokeFromContract<Contract> = {}
+  transport: MainRoleHandlerTransport
 ): void {
   const invokeEndpoints = contract.endpoints.filter(
     (endpoint): endpoint is AnyInvokeEndpoint => endpoint.kind === "invoke"
@@ -155,13 +150,7 @@ export function registerRoleHandlers<Contract extends AnyRoleBridgeContract>(
   }
   for (const endpoint of invokeEndpoints) {
     const handler = Reflect.get(implementation, endpoint.method) as (...args: unknown[]) => unknown;
-    transport.handle(endpoint.channel, async (context, args) => {
-      const hook = Reflect.get(beforeInvoke, endpoint.method) as
-        | ((context: RoleInvokeContext) => unknown)
-        | undefined;
-      if (hook) await hook(context);
-      return Reflect.apply(handler, implementation, args);
-    });
+    transport.handle(endpoint.channel, (args) => Reflect.apply(handler, implementation, args));
   }
 }
 
@@ -213,14 +202,6 @@ export type ImplementationFromContract<Contract extends AnyRoleBridgeContract> =
 
 export type EventEmitterFromContract<Contract extends AnyRoleBridgeContract> = Simplify<
   UnionToIntersection<EndpointEmitter<Contract["endpoints"][number]>>
->;
-
-type EndpointBeforeInvoke<Endpoint> = Endpoint extends InvokeEndpoint<infer Method, unknown[], unknown>
-  ? { [Key in Method]?: (context: RoleInvokeContext) => unknown }
-  : never;
-
-export type BeforeInvokeFromContract<Contract extends AnyRoleBridgeContract> = Partial<
-  Simplify<UnionToIntersection<EndpointBeforeInvoke<Contract["endpoints"][number]>>>
 >;
 
 function validateContract(role: string, endpoints: readonly AnyEndpoint[]): void {

@@ -79,9 +79,7 @@ class ElectronReaderWindowFactory implements ReaderAppShellWindowFactory {
     void window.loadFile(this.options.rendererEntry);
 
     return {
-      senderId: window.webContents.id,
       isDestroyed: () => window.isDestroyed(),
-      isFocused: () => !this.options.headless && window.isFocused(),
       isMinimized: () => window.isMinimized(),
       restore: () => window.restore(),
       show: () => {

@@ -4,7 +4,6 @@ import type { MiniMaxAccountService } from "../data/minimax-account-service.js";
 import type { PlaybackPreferencesCommands } from "../data/playback-preferences-commands.js";
 import type { PlaybackCommandController } from "../playback/playback-command-controller.js";
 import type { PlaybackOverlayController } from "../playback/playback-overlay-controller.js";
-import type { ReadingTargetAcquirer } from "../reading-target/reading-target-acquirer.js";
 import type { ReaderAppShellController } from "../reader-app-shell-controller.js";
 
 export interface AppBridgeHandlerDependencies {
@@ -16,9 +15,8 @@ export interface AppBridgeHandlerDependencies {
   playbackPreferences: PlaybackPreferencesCommands;
   overlayController: PlaybackOverlayController;
   playbackCommands: PlaybackCommandController;
-  readingTargetAcquirer: ReadingTargetAcquirer;
   readerAppShell: Pick<
     ReaderAppShellController,
-    "acceptRendererRoute" | "getBootstrapState" | "isFocusedReaderSender" | "setOnboardingComplete"
+    "acceptRendererRoute" | "getBootstrapState" | "setOnboardingComplete"
   >;
 }

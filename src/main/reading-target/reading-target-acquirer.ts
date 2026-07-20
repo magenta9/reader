@@ -36,14 +36,14 @@ export interface ReadingTargetErrorLog {
 export interface ReadingTargetAcquirerOptions {
   clipboard: ReadingTargetClipboard;
   errorLog: ReadingTargetErrorLog;
-  hidePreviousAppForSelectionCapture: () => void;
+  hideReaderWindowForSelectionCapture: () => void;
   loadSelectionCopyAddon?: () => SelectionCopyAddon;
   createMarker?: () => string;
   delay?: (milliseconds: number) => Promise<void>;
   now?: () => number;
 }
 
-const REVEAL_PREVIOUS_APP_DELAY_MS = 300;
+const READER_WINDOW_SELECTION_CAPTURE_DELAY_MS = 300;
 const ACTIVATION_SHORTCUT_SELECTION_CAPTURE_DELAY_MS = 350;
 const SELECTION_COPY_DELAY_MS = 120;
 const SELECTION_COPY_POLL_TIMEOUT_MS = 1000;
@@ -60,7 +60,7 @@ export type ReadingTargetAcquisitionTrigger =
 export class ReadingTargetAcquirer {
   private readonly clipboard: ReadingTargetClipboard;
   private readonly errorLog: ReadingTargetErrorLog;
-  private readonly hidePreviousAppForSelectionCapture: () => void;
+  private readonly hideReaderWindowForSelectionCapture: () => void;
   private readonly loadSelectionCopyAddon: () => SelectionCopyAddon;
   private readonly createMarker: () => string;
   private readonly delay: (milliseconds: number) => Promise<void>;
@@ -69,24 +69,17 @@ export class ReadingTargetAcquirer {
   constructor(options: ReadingTargetAcquirerOptions) {
     this.clipboard = options.clipboard;
     this.errorLog = options.errorLog;
-    this.hidePreviousAppForSelectionCapture = options.hidePreviousAppForSelectionCapture;
+    this.hideReaderWindowForSelectionCapture = options.hideReaderWindowForSelectionCapture;
     this.loadSelectionCopyAddon = options.loadSelectionCopyAddon ?? loadDarwinSelectionCopyAddon;
     this.createMarker = options.createMarker ?? createSelectionClipboardMarker;
     this.delay = options.delay ?? delay;
     this.now = options.now ?? Date.now;
   }
 
-  async revealPreviousAppBeforeCapture(): Promise<void> {
-    this.hidePreviousAppForSelectionCapture();
-    await this.delay(REVEAL_PREVIOUS_APP_DELAY_MS);
-  }
-
-  async acquire(
-    trigger: ReadingTargetAcquisitionTrigger = "menu_bar"
-  ): Promise<ReadingTargetInput> {
+  async acquire(trigger: ReadingTargetAcquisitionTrigger): Promise<ReadingTargetInput> {
     if (trigger === "reader_window") {
-      this.hidePreviousAppForSelectionCapture();
-      await this.delay(REVEAL_PREVIOUS_APP_DELAY_MS);
+      this.hideReaderWindowForSelectionCapture();
+      await this.delay(READER_WINDOW_SELECTION_CAPTURE_DELAY_MS);
     } else if (trigger === "activation_shortcut") {
       await this.delay(ACTIVATION_SHORTCUT_SELECTION_CAPTURE_DELAY_MS);
     }

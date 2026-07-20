@@ -103,34 +103,22 @@ describe("role bridge registry", () => {
     await expect(loopback.invoke("test:add", [1, 2])).rejects.toThrow("No handler registered");
   });
 
-  it("runs typed before-invoke hooks with transport context before the implementation", async () => {
-    const order: string[] = [];
-    let addHandler:
-      | ((context: { senderId?: number }, args: readonly unknown[]) => unknown)
-      | undefined;
+  it("keeps transport invocation details outside role implementations", async () => {
+    let addHandler: ((args: readonly unknown[]) => unknown) | undefined;
     registerRoleHandlers(
       fixtureContract,
       {
-        add: (left, right) => {
-          order.push("implementation");
-          return left + right;
-        },
+        add: (left, right) => left + right,
         fail: () => undefined
       },
       {
         handle: (channel, handler) => {
           if (channel === "test:add") addHandler = handler;
         }
-      },
-      {
-        add: ({ senderId }) => {
-          order.push(`before:${senderId}`);
-        }
       }
     );
 
-    await expect(addHandler?.({ senderId: 17 }, [2, 5])).resolves.toBe(7);
-    expect(order).toEqual(["before:17", "implementation"]);
+    expect(addHandler?.([2, 5])).toBe(7);
   });
 
   it("uses an explicit role allow-list and never infers roles from implementation objects", () => {

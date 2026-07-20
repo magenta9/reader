@@ -16,6 +16,10 @@ _Avoid_: Copied text, pasteboard content, current text
 The text chosen for playback after an explicit user action. In the macOS app, Reading Targets come from Selected Text when available, otherwise Clipboard Text.
 _Avoid_: Playback source, input text, content
 
+**Reading Target Acquisition**:
+The main-owned transaction that prepares the active macOS app, resolves Selected Text or Clipboard Text, and restores any temporary clipboard replacement for one accepted Play intent. Reader Window, Menu Bar, and Activation Shortcut triggers select distinct preparation policies, while the first accepted trigger owns any overlapping acquisition.
+_Avoid_: Selection Capture hook, read input, text lookup
+
 **Reading History**:
 The local list of past Reading Targets that VoiceReader saves so the user can review previously spoken text in reverse chronological order. Reading History preserves full text and metadata, but not generated audio; the user controls how long records are retained.
 _Avoid_: Playback log, audio history, recent items

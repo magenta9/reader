@@ -8,7 +8,6 @@ import {
 import {
   createRoleEventEmitter,
   registerRoleHandlers,
-  type BeforeInvokeFromContract,
   type EventEmitterFromContract,
   type ImplementationFromContract
 } from "../shared/role-bridge-registry.js";
@@ -79,29 +78,3 @@ export type ReaderWindowImplementationDependencies = AppShellImplementationDepen
   AppDataImplementationDependencies &
   PlaybackControlImplementationDependencies &
   ClipboardImplementationDependencies;
-
-export interface ReaderWindowInvocationDependencies {
-  readingTargetAcquirer: Pick<
-    AppBridgeHandlerDependencies["readingTargetAcquirer"],
-    "revealPreviousAppBeforeCapture"
-  >;
-  readerAppShell: Pick<AppBridgeHandlerDependencies["readerAppShell"], "isFocusedReaderSender">;
-}
-
-export function createReaderWindowBeforeInvoke({
-  readingTargetAcquirer,
-  readerAppShell
-}: ReaderWindowInvocationDependencies): BeforeInvokeFromContract<
-  typeof readerWindowRoleContract
-> {
-  return {
-    playReadingTarget: async ({ senderId }) => {
-      if (
-        senderId !== undefined &&
-        readerAppShell.isFocusedReaderSender(senderId)
-      ) {
-        await readingTargetAcquirer.revealPreviousAppBeforeCapture();
-      }
-    }
-  };
-}

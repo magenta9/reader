@@ -134,15 +134,10 @@ describe("ReaderAppShellController", () => {
     expect(close?.prevented).toBe(false);
   });
 
-  it("owns sender focus checks and rejects invalid runtime routes", () => {
+  it("rejects invalid runtime routes without changing the route snapshot", () => {
     const harness = createHarness();
     harness.shell.open("home");
-    const window = harness.windows[0];
-    window?.ready();
-    if (window) window.focused = true;
 
-    expect(harness.shell.isFocusedReaderSender(17)).toBe(true);
-    expect(harness.shell.isFocusedReaderSender(18)).toBe(false);
     expect(harness.shell.acceptRendererRoute("unknown")).toBeUndefined();
     expect(harness.shell.getBootstrapState().route).toEqual({ route: "home", revision: 0 });
     expect(harness.persistedRoutes).toEqual([]);
@@ -200,12 +195,10 @@ describe("ReaderAppShellController", () => {
 });
 
 class FakeReaderWindow implements ReaderAppShellWindow {
-  readonly senderId = 17;
   readonly actions: string[] = [];
   readonly routes: RouteSnapshot[] = [];
   readonly feedback: string[] = [];
   destroyed = false;
-  focused = false;
   minimized = false;
   private closeListener: ((event: { preventDefault(): void }) => void) | undefined;
   private readyListener: (() => void) | undefined;
@@ -213,10 +206,6 @@ class FakeReaderWindow implements ReaderAppShellWindow {
 
   isDestroyed(): boolean {
     return this.destroyed;
-  }
-
-  isFocused(): boolean {
-    return this.focused;
   }
 
   isMinimized(): boolean {

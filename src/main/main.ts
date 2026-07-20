@@ -81,7 +81,7 @@ async function bootstrap(): Promise<void> {
   const readingTargetAcquirer = new ReadingTargetAcquirer({
     clipboard,
     errorLog: appDataStore,
-    hidePreviousAppForSelectionCapture: () => readerAppShell.hideForSelectionCapture()
+    hideReaderWindowForSelectionCapture: () => readerAppShell.hideForSelectionCapture()
   });
   playbackOutput = await ElectronPlaybackOutput.create({
     createPlaybackRenderer: createPlaybackRendererWindow,
@@ -109,7 +109,6 @@ async function bootstrap(): Promise<void> {
     playbackPreferences,
     overlayController,
     playbackCommands,
-    readingTargetAcquirer,
     readerAppShell
   });
   app.setLoginItemSettings({ openAtLogin: appDataStore.getSettings().launchAtLogin });

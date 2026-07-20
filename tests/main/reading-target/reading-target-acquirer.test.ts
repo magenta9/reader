@@ -12,7 +12,7 @@ describe("ReadingTargetAcquirer", () => {
   it("owns Reader Window preparation and leaves the previous app active after capture", async () => {
     const events: string[] = [];
     const acquirer = createAcquirer({
-      hidePreviousAppForSelectionCapture: () => events.push("hide-reader"),
+      hideReaderWindowForSelectionCapture: () => events.push("hide-reader"),
       delay: async (milliseconds) => {
         events.push(`delay:${milliseconds}`);
       },
@@ -85,14 +85,12 @@ describe("ReadingTargetAcquirer", () => {
     const acquirer = createAcquirer({
       clipboard,
       errorLog: createErrorLog(log),
-      hidePreviousAppForSelectionCapture: () => log.push({ message: "hidden", hidden: true }),
       loadSelectionCopyAddon: () => {
         throw new Error("accessibility unavailable");
       }
     });
 
-    await acquirer.revealPreviousAppBeforeCapture();
-    const target = await acquirer.acquire();
+    const target = await acquirer.acquire("menu_bar");
 
     expect(target).toEqual({ text: "剪切板后备文本", source: "clipboard" });
     expect(clipboard.snapshot()).toEqual({
@@ -101,7 +99,6 @@ describe("ReadingTargetAcquirer", () => {
       rtf: "",
       hasImage: false
     });
-    expect(log.some((entry) => entry.hidden === true)).toBe(true);
     expect(log.some((entry) => entry.message.startsWith("Selected Text capture failed:"))).toBe(true);
   });
 
@@ -116,7 +113,7 @@ describe("ReadingTargetAcquirer", () => {
       })
     });
 
-    await expect(acquirer.acquire()).resolves.toEqual({
+    await expect(acquirer.acquire("menu_bar")).resolves.toEqual({
       text: "通过辅助功能读取的选中文本",
       source: "selected_text"
     });
@@ -134,7 +131,7 @@ describe("ReadingTargetAcquirer", () => {
       })
     });
 
-    await expect(acquirer.acquire()).resolves.toEqual({
+    await expect(acquirer.acquire("menu_bar")).resolves.toEqual({
       text: "通过复制读取的选中文本",
       source: "selected_text"
     });
@@ -152,7 +149,7 @@ describe("ReadingTargetAcquirer", () => {
       })
     });
 
-    await expect(acquirer.acquire()).resolves.toEqual({
+    await expect(acquirer.acquire("menu_bar")).resolves.toEqual({
       text: "复制前剪切板",
       source: "clipboard"
     });
@@ -170,7 +167,7 @@ describe("ReadingTargetAcquirer", () => {
       }
     });
 
-    await expect(acquirer.acquire()).resolves.toEqual({ text: "", source: "clipboard" });
+    await expect(acquirer.acquire("menu_bar")).resolves.toEqual({ text: "", source: "clipboard" });
     expect(clipboard.snapshot()).toEqual({ text: "", html: "<p>Only HTML</p>", rtf: "", hasImage: true });
     expect(log.some((entry) => entry.message.startsWith("Selected Text capture failed:"))).toBe(true);
   });
@@ -216,7 +213,7 @@ function createAcquirer(options: {
   createMarker?: () => string;
   delay?: (milliseconds: number) => Promise<void>;
   errorLog?: ReadingTargetErrorLog;
-  hidePreviousAppForSelectionCapture?: () => void;
+  hideReaderWindowForSelectionCapture?: () => void;
   loadSelectionCopyAddon?: () => SelectionCopyAddon;
 }): ReadingTargetAcquirer {
   let now = 0;
@@ -229,7 +226,7 @@ function createAcquirer(options: {
           throw new Error("Reading Target acquisition should not log an error");
         }
       } satisfies ReadingTargetErrorLog),
-    hidePreviousAppForSelectionCapture: options.hidePreviousAppForSelectionCapture ?? (() => undefined),
+    hideReaderWindowForSelectionCapture: options.hideReaderWindowForSelectionCapture ?? (() => undefined),
     loadSelectionCopyAddon: options.loadSelectionCopyAddon,
     createMarker: options.createMarker,
     delay:
