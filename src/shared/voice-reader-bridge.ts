@@ -1,8 +1,8 @@
 import type {
-  PlaybackOverlayBridge,
-  PlaybackRendererBridge,
-  ReaderWindowRuntimeBridge
-} from "./bridge-contracts.js";
+  PlaybackOverlayRoleBridge,
+  PlaybackRendererRoleBridge,
+  ReaderWindowRoleBridge
+} from "./role-bridge-contracts.js";
 
 declare global {
   interface Window {
@@ -10,16 +10,16 @@ declare global {
   }
 }
 
-export function getReaderWindowBridge(): ReaderWindowRuntimeBridge {
-  return getBridge<ReaderWindowRuntimeBridge>();
+export function getReaderWindowBridge(): ReaderWindowRoleBridge {
+  return getBridge<ReaderWindowRoleBridge>();
 }
 
-export function getPlaybackRendererBridge(): PlaybackRendererBridge {
-  return getBridge<PlaybackRendererBridge>();
+export function getPlaybackRendererBridge(): PlaybackRendererRoleBridge {
+  return getBridge<PlaybackRendererRoleBridge>();
 }
 
-export function getPlaybackOverlayBridge(): PlaybackOverlayBridge {
-  return getBridge<PlaybackOverlayBridge>();
+export function getPlaybackOverlayBridge(): PlaybackOverlayRoleBridge {
+  return getBridge<PlaybackOverlayRoleBridge>();
 }
 
 function getBridge<T>(): T {

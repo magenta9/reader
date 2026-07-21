@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -8,10 +9,12 @@ import { ReaderWindowApp } from "../../src/renderer/App.js";
 import {
   DEFAULT_ACTIVATION_SHORTCUT,
   type AppSettings,
+  type BootstrapState,
   type FavoriteRecord,
-  type ReadingHistoryRecord
+  type ReadingHistoryRecord,
+  type RouteSnapshot
 } from "../../src/shared/app-contracts.js";
-import type { ReaderWindowRuntimeBridge } from "../../src/shared/bridge-contracts.js";
+import type { ReaderWindowRoleBridge } from "../../src/shared/role-bridge-contracts.js";
 
 afterEach(() => {
   cleanup();
@@ -19,6 +22,55 @@ afterEach(() => {
 });
 
 describe("ReaderWindowApp", () => {
+  it("does not let a stale bootstrap response overwrite newer navigation", async () => {
+    let resolveBootstrap: ((state: BootstrapState) => void) | undefined;
+    let navigate: ((snapshot: RouteSnapshot) => void) | undefined;
+    const bootstrap = new Promise<BootstrapState>((resolve) => {
+      resolveBootstrap = resolve;
+    });
+    renderReaderWindow({
+      history: [],
+      readerPatch: {
+        getBootstrapState: () => bootstrap,
+        onNavigate: (listener) => {
+          navigate = listener;
+          return () => {
+            navigate = undefined;
+          };
+        }
+      }
+    });
+
+    act(() => navigate?.({ route: "history", revision: 2 }));
+    await screen.findByRole("heading", { name: "历史记录" });
+    act(() => navigate?.({ route: "settings", revision: 2 }));
+    resolveBootstrap?.({ hasCompletedOnboarding: true, route: { route: "home", revision: 1 } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "历史记录" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "设置" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("does not let bootstrap overwrite navigation started locally while it was loading", async () => {
+    let resolveBootstrap: ((state: BootstrapState) => void) | undefined;
+    const bootstrap = new Promise<BootstrapState>((resolve) => {
+      resolveBootstrap = resolve;
+    });
+    renderReaderWindow({
+      history: [],
+      readerPatch: { getBootstrapState: () => bootstrap }
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "历史记录" }));
+    await screen.findByRole("heading", { name: "历史记录" });
+    resolveBootstrap?.({ hasCompletedOnboarding: true, route: { route: "home", revision: 0 } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "历史记录" })).toBeInTheDocument();
+    });
+  });
+
   it("keeps Home task-first and gives utility routes concise page context", async () => {
     renderReaderWindow({ settings: createVerifiedSettings() });
 
@@ -64,6 +116,33 @@ describe("ReaderWindowApp", () => {
     expect(await screen.findByText(status)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: action })).toBeEnabled();
     expect(document.querySelectorAll(".home-status-line")).toHaveLength(1);
+  });
+
+  it("routes Home verification recovery through a semantic intent", async () => {
+    const verifiedSettings = createVerifiedSettings();
+    const verifyMiniMaxKey = vi.fn(async () => ({ ok: true, settings: verifiedSettings }));
+    renderReaderWindow({
+      readerPatch: { verifyMiniMaxKey },
+      settings: createVerifiedSettings({ apiKeyStatus: "failed" })
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: "验证连接" }));
+    expect(verifyMiniMaxKey).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("连接验证成功")).toBeInTheDocument();
+  });
+
+  it("routes Home Voice refresh recovery through a semantic intent", async () => {
+    const verifiedSettings = createVerifiedSettings();
+    const refreshVoices = vi.fn(async () => ({ ok: true, settings: verifiedSettings }));
+    renderReaderWindow({
+      readerPatch: { refreshVoices },
+      settings: createVerifiedSettings({ voices: [], preferredVoicesByLanguage: {} })
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: "刷新 Voice" }));
+    expect(refreshVoices).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Voice 列表已刷新")).toBeInTheDocument();
+    expect(screen.getByText("中文 · 中文 Voice")).toBeInTheDocument();
   });
 
   it("starts verified playback through the bridge and shows successful feedback", async () => {
@@ -181,6 +260,104 @@ describe("ReaderWindowApp", () => {
     expect((screen.getByRole("option", { name: "中文 B" }) as HTMLOptionElement).selected).toBe(true);
   });
 
+  it("coalesces rapid Home Voice intents through the visible select control", async () => {
+    const settings = createVerifiedSettings({
+      voices: [
+        { voice_id: "voice-zh-a", display_name: "中文 A", language: "zh" },
+        { voice_id: "voice-zh-b", display_name: "中文 B", language: "zh" },
+        { voice_id: "voice-zh-c", display_name: "中文 C", language: "zh" },
+        { voice_id: "voice-zh-d", display_name: "中文 D", language: "zh" }
+      ],
+      preferredVoicesByLanguage: { zh: "voice-zh-a" }
+    });
+    const firstWrite = deferred<AppSettings>();
+    const lastWrite = deferred<AppSettings>();
+    const setPreferredVoice = vi
+      .fn<ReaderWindowRoleBridge["setPreferredVoice"]>()
+      .mockReturnValueOnce(firstWrite.promise)
+      .mockReturnValueOnce(lastWrite.promise);
+    renderReaderWindow({ readerPatch: { setPreferredVoice }, settings });
+
+    await userEvent.click(await screen.findByText("朗读选项"));
+    const select = await screen.findByRole("combobox", { name: "Voice" });
+    fireEvent.change(select, { target: { value: "voice-zh-b" } });
+    fireEvent.change(select, { target: { value: "voice-zh-c" } });
+    fireEvent.change(select, { target: { value: "voice-zh-d" } });
+
+    expect(setPreferredVoice).toHaveBeenCalledTimes(1);
+    expect(select).toHaveValue("voice-zh-d");
+    firstWrite.resolve({
+      ...settings,
+      preferredVoicesByLanguage: { zh: "voice-zh-b" }
+    });
+    await waitFor(() => expect(setPreferredVoice).toHaveBeenCalledTimes(2));
+    expect(setPreferredVoice).toHaveBeenLastCalledWith("zh", "voice-zh-d");
+
+    lastWrite.resolve({
+      ...settings,
+      preferredVoicesByLanguage: { zh: "voice-zh-d" }
+    });
+    await waitFor(() => expect(select).toHaveValue("voice-zh-d"));
+  });
+
+  it("keeps the newest Home setup after StrictMode effect replay", async () => {
+    const staleSettings = createVerifiedSettings({
+      voices: [{ voice_id: "voice-stale", display_name: "旧 Voice", language: "zh" }],
+      preferredVoicesByLanguage: { zh: "voice-stale" }
+    });
+    const currentSettings = createVerifiedSettings({
+      voices: [{ voice_id: "voice-current", display_name: "新 Voice", language: "zh" }],
+      preferredVoicesByLanguage: { zh: "voice-current" }
+    });
+    const staleRead = deferred<AppSettings>();
+    const currentRead = deferred<AppSettings>();
+    const getSettings = vi
+      .fn<ReaderWindowRoleBridge["getSettings"]>()
+      .mockReturnValueOnce(staleRead.promise)
+      .mockReturnValueOnce(currentRead.promise);
+    const readerBridge = createReaderBridge({
+      settings: currentSettings,
+      readerPatch: { getSettings }
+    });
+    render(
+      <StrictMode>
+        <ReaderWindowApp readerBridge={readerBridge} />
+      </StrictMode>
+    );
+
+    await act(async () => currentRead.resolve(currentSettings));
+    expect(await screen.findByText("中文 · 新 Voice")).toBeInTheDocument();
+    await act(async () => staleRead.resolve(staleSettings));
+
+    expect(screen.getByText("中文 · 新 Voice")).toBeInTheDocument();
+    expect(screen.queryByText("中文 · 旧 Voice")).not.toBeInTheDocument();
+  });
+
+  it("ignores a previous Home visit command after route re-entry", async () => {
+    const oldPlayback = deferred<Awaited<ReturnType<ReaderWindowRoleBridge["playReadingTarget"]>>>();
+    const playReadingTarget = vi
+      .fn<ReaderWindowRoleBridge["playReadingTarget"]>()
+      .mockReturnValueOnce(oldPlayback.promise)
+      .mockResolvedValue({ started: true, sessionId: 9 });
+    renderReaderWindow({
+      readerPatch: { playReadingTarget },
+      settings: createVerifiedSettings()
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: "播放" }));
+    expect(screen.getByText("正在读取选区")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "历史记录" }));
+    await screen.findByRole("heading", { name: "历史记录" });
+    await userEvent.click(screen.getByRole("button", { name: "主页" }));
+    expect(await screen.findByText("Control+Command+R")).toBeInTheDocument();
+
+    await act(async () => {
+      oldPlayback.resolve({ started: true, sessionId: 8, stopShortcutAvailable: false });
+    });
+    expect(screen.queryByText("已开始朗读；Esc 不可用，请从菜单栏停止")).not.toBeInTheDocument();
+    expect(screen.getByText("Control+Command+R")).toBeInTheDocument();
+  });
+
   it("defaults Voice options to the first language that actually has a Voice", async () => {
     renderReaderWindow({
       settings: createVerifiedSettings({
@@ -193,6 +370,29 @@ describe("ReaderWindowApp", () => {
     await userEvent.click(screen.getByText("朗读选项"));
     expect(screen.getByRole("button", { name: "英文" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("button", { name: "中文" })).not.toBeInTheDocument();
+  });
+
+  it("keeps Latin and unknown Voice groups available through the Home picker", async () => {
+    renderReaderWindow({
+      settings: createVerifiedSettings({
+        voices: [
+          { voice_id: "voice-en", display_name: "English Voice", language: "en" },
+          { voice_id: "voice-latin", display_name: "Latin Voice", language: "latin" },
+          { voice_id: "voice-unknown", display_name: "Unknown Voice", language: "unknown" }
+        ],
+        preferredVoicesByLanguage: {
+          en: "voice-en",
+          latin: "voice-latin",
+          unknown: "voice-unknown"
+        }
+      })
+    });
+
+    await userEvent.click(await screen.findByText("朗读选项"));
+    await userEvent.click(screen.getByRole("button", { name: "其他拉丁语" }));
+    expect(screen.getByRole("combobox", { name: "Voice" })).toHaveValue("voice-latin");
+    await userEvent.click(screen.getByRole("button", { name: "未知" }));
+    expect(screen.getByRole("combobox", { name: "Voice" })).toHaveValue("voice-unknown");
   });
 
   it("shows the Reading History empty state", async () => {
@@ -235,7 +435,7 @@ describe("ReaderWindowApp", () => {
   it("recovers inline when Reading History cannot be loaded", async () => {
     const record = createHistoryRecord({ id: "history-recovered", preview: "重新载入后的历史" });
     const listReadingHistory = vi
-      .fn<ReaderWindowRuntimeBridge["listReadingHistory"]>()
+      .fn<ReaderWindowRoleBridge["listReadingHistory"]>()
       .mockRejectedValueOnce(new Error("database busy"))
       .mockResolvedValueOnce([record]);
     renderReaderWindow({
@@ -508,6 +708,31 @@ describe("ReaderWindowApp", () => {
     expect(screen.queryByRole("button", { name: "标记首次配置完成" })).not.toBeInTheDocument();
   });
 
+  it("updates Speech Rate and Model through their semantic bridge commands", async () => {
+    const bridge = renderReaderWindow({
+      bootstrapRoute: "settings",
+      settings: createVerifiedSettings({ model: "existing-custom-model" })
+    });
+    const setSpeechRate = vi.spyOn(bridge, "setSpeechRate");
+    const setModel = vi.spyOn(bridge, "setModel");
+
+    const speechRate = await screen.findByRole("slider", { name: "语速" });
+    fireEvent.change(speechRate, { target: { value: "1.6" } });
+    await waitFor(() => expect(setSpeechRate).toHaveBeenCalledWith(1.6));
+
+    const customModel = screen.getByLabelText("自定义 Model ID");
+    await userEvent.clear(customModel);
+    await userEvent.type(customModel, " custom-model-v2 ");
+    await userEvent.click(screen.getByRole("button", { name: "保存 Model" }));
+    await waitFor(() => expect(setModel).toHaveBeenCalledWith("custom-model-v2"));
+
+    await userEvent.selectOptions(screen.getByLabelText("Model"), "speech-2.8-hd");
+    await waitFor(() => expect(setModel).toHaveBeenCalledWith("speech-2.8-hd"));
+
+    await userEvent.selectOptions(screen.getByLabelText("Model"), "custom");
+    expect(screen.getByLabelText("自定义 Model ID")).toHaveValue("custom-model-v2");
+  });
+
   it("keeps the Settings layout stable while settings are loading", async () => {
     const settings = createVerifiedSettings();
     let resolveSettings!: (value: AppSettings) => void;
@@ -529,6 +754,75 @@ describe("ReaderWindowApp", () => {
 
     await waitFor(() => expect(panel).toHaveAttribute("aria-busy", "false"));
     expect(screen.getByRole("button", { name: "开启登录时启动" })).toBeEnabled();
+  });
+
+  it("keeps the route-scoped Settings workspace usable through StrictMode effect replay", async () => {
+    const settings = createVerifiedSettings();
+    const readerBridge = createReaderBridge({ bootstrapRoute: "settings", settings });
+    render(
+      <StrictMode>
+        <ReaderWindowApp readerBridge={readerBridge} />
+      </StrictMode>
+    );
+
+    const panel = await screen.findByRole("region", { name: "设置" });
+    await waitFor(() => expect(panel).toHaveAttribute("aria-busy", "false"));
+    expect(screen.getByRole("button", { name: "开启登录时启动" })).toBeEnabled();
+  });
+
+  it("isolates auxiliary Settings failures and retries only the failed resource", async () => {
+    const hasMiniMaxApiKey = vi.fn().mockRejectedValue(new Error("credential unavailable"));
+    const getSettings = vi.fn(async () => createVerifiedSettings());
+    renderReaderWindow({
+      bootstrapRoute: "settings",
+      readerPatch: { getSettings, hasMiniMaxApiKey },
+      settings: createVerifiedSettings()
+    });
+
+    expect(await screen.findByText("API Key 状态读取失败")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开启登录时启动" })).toBeEnabled();
+    const settingsReadCount = getSettings.mock.calls.length;
+    const credentialReadCount = hasMiniMaxApiKey.mock.calls.length;
+
+    hasMiniMaxApiKey.mockResolvedValue(true);
+    await userEvent.click(screen.getByRole("button", { name: "重试 API Key 状态" }));
+
+    await waitFor(() => expect(screen.getByText("API Key 状态：已验证")).toBeInTheDocument());
+    expect(hasMiniMaxApiKey).toHaveBeenCalledTimes(credentialReadCount + 1);
+    expect(getSettings).toHaveBeenCalledTimes(settingsReadCount);
+  });
+
+  it("retries core Settings independently and creates a fresh workspace on re-entry", async () => {
+    const settings = createVerifiedSettings();
+    const getSettings = vi.fn().mockRejectedValue(new Error("settings unavailable"));
+    renderReaderWindow({
+      bootstrapRoute: "settings",
+      history: [createHistoryRecord({ id: "blocked-write" })],
+      readerPatch: { getSettings, getErrorLogCount: async () => 2 },
+      settings
+    });
+
+    expect(await screen.findByText("无法读取设置")).toBeInTheDocument();
+    expect(screen.getByText("API Key 状态：已保存，验证状态不可用")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开启登录时启动" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "清空历史记录" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "清空" })).toBeDisabled();
+
+    getSettings.mockResolvedValue(settings);
+    await userEvent.click(screen.getByRole("button", { name: "重试设置" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "开启登录时启动" })).toBeEnabled());
+
+    const apiKey = screen.getByLabelText("MiniMax API Key");
+    await userEvent.type(apiKey, "sensitive-draft");
+    expect(apiKey).toHaveValue("sensitive-draft");
+    const settingsReadCount = getSettings.mock.calls.length;
+
+    await userEvent.click(screen.getByRole("button", { name: "主页" }));
+    await screen.findByRole("heading", { name: "朗读当前选区" });
+    await userEvent.click(screen.getByRole("button", { name: "设置" }));
+
+    expect(await screen.findByLabelText("MiniMax API Key")).toHaveValue("");
+    await waitFor(() => expect(getSettings.mock.calls.length).toBeGreaterThan(settingsReadCount));
   });
 
   it("requires an inline confirmation before clearing all Reading History", async () => {
@@ -568,7 +862,6 @@ describe("ReaderWindowApp", () => {
       impact: { historyRetention: "7d", deleteCount: 1, remainingCount: 1 },
       settings: { ...settings, historyRetention: "7d" }
     });
-    const genericUpdate = vi.spyOn(bridge, "updateSettings");
 
     const retentionSelect = await screen.findByLabelText("保留期限");
     await waitFor(() => expect(retentionSelect).toBeEnabled());
@@ -578,7 +871,6 @@ describe("ReaderWindowApp", () => {
     expect(confirmation).toHaveTextContent("改为7 天后，将删除 1 条超期历史记录，保留 1 条。收藏不会受影响。");
     expect(preview).toHaveBeenCalledWith("7d");
     expect(apply).not.toHaveBeenCalled();
-    expect(genericUpdate).not.toHaveBeenCalled();
 
     await userEvent.click(within(confirmation).getByRole("button", { name: "应用并删除 1 条" }));
 
@@ -643,11 +935,11 @@ interface RenderReaderWindowOptions {
   favorites?: FavoriteRecord[];
   hasApiKey?: boolean;
   history?: ReadingHistoryRecord[];
-  readerPatch?: Partial<ReaderWindowRuntimeBridge>;
+  readerPatch?: Partial<ReaderWindowRoleBridge>;
   settings?: AppSettings;
 }
 
-function renderReaderWindow(options: RenderReaderWindowOptions = {}): ReaderWindowRuntimeBridge {
+function renderReaderWindow(options: RenderReaderWindowOptions = {}): ReaderWindowRoleBridge {
   const settings = options.settings ?? createVerifiedSettings();
   const readerBridge = createReaderBridge({
     ...options,
@@ -659,25 +951,30 @@ function renderReaderWindow(options: RenderReaderWindowOptions = {}): ReaderWind
 
 function createReaderBridge(
   options: Required<Pick<RenderReaderWindowOptions, "settings">> & RenderReaderWindowOptions
-): ReaderWindowRuntimeBridge {
+): ReaderWindowRoleBridge {
   let settings = options.settings;
   let history = [...(options.history ?? [])];
   let favorites = [...(options.favorites ?? [])];
+  let routeRevision = 0;
   const deletedHistory = new Map<string, ReadingHistoryRecord>();
   const deletedFavorites = new Map<string, FavoriteRecord>();
   return {
     getBootstrapState: async () => ({
       hasCompletedOnboarding: settings.hasCompletedOnboarding,
-      lastRoute: options.bootstrapRoute ?? "home"
+      route: { route: options.bootstrapRoute ?? "home", revision: 0 }
     }),
     setOnboardingComplete: async (complete) => {
       settings = { ...settings, hasCompletedOnboarding: complete };
     },
-    setRoute: async () => undefined,
+    setRoute: async (route) => ({ route, revision: ++routeRevision }),
     onNavigate: () => () => undefined,
     getSettings: async () => settings,
-    updateSettings: async (patch) => {
-      settings = { ...settings, ...patch };
+    setSpeechRate: async (speechRate) => {
+      settings = { ...settings, speechRate };
+      return settings;
+    },
+    setModel: async (model) => {
+      settings = { ...settings, model };
       return settings;
     },
     setLaunchAtLogin: async (launchAtLogin) => {
@@ -819,4 +1116,18 @@ function createFavoriteRecord(patch: Partial<FavoriteRecord> = {}): FavoriteReco
     source: "selected_text",
     ...patch
   };
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  reject: (reason?: unknown) => void;
+  resolve: (value: T) => void;
+} {
+  let reject!: (reason?: unknown) => void;
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    reject = rejectPromise;
+    resolve = resolvePromise;
+  });
+  return { promise, reject, resolve };
 }

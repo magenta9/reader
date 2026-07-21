@@ -1,12 +1,12 @@
-import { streamMiniMaxTts } from "../../shared/minimax.js";
+import type { SpeechAudioStreamPort } from "../../shared/speech-audio-stream.js";
 import {
   type PlaybackAudioSession,
+  type PlaybackAudioOutcome,
   type PlaybackStartResult
 } from "../../shared/app-contracts.js";
 import type { ReadingTargetInput } from "../../shared/types.js";
 import type { PlaybackDataStore, RuntimeErrorCategory } from "../data/app-data-store.js";
 import {
-  type PlaybackTtsStreamer,
   type PlaybackSessionPlan,
   PlaybackRequestResolver,
   type ResolvePlaybackRequestResult
@@ -16,26 +16,28 @@ export interface PlaybackAudioSink {
   startSession: (session: PlaybackAudioSession) => void;
   audioChunk: (sessionId: number, bytes: Uint8Array) => void;
   endSegment: (sessionId: number) => void;
-  finishSession: (sessionId: number) => void;
+  finishGeneration: (sessionId: number) => void;
+  completeSession: (sessionId: number) => void;
   failSession: (sessionId: number) => void;
   stopSession: (sessionId: number) => void;
-  handleRendererIdle?: (sessionId: number) => void;
 }
 
 export class PlaybackService {
   private sessionCounter = 0;
+  private readonly terminalListeners = new Set<(sessionId: number) => void>();
   private active:
     | {
         sessionId: number;
         abortController: AbortController;
-        done: Promise<void>;
+        generationDone: Promise<void>;
+        generationFinished: boolean;
       }
     | undefined;
 
   constructor(
     private readonly store: PlaybackDataStore,
     private readonly sink: PlaybackAudioSink,
-    private readonly streamTts: PlaybackTtsStreamer = streamMiniMaxTts,
+    private readonly streamAudio: SpeechAudioStreamPort,
     private readonly resolver: PlaybackRequestResolver = new PlaybackRequestResolver(store)
   ) {}
 
@@ -55,8 +57,11 @@ export class PlaybackService {
     if (!this.active) return;
     const { sessionId, abortController } = this.active;
     abortController.abort();
-    this.stopAudioSession(sessionId);
-    this.active = undefined;
+    try {
+      this.endActiveSession(sessionId, () => this.sink.stopSession(sessionId));
+    } catch (error) {
+      this.recordPlaybackError(error);
+    }
   }
 
   stopSession(sessionId: number | undefined): void {
@@ -68,15 +73,40 @@ export class PlaybackService {
       this.stop();
       return;
     }
-    this.stopAudioSession(sessionId);
+    try {
+      this.sink.stopSession(sessionId);
+    } catch (error) {
+      this.recordPlaybackError(error);
+    }
   }
 
-  handleRendererIdle(sessionId: number): void {
-    this.sink.handleRendererIdle?.(sessionId);
+  handleAudioOutcome(outcome: PlaybackAudioOutcome): boolean {
+    const active = this.active;
+    if (!active || active.sessionId !== outcome.sessionId || !active.generationFinished) return false;
+    if (outcome.status === "completed") {
+      try {
+        this.endActiveSession(outcome.sessionId, () => this.sink.completeSession(outcome.sessionId));
+      } catch (error) {
+        this.recordPlaybackError(error);
+      }
+      return true;
+    }
+    this.recordPlaybackError(new Error("Browser audio output failed."));
+    try {
+      this.endActiveSession(outcome.sessionId, () => this.sink.failSession(outcome.sessionId));
+    } catch {
+      // The audio output failure is already recorded; do not throw while presenting it.
+    }
+    return true;
   }
 
-  waitForCurrentSession(): Promise<void> {
-    return this.active?.done ?? Promise.resolve();
+  waitForCurrentGeneration(): Promise<void> {
+    return this.active?.generationDone ?? Promise.resolve();
+  }
+
+  onSessionTerminal(listener: (sessionId: number) => void): () => void {
+    this.terminalListeners.add(listener);
+    return () => this.terminalListeners.delete(listener);
   }
 
   private startResolvedPlaybackRequest(resolved: ResolvePlaybackRequestResult): PlaybackStartResult {
@@ -97,8 +127,14 @@ export class PlaybackService {
       this.recordPlaybackError(error);
       return { started: false };
     }
-    const done = this.runSession(sessionId, plan, abortController);
-    this.active = { sessionId, abortController, done };
+    const active = {
+      sessionId,
+      abortController,
+      generationDone: Promise.resolve(),
+      generationFinished: false
+    };
+    this.active = active;
+    active.generationDone = this.runSession(sessionId, plan, abortController);
     return { started: true, sessionId };
   }
 
@@ -115,15 +151,15 @@ export class PlaybackService {
             category: "playback_runtime",
             message: `No Voice is available for ${segment.missingVoiceLanguage}.`
           });
-          this.sink.failSession(sessionId);
+          this.endActiveSession(sessionId, () => this.sink.failSession(sessionId));
           return;
         }
 
-        await segment.stream(this.streamTts, {
+        await segment.stream(this.streamAudio, {
           signal: abortController.signal,
-          onAudioHex: (audioHex) => {
+          onAudioChunk: (bytes) => {
             if (!abortController.signal.aborted) {
-              this.sink.audioChunk(sessionId, hexToBytes(audioHex));
+              this.sink.audioChunk(sessionId, bytes);
             }
           }
         });
@@ -131,25 +167,26 @@ export class PlaybackService {
         this.sink.endSegment(sessionId);
       }
 
-      this.sink.finishSession(sessionId);
+      this.sink.finishGeneration(sessionId);
+      if (this.active?.sessionId === sessionId) this.active.generationFinished = true;
     } catch (error) {
       if (abortController.signal.aborted) return;
       this.recordPlaybackError(error);
       try {
-        this.sink.failSession(sessionId);
+        this.endActiveSession(sessionId, () => this.sink.failSession(sessionId));
       } catch {
         // The original output failure is already recorded; do not reject the session while reporting it.
       }
-    } finally {
-      if (this.active?.sessionId === sessionId) this.active = undefined;
     }
   }
 
-  private stopAudioSession(sessionId: number): void {
+  private endActiveSession(sessionId: number, deliver: () => void): void {
+    if (this.active?.sessionId !== sessionId) return;
+    this.active = undefined;
     try {
-      this.sink.stopSession(sessionId);
-    } catch (error) {
-      this.recordPlaybackError(error);
+      deliver();
+    } finally {
+      for (const listener of this.terminalListeners) listener(sessionId);
     }
   }
 
@@ -159,15 +196,6 @@ export class PlaybackService {
       message: safePlaybackErrorMessage(error)
     });
   }
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const clean = hex.trim();
-  const bytes = new Uint8Array(Math.floor(clean.length / 2));
-  for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = Number.parseInt(clean.slice(index * 2, index * 2 + 2), 16);
-  }
-  return bytes;
 }
 
 function safePlaybackErrorMessage(error: unknown): string {

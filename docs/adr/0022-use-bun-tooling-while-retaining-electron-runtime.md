@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Use Bun tooling while retaining the Electron runtime
 
 VoiceReader will use Bun 1.3.14 as its only package manager, text-lockfile owner, and package-script entry point, with Bun's `isolated` linker and Node `>=24 <25` as the supported host runtime. Electron remains the application runtime, and the migration will preserve the existing custom Node/esbuild build, Vitest, and macOS packaging semantics rather than combining package-management adoption with runtime or product changes. We chose the same baseline as the Kanban Electron project so both repositories share one deliberate, fail-fast local toolchain policy; the pnpm lockfile, policy-only workspace file, and supported pnpm invocations will be removed atomically when implementation begins. VoiceReader is a single-package repository, so it will not add a synthetic Bun workspace declaration.

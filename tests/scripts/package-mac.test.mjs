@@ -1,21 +1,138 @@
 import { execFileSync } from "node:child_process";
-import { resolve } from "node:path";
-import { expect, it } from "vitest";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { afterEach, expect, it, vi } from "vitest";
+import {
+  createPackagingPlan,
+  safelyPublishRelease,
+  verifyMacDiskImage
+} from "../../scripts/package-mac.mjs";
+import { beginLocalReleaseTransaction } from "../../scripts/local-release-transaction.mjs";
+import {
+  createMacReleaseIdentity,
+  loadMacReleaseIdentity
+} from "../../scripts/release-identity.mjs";
 
-it("declares artifact-only ARM64 app and DMG packaging at the public command seam", () => {
+const temporaryRoots = [];
+
+afterEach(() => {
+  for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+it("declares identity-derived artifact-only packaging at the public command seam", async () => {
   const output = execFileSync(process.execPath, [resolve("scripts/package-mac.mjs"), "plan"], {
     cwd: resolve("."),
     encoding: "utf8"
   });
   const plan = JSON.parse(output.trim().split("\n").at(-1));
 
-  expect(plan).toEqual({
+  expect(plan).toEqual(createPackagingPlan(await loadMacReleaseIdentity()));
+});
+
+it("moves the public DMG plan when package metadata version changes", () => {
+  const identity = createMacReleaseIdentity(
+    {
+      name: "voicereader",
+      version: "3.2.1",
+      private: true,
+      type: "module",
+      main: "dist/main/main.js"
+    },
+    { root: resolve(".") }
+  );
+
+  expect(createPackagingPlan(identity)).toEqual({
     platform: "darwin",
     arch: "arm64",
     app: "release/mac/VoiceReader.app",
-    dmg: "release/mac/VoiceReader-0.1.0-arm64.dmg",
+    dmg: "release/mac/VoiceReader-3.2.1-arm64.dmg",
     dmgTool: "/usr/bin/hdiutil",
     customPackager: true,
     installsApplication: false
   });
+});
+
+it("mounts the final DMG and verifies its only VoiceReader application", async () => {
+  const identity = await loadMacReleaseIdentity();
+  const root = mkdtempSync(join(tmpdir(), "voicereader-dmg-verifier-"));
+  temporaryRoots.push(root);
+  const diskImage = join(root, "VoiceReader.dmg");
+  writeFileSync(diskImage, "disk image");
+  const commands = [];
+  const verifyApplication = vi.fn(async () => undefined);
+
+  await verifyMacDiskImage(diskImage, {
+    identity,
+    runCommand: async (command, args) => {
+      commands.push([command, args]);
+      if (args[0] === "attach") {
+        const mountPoint = args[args.indexOf("-mountpoint") + 1];
+        mkdirSync(join(mountPoint, "VoiceReader.app"));
+      }
+    },
+    verifyApplication
+  });
+
+  expect(commands.map(([, args]) => args[0])).toEqual(["verify", "attach", "detach"]);
+  expect(verifyApplication).toHaveBeenCalledOnce();
+  expect(verifyApplication.mock.calls[0][0]).toMatch(/VoiceReader\.app$/);
+  expect(verifyApplication.mock.calls[0][1]).toEqual({ identity });
+});
+
+it("preserves the artifact failure when DMG detach also fails", async () => {
+  const root = mkdtempSync(join(tmpdir(), "voicereader-dmg-verifier-"));
+  temporaryRoots.push(root);
+  const diskImage = join(root, "VoiceReader.dmg");
+  writeFileSync(diskImage, "disk image");
+
+  await expect(
+    verifyMacDiskImage(diskImage, {
+      runCommand: async (_command, args) => {
+        if (args[0] === "attach") {
+          const mountPoint = args[args.indexOf("-mountpoint") + 1];
+          mkdirSync(join(mountPoint, "VoiceReader.app"));
+        }
+        if (args[0] === "detach") throw new Error("detach failed");
+      },
+      verifyApplication: async () => {
+        throw new Error("artifact invalid");
+      }
+    })
+  ).rejects.toThrow("DMG verification failed: artifact invalid; cleanup failed: detach failed");
+});
+
+it("restores the previous verified release when publication commit fails", async () => {
+  const root = mkdtempSync(join(tmpdir(), "voicereader-release-publication-"));
+  temporaryRoots.push(root);
+  const sourceApplication = join(root, "candidate", "VoiceReader.app");
+  const sourceDiskImage = join(root, "candidate", "VoiceReader-0.1.0-arm64.dmg");
+  const destinationDirectory = join(root, "release", "mac");
+  mkdirSync(sourceApplication, { recursive: true });
+  mkdirSync(destinationDirectory, { recursive: true });
+  writeFileSync(join(sourceApplication, "version"), "new");
+  writeFileSync(sourceDiskImage, "new dmg");
+  writeFileSync(join(destinationDirectory, "version"), "old");
+  const transaction = await beginLocalReleaseTransaction({ root, id: "publication" });
+  const swap = transaction.publicationSwap(destinationDirectory);
+
+  await expect(
+    safelyPublishRelease({
+      sourceApplication,
+      sourceDiskImage,
+      destinationDirectory,
+      swap,
+      renamePath: async (source, destination) => {
+        if (source === swap.paths.staging && destination === destinationDirectory) {
+          throw new Error("simulated publication failure");
+        }
+        renameSync(source, destination);
+      }
+    })
+  ).rejects.toThrow("simulated publication failure");
+
+  expect(readFileSync(join(destinationDirectory, "version"), "utf8")).toBe("old");
+  expect(existsSync(swap.paths.staging)).toBe(false);
+  expect(existsSync(swap.paths.backup)).toBe(false);
+  await transaction.release();
 });

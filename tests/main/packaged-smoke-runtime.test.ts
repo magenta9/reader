@@ -25,11 +25,29 @@ describe("packaged smoke runtime", () => {
     ).toThrow("must be an absolute path");
   });
 
+  it("requires and preserves the named packaged smoke scenario", () => {
+    const root = mkdtempSync(join(tmpdir(), "voicereader-smoke-config-"));
+    temporaryRoots.push(root);
+    expect(
+      readPackagedSmokeConfiguration({
+        VOICEREADER_PACKAGED_SMOKE: "1",
+        VOICEREADER_PACKAGED_SMOKE_USER_DATA: root,
+        VOICEREADER_PACKAGED_SMOKE_SCENARIO: "legacy"
+      })
+    ).toEqual({ enabled: true, userData: root, scenario: "legacy" });
+    expect(() =>
+      readPackagedSmokeConfiguration({
+        VOICEREADER_PACKAGED_SMOKE: "1",
+        VOICEREADER_PACKAGED_SMOKE_USER_DATA: root
+      })
+    ).toThrow("must name a supported packaged smoke scenario");
+  });
+
   it("proves every required App Data Store table and column was migrated", () => {
     const root = mkdtempSync(join(tmpdir(), "voicereader-smoke-schema-"));
     temporaryRoots.push(root);
     const databasePath = join(root, "voicereader.sqlite");
-    const store = new AppDataStore(databasePath);
+    const store = AppDataStore.open(databasePath);
     store.close();
 
     expect(assertMigratedAppDataSchema(databasePath)).toBe(4);
@@ -44,8 +62,6 @@ describe("packaged smoke runtime", () => {
     database.exec("CREATE TABLE settings (key TEXT PRIMARY KEY)");
     database.close();
 
-    expect(() => assertMigratedAppDataSchema(databasePath)).toThrow(
-      "Packaged smoke schema is missing settings.value"
-    );
+    expect(() => assertMigratedAppDataSchema(databasePath)).toThrow("App Data schema objects do not match");
   });
 });

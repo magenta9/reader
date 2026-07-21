@@ -10,7 +10,7 @@ import {
   type PlannedPlaybackSegment
 } from "../../../src/main/playback/playback-request-resolver.js";
 import { PLAYBACK_FEEDBACK_SURFACES } from "../../../src/shared/app-contracts.js";
-import type { MiniMaxTtsRequest } from "../../../src/shared/minimax.js";
+import type { SpeechAudioStreamRequest } from "../../../src/shared/speech-audio-stream.js";
 import { createReadingSegments } from "../../../src/shared/segments.js";
 import type { MiniMaxVoice, ReadingTargetInput } from "../../../src/shared/types.js";
 
@@ -94,7 +94,7 @@ describe("PlaybackRequestResolver", () => {
 
 async function createVerifiedStore(): Promise<AppDataStore> {
   const dataDir = await mkdtemp(join(tmpdir(), "voicereader-playback-resolver-"));
-  const store = new AppDataStore(join(dataDir, "voicereader.sqlite"));
+  const store = AppDataStore.open(join(dataDir, "voicereader.sqlite"));
   stores.push(store);
   store.saveMiniMaxApiKey("playback-key");
   store.updateSettings({
@@ -122,18 +122,18 @@ async function expectPlannedReplay(
 
 async function expectPlannedTtsRequest(
   segment: PlannedPlaybackSegment | undefined,
-  expected: Partial<Pick<MiniMaxTtsRequest, "apiKey" | "model" | "voiceId" | "text">>
+  expected: Partial<Pick<SpeechAudioStreamRequest, "apiKey" | "model" | "voiceId" | "text">>
 ): Promise<void> {
   expect(segment?.stream).toBeDefined();
   if (!segment?.stream) return;
-  const streamedRequests: MiniMaxTtsRequest[] = [];
+  const streamedRequests: SpeechAudioStreamRequest[] = [];
   await segment.stream(
     async (request) => {
       streamedRequests.push(request);
     },
     {
       signal: new AbortController().signal,
-      onAudioHex: () => undefined
+      onAudioChunk: () => undefined
     }
   );
   expect(streamedRequests).toMatchObject([expected]);

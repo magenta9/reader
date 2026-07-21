@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { AppDataStore } from "../../../src/main/data/app-data-store.js";
 import { DEFAULT_ACTIVATION_SHORTCUT, LEGACY_DEFAULT_ACTIVATION_SHORTCUT } from "../../../src/shared/app-contracts.js";
 import { createReadingSegments } from "../../../src/shared/segments.js";
+import { createLegacyThreeTableDatabase } from "./app-data-schema-fixtures.js";
 
 describe("AppDataStore", () => {
   it("creates the local app data database and required tables", async () => {
@@ -55,7 +56,7 @@ describe("AppDataStore", () => {
     }
 
     const dbPath = await createSettingsDatabase("app.settings", JSON.stringify({ activationShortcut: LEGACY_DEFAULT_ACTIVATION_SHORTCUT }));
-    const migrated = new AppDataStore(dbPath);
+    const migrated = AppDataStore.open(dbPath);
     try {
       expect(migrated.getSettings().activationShortcut).toBe(DEFAULT_ACTIVATION_SHORTCUT);
       expect(JSON.parse(migrated.getRawSettingForTest("app.settings") ?? "{}").activationShortcut).toBe(DEFAULT_ACTIVATION_SHORTCUT);
@@ -66,7 +67,7 @@ describe("AppDataStore", () => {
 
   it("persists MiniMax API keys and removes the legacy encrypted key", async () => {
     const legacyDbPath = await createSettingsDatabase("minimax.apiKey.encrypted", "legacy-safe-storage-ciphertext");
-    const legacyStore = new AppDataStore(legacyDbPath);
+    const legacyStore = AppDataStore.open(legacyDbPath);
     try {
       expect(legacyStore.getRawSettingForTest("minimax.apiKey.encrypted")).toBeUndefined();
       expect(legacyStore.readMiniMaxApiKey()).toBeUndefined();
@@ -382,20 +383,15 @@ describe("AppDataStore", () => {
 async function createStore(): Promise<{ store: AppDataStore; dbPath: string }> {
   const dataDir = await mkdtemp(join(tmpdir(), "voicereader-data-store-"));
   const dbPath = join(dataDir, "voicereader.sqlite");
-  return { store: new AppDataStore(dbPath), dbPath };
+  return { store: AppDataStore.open(dbPath), dbPath };
 }
 
 async function createSettingsDatabase(key: string, value: string): Promise<string> {
   const dataDir = await mkdtemp(join(tmpdir(), "voicereader-settings-"));
   const dbPath = join(dataDir, "voicereader.sqlite");
-  const db = new DatabaseSync(dbPath);
+  const db = createLegacyThreeTableDatabase(dbPath);
   try {
-    db.exec(`
-      CREATE TABLE settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      );
-    `);
+    db.exec("DELETE FROM settings");
     db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run(key, value);
   } finally {
     db.close();

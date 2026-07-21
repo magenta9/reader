@@ -4,10 +4,11 @@ import { mountPlaybackAudio } from "../../src/playback-renderer/audio-player.js"
 import {
   PLAYBACK_FEEDBACK_SURFACES,
   type AudioChunkPayload,
+  type PlaybackAudioOutcome,
   type PlaybackAudioSession,
   type SessionOverlayMetric
 } from "../../src/shared/app-contracts.js";
-import type { PlaybackRendererBridge } from "../../src/shared/bridge-contracts.js";
+import type { PlaybackRendererRoleBridge } from "../../src/shared/role-bridge-contracts.js";
 
 let activeBrowserFakes: BrowserFakes | undefined;
 
@@ -19,42 +20,39 @@ afterEach(() => {
 describe("Playback Audio renderer", () => {
   it("plays sessions emitted through the Playback Renderer seam until disposed", async () => {
     const events: QueueEvent[] = [];
-    const harness = createPlaybackRendererBridgeHarness(events);
+    const harness = createPlaybackRendererRoleBridgeHarness(events);
     const dispose = mountPlaybackAudio(harness.bridge);
 
     harness.start(createOverlaySession(101));
-    harness.finish({ sessionId: 101 });
+    harness.endAudioInput({ sessionId: 101 });
     await flushPlaybackMicrotasks();
 
     expect(events).toEqual([
       ["metric", 101, 0, 1],
-      ["finish-overlay", 101],
-      ["idle", 101]
+      ["outcome", 101, "completed"]
     ]);
 
     dispose();
     harness.start(createOverlaySession(102));
-    harness.finish({ sessionId: 102 });
+    harness.endAudioInput({ sessionId: 102 });
     await flushPlaybackMicrotasks();
 
     expect(events).toEqual([
       ["metric", 101, 0, 1],
-      ["finish-overlay", 101],
-      ["idle", 101]
+      ["outcome", 101, "completed"]
     ]);
   });
 
-  it("starts and finishes a current Reading Target session with overlay completion and renderer idle", async () => {
+  it("finishes a current Reading Target audio queue with a final metric and completed outcome", async () => {
     const { events, playback } = createScenario();
 
     playback.start(createOverlaySession(201));
-    playback.finish({ sessionId: 201 });
+    playback.endAudioInput({ sessionId: 201 });
     await flushPlaybackMicrotasks();
 
     expect(events).toEqual([
       ["metric", 201, 0, 1],
-      ["finish-overlay", 201],
-      ["idle", 201]
+      ["outcome", 201, "completed"]
     ]);
   });
 
@@ -64,7 +62,7 @@ describe("Playback Audio renderer", () => {
     playback.start(createSession(203, PLAYBACK_FEEDBACK_SURFACES.playbackOverlay, [9, 1]));
     playback.audioChunk({ sessionId: 203, bytes: new Uint8Array([1, 2, 3]) });
     playback.segmentEnd({ sessionId: 203 });
-    playback.finish({ sessionId: 203 });
+    playback.endAudioInput({ sessionId: 203 });
     await flushPlaybackMicrotasks();
     await flushPlaybackMicrotasks();
 
@@ -74,13 +72,11 @@ describe("Playback Audio renderer", () => {
     expect(events.some((event) => event[0] === "metric" && event[2] > 0)).toBe(true);
     expect(playback.metrics.at(-1)?.levels).toHaveLength(13);
     expect(new Set(playback.metrics.at(-1)?.levels?.map((level) => level.toFixed(3))).size).toBeGreaterThan(1);
-    expect(events.some((event) => event[0] === "finish-overlay")).toBe(false);
     firstAudio?.listeners.ended?.();
     await flushPlaybackMicrotasks();
     await flushPlaybackMicrotasks();
 
-    expect(events.some((event) => event[0] === "finish-overlay")).toBe(true);
-    expect(events).toContainEqual(["idle", 203]);
+    expect(events).toContainEqual(["outcome", 203, "completed"]);
   });
 
   it("tracks weighted progress across multiple current Reading Target segments", async () => {
@@ -91,7 +87,7 @@ describe("Playback Audio renderer", () => {
     playback.segmentEnd({ sessionId: 205 });
     playback.audioChunk({ sessionId: 205, bytes: new Uint8Array([2]) });
     playback.segmentEnd({ sessionId: 205 });
-    playback.finish({ sessionId: 205 });
+    playback.endAudioInput({ sessionId: 205 });
     await flushPlaybackMicrotasks();
     await flushPlaybackMicrotasks();
 
@@ -132,24 +128,40 @@ describe("Playback Audio renderer", () => {
 
       expect(animationFrames).toHaveLength(0);
       expect(events).toEqual([]);
-      playback.finish({ sessionId: session.sessionId });
+      playback.endAudioInput({ sessionId: session.sessionId });
       await flushPlaybackMicrotasks();
       playedAudios.at(-1)?.listeners.ended?.();
       await flushPlaybackMicrotasks();
-      expect(events).toEqual([["idle", session.sessionId]]);
+      expect(events).toEqual([["outcome", session.sessionId, "completed"]]);
     }
   });
 
-  it("handles fail and stop by stopping playback and notifying renderer idle", () => {
+  it("reports a failed Audio Outcome instead of completion when browser audio playback fails", async () => {
+    const { events, playback, playedAudios } = createScenario();
+
+    playback.start(createOverlaySession(207));
+    playback.audioChunk({ sessionId: 207, bytes: new Uint8Array([1, 2, 3]) });
+    playback.segmentEnd({ sessionId: 207 });
+    playback.endAudioInput({ sessionId: 207 });
+    await flushPlaybackMicrotasks();
+    playedAudios.at(-1)?.listeners.error?.();
+    await flushPlaybackMicrotasks();
+
+    expect(events.filter((event) => event[0] === "outcome")).toEqual([
+      ["outcome", 207, "failed"]
+    ]);
+  });
+
+  it("handles fail and stop by stopping playback without a second terminal report", () => {
     const failed = createScenario();
     failed.playback.start(createOverlaySession(301));
     failed.playback.fail({ sessionId: 301 });
-    expect(failed.events).toEqual([["idle", 301]]);
+    expect(failed.events).toEqual([]);
 
     const stopped = createScenario();
     stopped.playback.start(createOverlaySession(302));
     stopped.playback.stop({ sessionId: 302 });
-    expect(stopped.events).toEqual([["idle", 302]]);
+    expect(stopped.events).toEqual([]);
   });
 
   it("ignores stale session chunks after a replacement session starts", async () => {
@@ -159,10 +171,10 @@ describe("Playback Audio renderer", () => {
     playback.audioChunk({ sessionId: 401, bytes: new Uint8Array([1]) });
     playback.start(createOverlaySession(402));
     playback.segmentEnd({ sessionId: 401 });
-    playback.finish({ sessionId: 401 });
+    playback.endAudioInput({ sessionId: 401 });
     playback.audioChunk({ sessionId: 402, bytes: new Uint8Array([2]) });
     playback.segmentEnd({ sessionId: 402 });
-    playback.finish({ sessionId: 402 });
+    playback.endAudioInput({ sessionId: 402 });
     await flushPlaybackMicrotasks();
     await flushPlaybackMicrotasks();
     playedAudios.at(-1)?.listeners.ended?.();
@@ -170,12 +182,40 @@ describe("Playback Audio renderer", () => {
     await flushPlaybackMicrotasks();
 
     expect(playedAudios).toHaveLength(1);
-    expect(events).toContainEqual(["idle", 402]);
-    expect(events).not.toContainEqual(["idle", 401]);
+    expect(events).toContainEqual(["outcome", 402, "completed"]);
+    expect(events).not.toContainEqual(["outcome", 401, "completed"]);
+  });
+
+  it("suppresses outcomes when playing audio is stopped or replaced", async () => {
+    const stopped = createScenario();
+    stopped.playback.start(createOverlaySession(501));
+    stopped.playback.audioChunk({ sessionId: 501, bytes: new Uint8Array([1]) });
+    stopped.playback.segmentEnd({ sessionId: 501 });
+    stopped.playback.endAudioInput({ sessionId: 501 });
+    await flushPlaybackMicrotasks();
+    const stoppedAudio = stopped.playedAudios.at(-1);
+    stopped.playback.stop({ sessionId: 501 });
+    stoppedAudio?.listeners.ended?.();
+    await flushPlaybackMicrotasks();
+    expect(stopped.events.filter((event) => event[0] === "outcome")).toEqual([]);
+
+    const replaced = createScenario();
+    replaced.playback.start(createOverlaySession(502));
+    replaced.playback.audioChunk({ sessionId: 502, bytes: new Uint8Array([2]) });
+    replaced.playback.segmentEnd({ sessionId: 502 });
+    replaced.playback.endAudioInput({ sessionId: 502 });
+    await flushPlaybackMicrotasks();
+    const replacedAudio = replaced.playedAudios.at(-1);
+    replaced.playback.start(createOverlaySession(503));
+    replacedAudio?.listeners.error?.();
+    await flushPlaybackMicrotasks();
+    expect(replaced.events.filter((event) => event[0] === "outcome")).toEqual([]);
   });
 });
 
-type QueueEvent = ["metric", number, number, number] | ["finish-overlay", number] | ["idle", number];
+type QueueEvent =
+  | ["metric", number, number, number]
+  | ["outcome", number, PlaybackAudioOutcome["status"]];
 
 interface BrowserFakes {
   animationFrames: Array<() => void>;
@@ -188,48 +228,45 @@ interface BrowserFakes {
   restore: () => void;
 }
 
-interface PlaybackRendererBridgeHarness {
-  bridge: PlaybackRendererBridge;
+interface PlaybackRendererRoleBridgeHarness {
+  bridge: PlaybackRendererRoleBridge;
   audioChunk: (payload: AudioChunkPayload) => void;
   fail: (payload: { sessionId: number }) => void;
-  finish: (payload: { sessionId: number }) => void;
+  endAudioInput: (payload: { sessionId: number }) => void;
   metrics: SessionOverlayMetric[];
   segmentEnd: (payload: { sessionId: number }) => void;
   start: (session: PlaybackAudioSession) => void;
   stop: (payload: { sessionId: number }) => void;
 }
 
-function createPlaybackRendererBridgeHarness(events: QueueEvent[]): PlaybackRendererBridgeHarness {
+function createPlaybackRendererRoleBridgeHarness(events: QueueEvent[]): PlaybackRendererRoleBridgeHarness {
   const startListeners = new Set<(session: PlaybackAudioSession) => void>();
   const audioChunkListeners = new Set<(payload: AudioChunkPayload) => void>();
   const segmentEndListeners = new Set<(payload: { sessionId: number }) => void>();
-  const finishListeners = new Set<(payload: { sessionId: number }) => void>();
+  const audioInputEndListeners = new Set<(payload: { sessionId: number }) => void>();
   const failListeners = new Set<(payload: { sessionId: number }) => void>();
   const stopListeners = new Set<(payload: { sessionId: number }) => void>();
   const metrics: SessionOverlayMetric[] = [];
-  const bridge: PlaybackRendererBridge = {
+  const bridge: PlaybackRendererRoleBridge = {
     onPlaybackStart: (listener) => subscribe(startListeners, listener),
     onAudioChunk: (listener) => subscribe(audioChunkListeners, listener),
     onSegmentEnd: (listener) => subscribe(segmentEndListeners, listener),
-    onPlaybackFinish: (listener) => subscribe(finishListeners, listener),
+    onAudioInputEnd: (listener) => subscribe(audioInputEndListeners, listener),
     onPlaybackFail: (listener) => subscribe(failListeners, listener),
     onPlaybackStop: (listener) => subscribe(stopListeners, listener),
-    notifyPlaybackIdle: async (sessionId) => {
-      events.push(["idle", sessionId]);
+    reportAudioOutcome: async (outcome) => {
+      events.push(["outcome", outcome.sessionId, outcome.status]);
     },
     sendOverlayMetric: async (metric) => {
       metrics.push(metric);
       events.push(["metric", metric.sessionId, metric.amplitude, metric.progress]);
     },
-    finishOverlayPlayback: async (sessionId) => {
-      events.push(["finish-overlay", sessionId]);
-    }
   };
   return {
     bridge,
     audioChunk: (payload) => emitListeners(audioChunkListeners, payload),
     fail: (payload) => emitListeners(failListeners, payload),
-    finish: (payload) => emitListeners(finishListeners, payload),
+    endAudioInput: (payload) => emitListeners(audioInputEndListeners, payload),
     metrics,
     segmentEnd: (payload) => emitListeners(segmentEndListeners, payload),
     start: (session) => emitListeners(startListeners, session),
@@ -246,10 +283,10 @@ function emitListeners<T>(listeners: Set<(payload: T) => void>, payload: T): voi
   for (const listener of listeners) listener(payload);
 }
 
-function createScenario(): BrowserFakes & { playback: PlaybackRendererBridgeHarness } {
+function createScenario(): BrowserFakes & { playback: PlaybackRendererRoleBridgeHarness } {
   activeBrowserFakes?.restore();
   const browserFakes = installBrowserFakes();
-  const playback = createPlaybackRendererBridgeHarness(browserFakes.events);
+  const playback = createPlaybackRendererRoleBridgeHarness(browserFakes.events);
   const disposePlayback = mountPlaybackAudio(playback.bridge);
   const scenario = {
     ...browserFakes,

@@ -6,7 +6,11 @@ import {
   type PlaybackSessionPort,
   type PlaybackShortcutRegistry
 } from "../../../src/main/playback/playback-command-controller.js";
-import { DEFAULT_ACTIVATION_SHORTCUT, type PlaybackStartResult } from "../../../src/shared/app-contracts.js";
+import {
+  DEFAULT_ACTIVATION_SHORTCUT,
+  PLAYBACK_AUDIO_OUTCOMES,
+  type PlaybackStartResult
+} from "../../../src/shared/app-contracts.js";
 import type { AppSettings, ShortcutUpdateResult } from "../../../src/shared/app-contracts.js";
 import type { ReadingTargetInput } from "../../../src/shared/types.js";
 
@@ -24,52 +28,84 @@ describe("PlaybackCommandController", () => {
 
     commands.registerActivationShortcut();
     expect(shortcuts.handlers.has(DEFAULT_ACTIVATION_SHORTCUT)).toBe(true);
-    const result = await commands.startReadingTargetPlayback();
+    const result = await commands.startReadingTargetPlayback("menu_bar");
 
     expect(result.started).toBe(true);
     expect(shortcuts.handlers.has("Escape")).toBe(true);
-    commands.handleRendererIdle(result.sessionId ?? 0);
+    playback.acceptAudioOutcomes = false;
+    commands.handleAudioOutcome({
+      sessionId: result.sessionId ?? 0,
+      status: PLAYBACK_AUDIO_OUTCOMES.completed
+    });
+    expect(shortcuts.handlers.has("Escape")).toBe(true);
+    playback.acceptAudioOutcomes = true;
+    commands.handleAudioOutcome({
+      sessionId: result.sessionId ?? 0,
+      status: PLAYBACK_AUDIO_OUTCOMES.completed
+    });
+    expect(playback.events.at(-1)).toEqual([
+      "audio-outcome",
+      result.sessionId,
+      PLAYBACK_AUDIO_OUTCOMES.completed
+    ]);
     expect(shortcuts.handlers.has("Escape")).toBe(false);
 
-    const stopped = await commands.startReadingTargetPlayback();
+    const failed = await commands.startReadingTargetPlayback("menu_bar");
+    expect(shortcuts.handlers.has("Escape")).toBe(true);
+    playback.emitTerminal(failed.sessionId ?? 0);
+    expect(shortcuts.handlers.has("Escape")).toBe(false);
+
+    const stopped = await commands.startReadingTargetPlayback("menu_bar");
     commands.stopPlayback();
     expect(playback.events.at(-1)).toEqual(["stop", stopped.sessionId]);
     expect(shortcuts.handlers.has("Escape")).toBe(false);
   });
 
-  it("starts playback from the Activation Shortcut and coalesces duplicate pending starts", async () => {
-    vi.useFakeTimers();
-    try {
-      const store = createCommandStore();
-      const playback = createPlaybackPort();
-      const shortcuts = createShortcutRegistry();
-      let readCount = 0;
-      let resolveInput: ((input: ReadingTargetInput) => void) | undefined;
-      const commands = new PlaybackCommandController(store, playback.port, shortcuts, () => {
-        readCount += 1;
-        return new Promise((resolve) => {
-          resolveInput = resolve;
-        });
+  it("routes the Activation Shortcut through acquisition and coalesces duplicate pending starts", async () => {
+    const store = createCommandStore();
+    const playback = createPlaybackPort();
+    const shortcuts = createShortcutRegistry();
+    const triggers: string[] = [];
+    let resolveInput: ((input: ReadingTargetInput) => void) | undefined;
+    const commands = new PlaybackCommandController(store, playback.port, shortcuts, (trigger) => {
+      triggers.push(trigger);
+      return new Promise((resolve) => {
+        resolveInput = resolve;
       });
+    });
 
-      commands.registerActivationShortcut();
-      shortcuts.handlers.get(DEFAULT_ACTIVATION_SHORTCUT)?.();
-      shortcuts.handlers.get(DEFAULT_ACTIVATION_SHORTCUT)?.();
-      await vi.advanceTimersByTimeAsync(350);
-      expect(readCount).toBe(1);
+    commands.registerActivationShortcut();
+    shortcuts.handlers.get(DEFAULT_ACTIVATION_SHORTCUT)?.();
+    shortcuts.handlers.get(DEFAULT_ACTIVATION_SHORTCUT)?.();
+    expect(triggers).toEqual(["activation_shortcut"]);
 
-      const first = commands.startReadingTargetPlayback();
-      const second = commands.startReadingTargetPlayback();
-      expect(readCount).toBe(1);
-      resolveInput?.(selectedTextTargetInput("并发快捷键播放。"));
-
-      await expect(first).resolves.toMatchObject({ started: true });
-      await expect(second).resolves.toMatchObject({ started: true });
-      expect(readCount).toBe(1);
+    resolveInput?.(selectedTextTargetInput("并发快捷键播放。"));
+    await vi.waitFor(() => {
       expect(playback.events.filter((event) => event[0] === "play-reading-target")).toHaveLength(1);
-    } finally {
-      vi.useRealTimers();
-    }
+    });
+  });
+
+  it("lets the first trigger own a cross-entry acquisition single-flight", async () => {
+    const store = createCommandStore();
+    const playback = createPlaybackPort();
+    const shortcuts = createShortcutRegistry();
+    const triggers: string[] = [];
+    let resolveInput: ((input: ReadingTargetInput) => void) | undefined;
+    const commands = new PlaybackCommandController(store, playback.port, shortcuts, (trigger) => {
+      triggers.push(trigger);
+      return new Promise((resolve) => {
+        resolveInput = resolve;
+      });
+    });
+
+    const readerStart = commands.startReadingTargetPlayback("reader_window");
+    const menuStart = commands.startReadingTargetPlayback("menu_bar");
+    expect(triggers).toEqual(["reader_window"]);
+    resolveInput?.(selectedTextTargetInput("跨入口并发播放。"));
+
+    await expect(readerStart).resolves.toMatchObject({ started: true });
+    await expect(menuStart).resolves.toMatchObject({ started: true });
+    expect(playback.events.filter((event) => event[0] === "play-reading-target")).toHaveLength(1);
   });
 
   it("reports an unavailable Stop Shortcut while preserving the explicit stop fallback", async () => {
@@ -84,12 +120,30 @@ describe("PlaybackCommandController", () => {
       async () => selectedTextTargetInput("停止快捷键不可用。")
     );
 
-    const result = await commands.startReadingTargetPlayback();
+    const result = await commands.startReadingTargetPlayback("menu_bar");
 
     expect(result).toMatchObject({ started: true, stopShortcutAvailable: false });
     expect(shortcuts.handlers.has("Escape")).toBe(false);
     commands.stopPlayback();
     expect(playback.events.at(-1)).toEqual(["stop", result.sessionId]);
+  });
+
+  it("does not register the Stop Shortcut when a session terminates before start returns", async () => {
+    const store = createCommandStore();
+    const playback = createPlaybackPort();
+    const shortcuts = createShortcutRegistry();
+    playback.terminateBeforeStartReturns = true;
+    const commands = new PlaybackCommandController(
+      store,
+      playback.port,
+      shortcuts,
+      async () => selectedTextTargetInput("同步终态。")
+    );
+
+    const result = await commands.startReadingTargetPlayback("menu_bar");
+
+    expect(result).toMatchObject({ started: true, stopShortcutAvailable: false });
+    expect(shortcuts.handlers.has("Escape")).toBe(false);
   });
 
   it("normalizes Activation Shortcut updates and preserves the previous shortcut on registration failure", () => {
@@ -156,7 +210,7 @@ type PlaybackPortEvent =
   | ["play-history", string]
   | ["play-favorite", string]
   | ["stop", number | undefined]
-  | ["renderer-idle", number];
+  | ["audio-outcome", number, "completed" | "failed"];
 
 function createCommandStore(): CommandStore {
   let settings: AppSettings = {
@@ -197,12 +251,30 @@ function createShortcutRegistry(): ShortcutRegistryForTest {
   };
 }
 
-function createPlaybackPort(): { port: PlaybackSessionPort; events: PlaybackPortEvent[] } {
+interface PlaybackPortHarness {
+  port: PlaybackSessionPort;
+  events: PlaybackPortEvent[];
+  acceptAudioOutcomes: boolean;
+  emitTerminal: (sessionId: number) => void;
+  terminateBeforeStartReturns: boolean;
+}
+
+function createPlaybackPort(): PlaybackPortHarness {
   let nextSessionId = 0;
+  const terminalListeners = new Set<(sessionId: number) => void>();
   const events: PlaybackPortEvent[] = [];
-  const startResult = (): PlaybackStartResult => ({ started: true, sessionId: ++nextSessionId });
-  return {
+  const startResult = (): PlaybackStartResult => {
+    const resultValue = { started: true as const, sessionId: ++nextSessionId };
+    if (result.terminateBeforeStartReturns) result.emitTerminal(resultValue.sessionId);
+    return resultValue;
+  };
+  const result: PlaybackPortHarness = {
     events,
+    acceptAudioOutcomes: true,
+    terminateBeforeStartReturns: false,
+    emitTerminal: (sessionId) => {
+      for (const listener of terminalListeners) listener(sessionId);
+    },
     port: {
       playReadingTarget: async (input) => {
         events.push(["play-reading-target", input]);
@@ -219,11 +291,18 @@ function createPlaybackPort(): { port: PlaybackSessionPort; events: PlaybackPort
       stopSession: (sessionId) => {
         events.push(["stop", sessionId]);
       },
-      handleRendererIdle: (sessionId) => {
-        events.push(["renderer-idle", sessionId]);
+      handleAudioOutcome: (outcome) => {
+        events.push(["audio-outcome", outcome.sessionId, outcome.status]);
+        if (result.acceptAudioOutcomes) result.emitTerminal(outcome.sessionId);
+        return result.acceptAudioOutcomes;
+      },
+      onSessionTerminal: (listener) => {
+        terminalListeners.add(listener);
+        return () => terminalListeners.delete(listener);
       }
     }
   };
+  return result;
 }
 
 function selectedTextTargetInput(text: string): ReadingTargetInput {

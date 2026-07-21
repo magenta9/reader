@@ -1,0 +1,15 @@
+---
+status: accepted
+---
+
+# Let Reading Target Acquisition Own Trigger Preparation
+
+VoiceReader will resolve a current Reading Target through one main-owned `ReadingTargetAcquirer.acquire(trigger)` interface. The interface owns the full capture transaction: trigger preparation、clipboard snapshot、Selected Text accessibility read、Cmd-C fallback and polling、Clipboard Text fallback、unconditional restoration after temporary clipboard replacement and safe Error Log reporting. Callers must supply exactly one of `reader_window`、`menu_bar` or `activation_shortcut`; there is no no-trigger default or separate reveal phase.
+
+Trigger preparation preserves the existing macOS behavior while making its authority explicit. Reader Window hides VoiceReader through the App Shell presence port, waits 300ms and leaves the previous app active after capture. Menu Bar captures the frontmost app at command time without hiding or yielding first. Activation Shortcut waits 350ms before capture. Playback Command Controller permits one pending Reading Target start, so the first accepted trigger owns an overlapping acquisition and later Reader、Menu or Shortcut requests reuse that result and create only one Playback Session.
+
+The highest behavior seam is `ReadingTargetAcquirer.acquire(trigger)` with fake presence、clipboard、native addon、clock and Error Log adapters. Entry tracers separately prove Reader role、Reader App Shell Menu and global shortcut trigger mapping plus cross-entry single-flight. Production role transport passes only declared endpoint arguments: the former Reader `beforeInvoke`、Electron sender context、focused-sender check and `revealPreviousAppBeforeCapture()` are deleted rather than retained as a second timing authority.
+
+This decision supersedes ADR-0031's Selection Capture `beforeInvoke` and focused-sender portion、ADR-0030's typed `beforeInvoke` context-hook decision and ADR-0021's sender-identity source-test obligation. ADR-0031 remains authoritative for Reader Window、navigation、Menu Bar、lifecycle、presence and feedback ownership; ADR-0030 remains authoritative for role declarations、fixed entrypoints、channel direction、renderer bridge shape and allow-list; ADR-0021's verification-layer split remains unchanged. SQLite schema、Settings/configuration、Reading History、Playback Session、Stop Shortcut and user data are unchanged.
+
+Migration follows expand–migrate–contract and rolls back in reverse order: first restore the contract-stage legacy hook、sender context and no-trigger seam, then restore the three pre-trigger entry mappings, and finally remove the trigger-aware acquisition interface. No data or configuration migration is involved.

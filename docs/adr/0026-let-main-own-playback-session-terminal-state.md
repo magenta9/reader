@@ -1,0 +1,11 @@
+---
+status: accepted
+---
+
+# Let the Main Process Own Playback Session Terminal State
+
+VoiceReader will treat MiniMax generation completion as the point when no more audio will be appended, not as Playback Session completion. The hidden Playback Renderer remains the browser-audio adapter: after the queue and playback tail finish, it reports an explicit `completed` or `failed` Audio Outcome carrying the Playback Session identity. The Electron main process is the only owner of the active Playback Session and its user-visible terminal state; it ignores outcomes for stopped, replaced, or stale session identities and routes the accepted terminal event to the session's named Feedback Surface.
+
+This boundary keeps plaintext MiniMax credentials and generation cancellation in the main process while preserving browser audio and amplitude sampling in the renderer. It also makes completion match what the user heard, prevents playback errors from being presented as success, and gives Stop and replacement races one testable authority. Every accepted main-owned terminal path emits a session terminal notification to command adapters, including generation failures that never produce a Renderer Audio Outcome. Renderer audio commands and Reader feedback use direction-specific IPC channel names. The migration uses expand–migrate–contract: introduce the explicit outcome while retaining the legacy idle path, move terminal ownership to the main process, then remove the ambiguous compatibility path. No generated audio, raw MiniMax response, or new user data is persisted.
+
+The direction-specific Playback contracts are now executable role declarations. Playback Renderer receives only renderer-audio events plus outcome/metric commands, Reader Window receives only named feedback events, and Playback Overlay receives only overlay events plus its ready command. Electron main still owns session acceptance and Feedback Surface routing; the registry supplies transport wiring, not terminal-state policy.

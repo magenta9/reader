@@ -16,6 +16,10 @@ _Avoid_: Copied text, pasteboard content, current text
 The text chosen for playback after an explicit user action. In the macOS app, Reading Targets come from Selected Text when available, otherwise Clipboard Text.
 _Avoid_: Playback source, input text, content
 
+**Reading Target Acquisition**:
+The main-owned transaction that prepares the active macOS app, resolves Selected Text or Clipboard Text, and restores any temporary clipboard replacement for one accepted Play intent. Reader Window, Menu Bar, and Activation Shortcut triggers select distinct preparation policies, while the first accepted trigger owns any overlapping acquisition.
+_Avoid_: Selection Capture hook, read input, text lookup
+
 **Reading History**:
 The local list of past Reading Targets that VoiceReader saves so the user can review previously spoken text in reverse chronological order. Reading History preserves full text and metadata, but not generated audio; the user controls how long records are retained.
 _Avoid_: Playback log, audio history, recent items
@@ -41,24 +45,36 @@ A Playback Session started from a Reading History Record. History Replay plays t
 _Avoid_: History playback, replay item, restored session
 
 **Feedback Surface**:
-The named UI surface that receives playback activity, approximate progress, and completion feedback for a Playback Session. Current Reading Target playback uses the Playback Overlay feedback surface; History Replay uses the history detail feedback surface; Favorite Replay uses the favorite detail feedback surface.
+The named UI surface that receives playback activity, approximate progress, and terminal feedback for a Playback Session. The main process routes the accepted terminal state by the session's Feedback Surface identity: current Reading Target playback uses the Playback Overlay; History Replay uses the history detail surface; Favorite Replay uses the favorite detail surface.
 _Avoid_: Output target, display mode, status destination
+
+**Audio Outcome**:
+The session-scoped `completed` or `failed` result reported by the hidden Playback Renderer after browser audio output settles. An Audio Outcome carries the Playback Session identity so the main process can ignore results from stopped, replaced, or stale sessions. It is an adapter result, not an independent user-visible terminal state.
+_Avoid_: Renderer Idle, Generation Complete, Playback Result
 
 **Activation Shortcut**:
 The user-configured keyboard shortcut that explicitly asks VoiceReader to start Reading Target playback from anywhere on macOS. VoiceReader first tries Selected Text from the frontmost app, then falls back to Clipboard Text when no Selected Text is available. VoiceReader provides a default Activation Shortcut, but the user can change it when it conflicts with another app or system shortcut.
 _Avoid_: Hotkey, keyboard command, trigger key
 
 **Stop Shortcut**:
-The Escape key while a Playback Session is active; it is globally active only during playback and explicitly asks VoiceReader to stop current playback without starting a new Reading Target.
+The Escape key while a Playback Session is active; it is globally active only during playback and explicitly asks VoiceReader to stop current playback without starting a new Reading Target. The main-owned Playback Session terminal notification releases it after completion, user stop, generation failure, output failure, or replacement.
 _Avoid_: Toggle key, cancel key, pause key
 
 **Reader Window**:
 The main macOS window for VoiceReader. It contains Home, History, Favorites, and Settings surfaces for Reading Target playback status, Reading History, saved Favorite Records, and user configuration.
 _Avoid_: Main screen, dashboard, control panel
 
+**Home Workspace**:
+One active visit to Home in the Reader Window. It combines authoritative saved settings with MiniMax credential readiness and owns that visit's selected language, optimistic Preferred Voice presentation, recovery actions, Reading Target start or skip feedback, pending commands, and command ordering. Leaving Home ends the workspace; the next visit reloads authoritative state, and reads or commands from an earlier visit cannot update or unlock the current one. Playback Session activity and terminal feedback remain main-owned and use the session's named Feedback Surface.
+_Avoid_: Home state, dashboard model, home store
+
 **Settings**:
 The Reader Window surface where the user manages the MiniMax connection, the Activation Shortcut, reading behavior, launch behavior, Reading History retention, and safe local maintenance actions. It presents user-controlled configuration and recovery states, not internal completion state.
 _Avoid_: Preferences, configuration panel, admin settings
+
+**Settings Workspace**:
+One active visit to Settings. It combines authoritative saved settings with section-level availability and owns that visit's drafts, confirmations, feedback, and pending actions; leaving Settings ends the workspace, and the next visit reloads authoritative state.
+_Avoid_: Settings state, preferences model, settings store
 
 **Menu Bar Icon**:
 The persistent VoiceReader icon in the macOS menu bar. It confirms that VoiceReader is running and opens the Menu Bar Menu for high-frequency actions.
@@ -69,7 +85,7 @@ The menu opened from VoiceReader's macOS menu bar icon. It contains high-frequen
 _Avoid_: Tray menu, popup, dropdown
 
 **Playback Overlay**:
-A passive, non-activating status window that appears while the current Reading Target is preparing or playing. It stays outside the Reader Window, anchors near the bottom center of the display containing the mouse when the session starts, ignores mouse input, shows only a weak preparing waveform, an active waveform with read-only approximate progress, and brief completion, failure, or stopped marks. It never acts as a player control: users stop with the global Stop Shortcut or the Menu Bar Menu. History Replay and Favorite Replay do not use the Playback Overlay.
+A passive, non-activating status window that appears while the current Reading Target is preparing or playing. It stays outside the Reader Window, anchors near the bottom center of the display containing the mouse when the session starts, ignores mouse input, shows only a weak preparing waveform, an active waveform with read-only approximate progress, and brief completion, failure, or stopped marks routed from the main process's accepted Playback Session terminal state. It never acts as a player control: users stop with the global Stop Shortcut or the Menu Bar Menu. History Replay and Favorite Replay do not use the Playback Overlay.
 _Avoid_: Notification, toast, in-window capsule
 
 **Error Log**:
@@ -85,7 +101,7 @@ The coarse language classification assigned to a Reading Segment for Voice selec
 _Avoid_: Locale, translation language, browser language
 
 **Playback Session**:
-A single active attempt to turn a Reading Target into spoken audio. VoiceReader only has one Playback Session at a time; starting a new one replaces the current one. Playback Sessions can be started or stopped, but not paused or resumed; replaying starts from the beginning.
+A single active attempt to turn a Reading Target into spoken audio. It remains active while MiniMax generates audio and while the hidden Playback Renderer outputs the sealed audio queue; generation completion alone is not a terminal state. VoiceReader only has one Playback Session at a time; starting a new one replaces the current one. The main process accepts an Audio Outcome only for the current, generation-finished session, then routes completion or failure to its Feedback Surface. Every accepted terminal path also emits one main-owned session terminal notification so command adapters such as the Stop Shortcut cannot outlive the session. Playback Sessions can be started or stopped, but not paused or resumed; replaying starts from the beginning.
 _Avoid_: Audio job, task, stream
 
 **Speech Rate**:

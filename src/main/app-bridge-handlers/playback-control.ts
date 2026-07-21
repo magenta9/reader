@@ -1,33 +1,23 @@
-import { PLAYBACK_CONTROL_CHANNELS } from "../../shared/bridge-contracts.js";
+import { playbackControlRoleContract } from "../../shared/role-bridge-contracts.js";
+import type { ImplementationFromContract } from "../../shared/role-bridge-registry.js";
 import type { AppBridgeHandlerDependencies } from "./dependencies.js";
 
-type PlaybackControlHandlerDependencies = Pick<
-  AppBridgeHandlerDependencies,
-  "ipcMain" | "playbackCommands" | "readingTargetAcquirer" | "shouldRevealPreviousAppBeforeSelectionCapture"
->;
+export interface PlaybackControlImplementationDependencies {
+  playbackCommands: Pick<
+    AppBridgeHandlerDependencies["playbackCommands"],
+    "startReadingTargetPlayback" | "startHistoryReplay" | "startFavoriteReplay" | "stopPlayback"
+  >;
+}
 
-export function registerPlaybackControlHandlers({
-  ipcMain,
-  playbackCommands,
-  readingTargetAcquirer,
-  shouldRevealPreviousAppBeforeSelectionCapture
-}: PlaybackControlHandlerDependencies): void {
-  ipcMain.handle(PLAYBACK_CONTROL_CHANNELS.playReadingTarget, async (event) => {
-    if (shouldRevealPreviousAppBeforeSelectionCapture(event.sender.id)) {
-      await readingTargetAcquirer.revealPreviousAppBeforeCapture();
-    }
-    return playbackCommands.startReadingTargetPlayback();
-  });
-  ipcMain.handle(PLAYBACK_CONTROL_CHANNELS.playHistoryRecord, (_event, id: string) =>
-    playbackCommands.startHistoryReplay(id)
-  );
-  ipcMain.handle(PLAYBACK_CONTROL_CHANNELS.playFavoriteRecord, (_event, id: string) =>
-    playbackCommands.startFavoriteReplay(id)
-  );
-  ipcMain.handle(PLAYBACK_CONTROL_CHANNELS.stop, () => {
-    playbackCommands.stopPlayback();
-  });
-  ipcMain.handle(PLAYBACK_CONTROL_CHANNELS.rendererIdle, (_event, sessionId: number) => {
-    playbackCommands.handleRendererIdle(sessionId);
-  });
+export function createPlaybackControlImplementation({
+  playbackCommands
+}: PlaybackControlImplementationDependencies): ImplementationFromContract<
+  typeof playbackControlRoleContract
+> {
+  return {
+    playReadingTarget: () => playbackCommands.startReadingTargetPlayback("reader_window"),
+    playHistoryRecord: (id) => playbackCommands.startHistoryReplay(id),
+    playFavoriteRecord: (id) => playbackCommands.startFavoriteReplay(id),
+    stopPlayback: () => playbackCommands.stopPlayback()
+  };
 }

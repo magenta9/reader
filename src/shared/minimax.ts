@@ -1,5 +1,6 @@
 import { normalizeMiniMaxVoices } from "./voices.js";
 import type { MiniMaxVoice } from "./types.js";
+import type { SpeechAudioStreamPort } from "./speech-audio-stream.js";
 
 const GLOBAL_API_BASE_URL = "https://api.minimax.io";
 const CN_API_BASE_URL = "https://api.minimaxi.com";
@@ -36,16 +37,7 @@ export async function getMiniMaxVoices(apiKey: string): Promise<MiniMaxVoice[]> 
   throw lastError instanceof Error ? lastError : new Error("MiniMax connection failed.");
 }
 
-export interface MiniMaxTtsRequest {
-  apiKey: string;
-  model: string;
-  voiceId: string;
-  text: string;
-  signal: AbortSignal;
-  onAudioHex: (audioHex: string) => Promise<void> | void;
-}
-
-export async function streamMiniMaxTts(request: MiniMaxTtsRequest): Promise<void> {
+export const streamMiniMaxSpeechAudio: SpeechAudioStreamPort = async (request) => {
   assertLikelyMiniMaxApiKey(request.apiKey);
   let lastError: unknown;
 
@@ -61,14 +53,22 @@ export async function streamMiniMaxTts(request: MiniMaxTtsRequest): Promise<void
       const contentType = response.headers.get("content-type") ?? "";
 
       if (!response.ok || contentType.includes("application/json")) {
-        const payload = await response.json().catch(() => ({}));
-        assertMiniMaxBaseResponse(payload);
+        const payload = await response.json().catch(() => {
+          if (response.ok) throw new MiniMaxTtsAdapterError("MiniMax TTS returned malformed JSON.");
+          return {};
+        });
         if (!response.ok) {
-          throw new Error(
-            extractMiniMaxError(payload, `MiniMax TTS failed with HTTP ${response.status}`)
+          const shouldTryFallback = isMiniMaxAuthorizationFailure(response.status, payload);
+          throw new MiniMaxTtsAdapterError(
+            shouldTryFallback
+              ? "MiniMax TTS authorization failed."
+              : `MiniMax TTS failed with HTTP ${response.status}.`,
+            shouldTryFallback
           );
         }
-        await emitAudioFromPayload(payload, request.onAudioHex);
+        assertMiniMaxTtsBaseResponse(payload);
+        const emittedAudio = await emitAudioFromPayload(payload, request.onAudioChunk);
+        if (!emittedAudio) throw new Error("MiniMax TTS returned no audio.");
         return;
       }
 
@@ -76,16 +76,17 @@ export async function streamMiniMaxTts(request: MiniMaxTtsRequest): Promise<void
         throw new Error("MiniMax TTS returned no response body.");
       }
 
-      await parseMiniMaxStream(response.body, request.onAudioHex);
+      const emittedAudio = await parseMiniMaxByteStream(response.body, request.onAudioChunk);
+      if (!emittedAudio) throw new Error("MiniMax TTS returned no audio.");
       return;
     } catch (error) {
       lastError = error;
-      if (!shouldTryNextMiniMaxEndpoint(error)) break;
+      if (!shouldTryNextMiniMaxTtsEndpoint(error)) break;
     }
   }
 
   throw lastError instanceof Error ? lastError : new Error("MiniMax TTS failed.");
-}
+};
 
 export function extractMiniMaxError(payload: unknown, fallback: string): string {
   if (!payload || typeof payload !== "object") return fallback;
@@ -153,7 +154,7 @@ function assertMiniMaxBaseResponse(payload: unknown): void {
   }
 }
 
-export function buildMiniMaxTtsBody(model: string, voiceId: string, text: string): Record<string, unknown> {
+function buildMiniMaxTtsBody(model: string, voiceId: string, text: string): Record<string, unknown> {
   return {
     model,
     text,
@@ -175,10 +176,10 @@ export function buildMiniMaxTtsBody(model: string, voiceId: string, text: string
   };
 }
 
-export async function parseMiniMaxStream(
+async function parseMiniMaxByteStream(
   stream: ReadableStream<Uint8Array>,
-  onAudioHex: (audioHex: string) => Promise<void> | void
-): Promise<void> {
+  onAudioChunk: (bytes: Uint8Array) => Promise<void> | void
+): Promise<boolean> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -190,15 +191,16 @@ export async function parseMiniMaxStream(
     if (!result) return;
 
     if (result.kind === "final") {
+      const bytes = decodeMiniMaxAudioHex(result.audioHex);
       if (!emittedIncrementalAudio && !emittedFinalAudio) {
-        await onAudioHex(result.audioHex);
+        await onAudioChunk(bytes);
         emittedFinalAudio = true;
       }
       return;
     }
 
     if (!emittedFinalAudio) {
-      await onAudioHex(result.audioHex);
+      await onAudioChunk(decodeMiniMaxAudioHex(result.audioHex));
       emittedIncrementalAudio = true;
     }
   };
@@ -222,9 +224,20 @@ export async function parseMiniMaxStream(
       await handleLine(line);
     }
   }
+  return emittedIncrementalAudio || emittedFinalAudio;
 }
 
 type ParsedMiniMaxAudioLine = { kind: "incremental" | "final"; audioHex: string };
+
+class MiniMaxTtsAdapterError extends Error {
+  constructor(
+    message: string,
+    readonly shouldTryFallback = false
+  ) {
+    super(message);
+    this.name = "MiniMaxTtsAdapterError";
+  }
+}
 
 function parseMiniMaxLine(line: string): ParsedMiniMaxAudioLine | undefined {
   const trimmed = line.trim();
@@ -232,21 +245,66 @@ function parseMiniMaxLine(line: string): ParsedMiniMaxAudioLine | undefined {
   const jsonText = trimmed.startsWith("data:") ? trimmed.slice(5).trim() : trimmed;
   if (!jsonText || jsonText === "[DONE]") return undefined;
 
-  const payload = JSON.parse(jsonText) as unknown;
-  assertMiniMaxBaseResponse(payload);
+  let payload: unknown;
+  try {
+    payload = JSON.parse(jsonText) as unknown;
+  } catch {
+    throw new MiniMaxTtsAdapterError("MiniMax TTS returned malformed streaming data.");
+  }
+  assertMiniMaxTtsBaseResponse(payload);
   return findStreamingAudio(payload);
+}
+
+function assertMiniMaxTtsBaseResponse(payload: unknown): void {
+  if (!payload || typeof payload !== "object") return;
+  const baseResp = (payload as Record<string, unknown>).base_resp;
+  if (!baseResp || typeof baseResp !== "object") return;
+  const statusCode = (baseResp as Record<string, unknown>).status_code;
+  if (typeof statusCode !== "number" || statusCode === 0) return;
+  const shouldTryFallback = isMiniMaxAuthorizationFailure(undefined, payload);
+  throw new MiniMaxTtsAdapterError(
+    shouldTryFallback
+      ? "MiniMax TTS authorization failed."
+      : `MiniMax TTS returned status ${statusCode}.`,
+    shouldTryFallback
+  );
+}
+
+function isMiniMaxAuthorizationFailure(status: number | undefined, payload: unknown): boolean {
+  return (
+    status === 401 ||
+    status === 403 ||
+    /invalid api key|login fail|authorization/i.test(extractMiniMaxError(payload, ""))
+  );
+}
+
+function shouldTryNextMiniMaxTtsEndpoint(error: unknown): boolean {
+  return error instanceof MiniMaxTtsAdapterError && error.shouldTryFallback;
 }
 
 async function emitAudioFromPayload(
   payload: unknown,
-  onAudioHex: (audioHex: string) => Promise<void> | void
+  onAudioChunk: (bytes: Uint8Array) => Promise<void> | void
 ): Promise<boolean> {
   if (!payload || typeof payload !== "object") return false;
   const audio = findAudioHex(payload);
   if (!audio) return false;
-  await onAudioHex(audio);
+  await onAudioChunk(decodeMiniMaxAudioHex(audio));
   return true;
 }
+
+function decodeMiniMaxAudioHex(audioHex: string): Uint8Array {
+  const clean = audioHex.trim();
+  if (!clean || clean.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(clean)) {
+    throw new Error("MiniMax TTS returned malformed audio hex.");
+  }
+  const bytes = new Uint8Array(clean.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(clean.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
 
 function findMiniMaxDataStatus(value: unknown): number | undefined {
   if (!value || typeof value !== "object") return undefined;

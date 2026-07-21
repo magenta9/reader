@@ -1,0 +1,18 @@
+---
+status: accepted
+partially-superseded-by: ADR-0036
+---
+
+# Let Reader App Shell Own Window and Navigation Lifecycle
+
+VoiceReader will use one main-owned Reader App Shell controller as the authority for the Reader Window, desired route and its ordering, Menu Bar Menu commands, application activation, close-to-hide and quit state, App presence, and Reader Window sender identity. The Electron entrypoint remains the composition root; executable role contracts continue to own IPC declaration and transport wiring, not App Shell policy.
+
+The Shell exposes product-semantic operations over narrow Window、Menu、Lifecycle、Settings、Presence 与 Playback Command ports instead of mirroring Electron. A main-assigned monotonically increasing route revision orders bootstrap snapshots and navigation events. The Shell persists each accepted route transition once and only publishes the latest revision after the Reader Window is ready; repeated Electron ready/load signals do not create repeated semantic transitions. Reader renderer applies snapshots monotonically so a delayed bootstrap response cannot overwrite a newer navigation event. Runtime route input is validated before it can change in-memory or persisted state.
+
+Interface-level tests use fake local ports to cover startup and login launch、single-window reuse、loading races、route persistence、Menu Bar mapping、close/quit and sender/focus behavior. Production Electron adapters are the second real adapter. Dist checks execute built artifacts and IPC behavior rather than preserve App Shell function names or source ordering. Positive packaged smoke scenarios assemble the production Shell、load a hidden Reader Window and wait for Shell initialization before publishing readiness; they continue using isolated userData and never replace the installed app.
+
+Production wiring lives behind the Electron Reader App Shell adapter. It owns the concrete Reader `BrowserWindow`、Tray/Menu、Electron lifecycle listeners、Dock presence and Reader role event emitter, while `main.ts` only supplies construction dependencies and starts the Shell. Reader feedback is a semantic `finishPlayback` / `failPlayback` / `stopPlayback` sink implemented by the Shell; `ElectronPlaybackOutput` can no longer obtain or inspect the Reader `BrowserWindow`. The App Shell bridge and Selection Capture before-invoke hook likewise delegate bootstrap、route、onboarding and focused-sender decisions to the controller. Ready-to-show controls visibility, did-finish-load controls route delivery, and both signals are idempotent.
+
+This decision deepens the thin Electron shell chosen in ADR-0008 while preserving the macOS product direction in ADR-0010, the separate passive Playback Overlay from ADR-0011, the React Reader Window from ADR-0015, and the role-scoped executable bridge boundary from ADR-0030. It does not change window dimensions、menu content、startup/Dock/close/quit experience、IPC channels、SQLite keys/schema、Playback Session ownership or Selection Capture timing. Migration uses expand–migrate–contract and can be reverted in reverse order without data migration.
+
+Historical scope note: ADR-0036 supersedes only this decision's Selection Capture `beforeInvoke`、focused-sender ownership and related interface-test obligations. Reader Window、navigation、Menu Bar、lifecycle、presence and Reader feedback ownership remain accepted here; the historical text above is retained to show the former boundary.

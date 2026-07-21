@@ -1,6 +1,17 @@
 import type { DetectedLanguage, MiniMaxVoice, ReadingSource } from "./types.js";
 
-export type AppRoute = "home" | "history" | "favorites" | "settings";
+export const APP_ROUTES = ["home", "history", "favorites", "settings"] as const;
+
+export type AppRoute = (typeof APP_ROUTES)[number];
+
+export function isAppRoute(value: unknown): value is AppRoute {
+  return APP_ROUTES.includes(value as AppRoute);
+}
+
+export interface RouteSnapshot {
+  route: AppRoute;
+  revision: number;
+}
 
 export type HistoryRetention = "7d" | "1m" | "3m" | "forever";
 
@@ -36,11 +47,9 @@ export interface AppSettings {
   preferredVoicesByLanguage: Partial<Record<DetectedLanguage, string>>;
 }
 
-export type AppSettingsPatch = Partial<Omit<AppSettings, "historyRetention">>;
-
 export interface BootstrapState {
   hasCompletedOnboarding: boolean;
-  lastRoute: AppRoute;
+  route: RouteSnapshot;
 }
 
 export interface ReadingHistoryRecord {
@@ -117,6 +126,18 @@ export interface AudioChunkPayload {
 
 export interface SessionPayload {
   sessionId: number;
+}
+
+export const PLAYBACK_AUDIO_OUTCOMES = {
+  completed: "completed",
+  failed: "failed"
+} as const;
+
+export type PlaybackAudioOutcomeStatus =
+  (typeof PLAYBACK_AUDIO_OUTCOMES)[keyof typeof PLAYBACK_AUDIO_OUTCOMES];
+
+export interface PlaybackAudioOutcome extends SessionPayload {
+  status: PlaybackAudioOutcomeStatus;
 }
 
 export interface OverlayMetric {

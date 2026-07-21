@@ -2,11 +2,14 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { runPackagedSmoke } from "../../scripts/packaged-smoke.mjs";
+import { loadMacReleaseIdentity } from "../../scripts/release-identity.mjs";
 
 const smokeScript = resolve("scripts/packaged-smoke.mjs");
 const temporaryRoots = [];
-const fixtureTimeoutMs = "2000";
+const fixtureTimeoutMs = 2_000;
+const skipArtifactVerification = { verifyApplication: async () => undefined };
 
 function createFakeApplication(script) {
   const root = mkdtempSync(join(tmpdir(), "voicereader-smoke-verifier-"));
@@ -15,6 +18,79 @@ function createFakeApplication(script) {
   const executable = join(application, "Contents/MacOS/VoiceReader");
   mkdirSync(join(application, "Contents/MacOS"), { recursive: true });
   writeFileSync(executable, `#!/bin/sh\n${script}\n`);
+  chmodSync(executable, 0o755);
+  return { root, application };
+}
+
+function createFakeMigratingApplication() {
+  const root = mkdtempSync(join(tmpdir(), "voicereader-smoke-verifier-"));
+  temporaryRoots.push(root);
+  const application = join(root, "Fake.app");
+  const executable = join(application, "Contents/MacOS/VoiceReader");
+  mkdirSync(join(application, "Contents/MacOS"), { recursive: true });
+  const schemaSql = `
+    CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS reading_history (
+      id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, text TEXT NOT NULL,
+      preview TEXT NOT NULL, duration_estimate_seconds INTEGER NOT NULL,
+      language_summary TEXT NOT NULL, source TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_reading_history_created_at ON reading_history (created_at DESC);
+    CREATE TABLE IF NOT EXISTS favorite_records (
+      id TEXT PRIMARY KEY, favorited_at INTEGER NOT NULL, source_created_at INTEGER NOT NULL,
+      text TEXT NOT NULL, preview TEXT NOT NULL, duration_estimate_seconds INTEGER NOT NULL,
+      language_summary TEXT NOT NULL, source TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_favorite_records_favorited_at ON favorite_records (favorited_at DESC);
+    CREATE TABLE IF NOT EXISTS error_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL,
+      category TEXT NOT NULL, message TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_error_log_created_at ON error_log (created_at DESC);
+  `;
+  writeFileSync(
+    executable,
+    `#!/usr/bin/env node
+import { DatabaseSync } from "node:sqlite";
+const userData = process.env.VOICEREADER_PACKAGED_SMOKE_USER_DATA;
+const databasePath = userData + "/voicereader.sqlite";
+const database = new DatabaseSync(databasePath);
+const version = database.prepare("PRAGMA user_version").get().user_version;
+if (version > 1) {
+  database.close();
+  process.stderr.write("schema is newer than supported version\\n");
+  process.exit(7);
+}
+database.exec(${JSON.stringify(schemaSql)});
+database.prepare("DELETE FROM settings WHERE key = ?").run("minimax.apiKey.encrypted");
+const row = database.prepare("SELECT value FROM settings WHERE key = ?").get("app.settings");
+if (row) {
+  const settings = JSON.parse(row.value);
+  if (settings.activationShortcut === "Command+Shift+R") {
+    settings.activationShortcut = "Control+Command+R";
+    database.prepare("UPDATE settings SET value = ? WHERE key = ?").run(JSON.stringify(settings), "app.settings");
+  }
+}
+database.exec("PRAGMA user_version = 1");
+database.close();
+if (process.env.SMOKE_PATH_CAPTURE) {
+  const { writeFileSync } = await import("node:fs");
+  writeFileSync(process.env.SMOKE_PATH_CAPTURE, userData);
+}
+process.on("SIGTERM", () => process.exit(0));
+process.stdout.write("VOICEREADER_SMOKE_READY " + JSON.stringify({
+  packaged: true,
+  userData,
+  databasePath,
+  migratedTables: 4,
+  schemaVersion: 1,
+  scenario: process.env.VOICEREADER_PACKAGED_SMOKE_SCENARIO,
+  overlayLoaded: true,
+  addonExports: ["copySelection", "readSelectedText"]
+}) + "\\n");
+setInterval(() => {}, 1000);
+`
+  );
   chmodSync(executable, 0o755);
   return { root, application };
 }
@@ -32,72 +108,134 @@ describe("packaged VoiceReader smoke command", () => {
       packagedOnly: true,
       isolatedUserData: true,
       readinessPrefix: "VOICEREADER_SMOKE_READY ",
+      scenarios: ["fresh", "legacy", "current", "future"],
       timeoutMs: 15000,
       removesTemporaryData: true
     });
   });
 
-  it("accepts readiness only after isolated storage and addon loading are proven", () => {
-    const { root, application } = createFakeApplication(
-      'db="$VOICEREADER_PACKAGED_SMOKE_USER_DATA/voicereader.sqlite"\n' +
-        'touch "$db"\n' +
-        'printf "%s" "$VOICEREADER_PACKAGED_SMOKE_USER_DATA" > "$SMOKE_PATH_CAPTURE"\n' +
-        'trap "exit 0" TERM\n' +
-        'echo "VOICEREADER_SMOKE_READY {\\"packaged\\":true,\\"userData\\":\\"$VOICEREADER_PACKAGED_SMOKE_USER_DATA\\",\\"databasePath\\":\\"$db\\",\\"migratedTables\\":4,\\"addonExports\\":[\\"copySelection\\",\\"readSelectedText\\"]}"\n' +
-        "while :; do sleep 1; done"
-    );
-    const capture = join(root, "captured-user-data");
-    const result = spawnSync(process.execPath, [smokeScript, "--application", application], {
-      encoding: "utf8",
-      env: { ...process.env, SMOKE_PATH_CAPTURE: capture }
+  it("validates the final artifact with the supplied Release Identity before launch", async () => {
+    const identity = await loadMacReleaseIdentity();
+    const { application } = createFakeApplication("exit 0");
+    const verifyApplication = vi.fn(async () => {
+      throw new Error("artifact identity is stale");
     });
 
-    expect(result.status, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({ packaged: true, migratedTables: 4 });
+    await expect(
+      runPackagedSmoke(application, {
+        timeoutMs: fixtureTimeoutMs,
+        scenarios: ["fresh"],
+        identity,
+        verifyApplication
+      })
+    ).rejects.toThrow("artifact identity is stale");
+    expect(verifyApplication).toHaveBeenCalledWith(application, { identity });
+  });
+
+  it("accepts readiness only after isolated storage, addon, and overlay loading are proven", async () => {
+    const { root, application } = createFakeMigratingApplication();
+    const capture = join(root, "captured-user-data");
+    const result = await withSmokePathCapture(capture, () =>
+      runPackagedSmoke(application, {
+        timeoutMs: fixtureTimeoutMs,
+        scenarios: ["legacy"],
+        ...skipArtifactVerification
+      })
+    );
+
+    expect(result.scenarios[0]).toMatchObject({
+      scenario: "legacy",
+      schemaVersion: 1,
+      preserved: true,
+      expectedFailure: false
+    });
     expect(existsSync(readFileSync(capture, "utf8"))).toBe(false);
   });
 
-  it("reports an early exit with captured diagnostics", () => {
-    const { application } = createFakeApplication('echo "startup exploded" >&2\nexit 7');
-    const result = spawnSync(
-      process.execPath,
-      [smokeScript, "--application", application, "--timeout-ms", fixtureTimeoutMs],
-      { encoding: "utf8" }
-    );
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("exited before readiness");
-    expect(result.stderr).toContain("startup exploded");
+  it("accepts a future-version failure only when the database stays unchanged", async () => {
+    const { application } = createFakeMigratingApplication();
+    const result = await runPackagedSmoke(application, {
+      timeoutMs: fixtureTimeoutMs,
+      scenarios: ["future"],
+      ...skipArtifactVerification
+    });
+
+    expect(result.scenarios[0]).toMatchObject({
+      scenario: "future",
+      schemaVersion: 2,
+      preserved: true,
+      expectedFailure: true
+    });
   });
 
-  it("times out, terminates the process, and removes isolated data", () => {
+  it("reports an early exit with captured diagnostics", async () => {
+    const { application } = createFakeApplication('echo "startup exploded" >&2\nexit 7');
+    const failure = await captureFailure(() =>
+      runPackagedSmoke(application, {
+        timeoutMs: fixtureTimeoutMs,
+        scenarios: ["fresh"],
+        ...skipArtifactVerification
+      })
+    );
+    expect(failure.message).toContain("exited before readiness");
+    expect(failure.message).toContain("startup exploded");
+  });
+
+  it("times out, terminates the process, and removes isolated data", async () => {
     const { root, application } = createFakeApplication(
       'printf "%s" "$VOICEREADER_PACKAGED_SMOKE_USER_DATA" > "$SMOKE_PATH_CAPTURE"\n' +
         'trap "exit 0" TERM\nwhile :; do sleep 1; done'
     );
     const capture = join(root, "captured-user-data");
-    const result = spawnSync(
-      process.execPath,
-      [smokeScript, "--application", application, "--timeout-ms", fixtureTimeoutMs],
-      { encoding: "utf8", env: { ...process.env, SMOKE_PATH_CAPTURE: capture } }
+    const failure = await withSmokePathCapture(capture, () =>
+      captureFailure(() =>
+        runPackagedSmoke(application, {
+          timeoutMs: fixtureTimeoutMs,
+          scenarios: ["fresh"],
+          ...skipArtifactVerification
+        })
+      )
     );
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain(`timed out after ${fixtureTimeoutMs}ms`);
+    expect(failure.message).toContain(`timed out after ${fixtureTimeoutMs}ms`);
     expect(existsSync(readFileSync(capture, "utf8"))).toBe(false);
   });
 
-  it("preserves invalid-readiness diagnostics before cleanup", () => {
+  it("preserves invalid-readiness diagnostics before cleanup", async () => {
     const { root, application } = createFakeApplication(
       'printf "%s" "$VOICEREADER_PACKAGED_SMOKE_USER_DATA" > "$SMOKE_PATH_CAPTURE"\n' +
         'trap "exit 0" TERM\necho "VOICEREADER_SMOKE_READY not-json"\nwhile :; do sleep 1; done'
     );
     const capture = join(root, "captured-invalid-data");
-    const result = spawnSync(
-      process.execPath,
-      [smokeScript, "--application", application, "--timeout-ms", fixtureTimeoutMs],
-      { encoding: "utf8", env: { ...process.env, SMOKE_PATH_CAPTURE: capture } }
+    const failure = await withSmokePathCapture(capture, () =>
+      captureFailure(() =>
+        runPackagedSmoke(application, {
+          timeoutMs: fixtureTimeoutMs,
+          scenarios: ["fresh"],
+          ...skipArtifactVerification
+        })
+      )
     );
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Invalid packaged smoke readiness payload");
+    expect(failure.message).toContain("Invalid packaged smoke readiness payload");
     expect(existsSync(readFileSync(capture, "utf8"))).toBe(false);
   });
 });
+
+async function withSmokePathCapture(capture, task) {
+  const previous = process.env.SMOKE_PATH_CAPTURE;
+  process.env.SMOKE_PATH_CAPTURE = capture;
+  try {
+    return await task();
+  } finally {
+    if (previous === undefined) delete process.env.SMOKE_PATH_CAPTURE;
+    else process.env.SMOKE_PATH_CAPTURE = previous;
+  }
+}
+
+async function captureFailure(task) {
+  try {
+    await task();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("Expected packaged smoke to fail");
+}

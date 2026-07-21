@@ -12,14 +12,15 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { findApplicationProcesses } from "../../scripts/install-mac-app.mjs";
+import { findApplicationProcesses, installMacApplication } from "../../scripts/install-mac-app.mjs";
+import { beginLocalReleaseTransaction } from "../../scripts/local-release-transaction.mjs";
 import { safelyReplaceApplication } from "../../scripts/safe-app-replace.mjs";
-import { deployMac } from "../../scripts/deploy-mac.mjs";
+import { DEPLOY_PLAN, deployMac } from "../../scripts/deploy-mac.mjs";
 
 const deployScript = resolve("scripts/deploy-mac.mjs");
 const temporaryRoots = [];
 
-function createReplacementFixture() {
+async function createReplacementFixture() {
   const root = mkdtempSync(join(tmpdir(), "voicereader-safe-replace-"));
   temporaryRoots.push(root);
   const source = join(root, "candidate.app");
@@ -28,9 +29,12 @@ function createReplacementFixture() {
   mkdirSync(destination);
   writeFileSync(join(source, "version"), "new");
   writeFileSync(join(destination, "version"), "old");
+  const transaction = await beginLocalReleaseTransaction({ root });
   return {
     source,
     destination,
+    transaction,
+    swap: transaction.applicationSwap(destination),
     copyApplication: async (copySource, copyDestination) =>
       cpSync(copySource, copyDestination, { recursive: true }),
     verifyStaged: async () => {},
@@ -59,9 +63,11 @@ describe("local VoiceReader deployment", () => {
 
   it("refuses a running application before invoking any deployment gate", async () => {
     const commands = [];
+    let inspectedApplication;
     await expect(
       deployMac({
-        assertNotRunning: () => {
+        assertNotRunning: (application) => {
+          inspectedApplication = application;
           throw new Error("VoiceReader is running");
         },
         runCommand: async (...command) => {
@@ -70,25 +76,91 @@ describe("local VoiceReader deployment", () => {
         }
       })
     ).rejects.toThrow("VoiceReader is running");
+    expect(inspectedApplication).toBe(DEPLOY_PLAN.destination);
     expect(commands).toEqual([]);
   });
 
   it("stops before replacement when candidate smoke fails", async () => {
     const commands = [];
+    const transaction = { id: "shared-transaction" };
+    const installed = [];
+    const publications = [];
     await expect(
       deployMac({
         assertNotRunning: () => {},
+        transactionRunner: async (_options, operation) => operation(transaction),
+        packageApplication: async (received) => {
+          expect(received).toBe(transaction);
+          return {
+            candidate: "/transaction/candidate/VoiceReader.app",
+            publish: async () => publications.push("published")
+          };
+        },
+        smokeCandidate: async (candidate) => {
+          expect(candidate).toBe("/transaction/candidate/VoiceReader.app");
+          throw new Error("candidate smoke failed");
+        },
+        installApplication: async (options) => installed.push(options),
         runCommand: async (command, args) => {
           commands.push([command, args]);
-          return { code: args.includes("smoke-packaged") ? 1 : 0, signal: null };
+          return { code: 0, signal: null };
         }
       })
-    ).rejects.toThrow("Candidate smoke failed with exit code 1");
-    expect(commands.map(([, args]) => args)).toEqual([["verify"], ["package-mac"], ["smoke-packaged"]]);
+    ).rejects.toThrow("candidate smoke failed");
+    expect(commands.map(([, args]) => args)).toEqual([["verify"]]);
+    expect(installed).toEqual([]);
+    expect(publications).toEqual([]);
   });
 
-  it("atomically replaces a verified application and removes the previous copy", async () => {
-    const fixture = createReplacementFixture();
+  it("threads one transaction-owned candidate through package, smoke, and install", async () => {
+    const transaction = { id: "shared-transaction" };
+    const calls = [];
+
+    await deployMac({
+      assertNotRunning: () => {},
+      transactionRunner: async (_options, operation) => operation(transaction),
+      runCommand: async () => ({ code: 0, signal: null }),
+      packageApplication: async (received) => {
+        calls.push(["package", received]);
+        return {
+          candidate: "/transaction/candidate/VoiceReader.app",
+          publish: async () => calls.push(["publish"])
+        };
+      },
+      smokeCandidate: async (candidate) => calls.push(["smoke", candidate]),
+      installApplication: async (options) => calls.push(["install", options])
+    });
+
+    expect(calls).toEqual([
+      ["package", transaction],
+      ["smoke", "/transaction/candidate/VoiceReader.app"],
+      ["publish"],
+      [
+        "install",
+        { transaction, candidate: "/transaction/candidate/VoiceReader.app" }
+      ]
+    ]);
+  });
+
+  it("does not smoke or install when transaction packaging fails", async () => {
+    const laterStages = [];
+    await expect(
+      deployMac({
+        assertNotRunning: () => {},
+        transactionRunner: async (_options, operation) => operation({ id: "failed-package" }),
+        runCommand: async () => ({ code: 0, signal: null }),
+        packageApplication: async () => {
+          throw new Error("package failed");
+        },
+        smokeCandidate: async () => laterStages.push("smoke"),
+        installApplication: async () => laterStages.push("install")
+      })
+    ).rejects.toThrow("package failed");
+    expect(laterStages).toEqual([]);
+  });
+
+  it("atomically replaces a verified application without deleting foreign swap prefixes", async () => {
+    const fixture = await createReplacementFixture();
     const staleStaging = join(fixture.source, "..", ".VoiceReader.app.staging-old");
     const staleBackup = join(fixture.source, "..", ".VoiceReader.app.backup-old");
     mkdirSync(staleStaging);
@@ -99,12 +171,13 @@ describe("local VoiceReader deployment", () => {
       verifyInstalled: async (application) => expect(readFileSync(join(application, "version"), "utf8")).toBe("new")
     });
     expect(readFileSync(join(fixture.destination, "version"), "utf8")).toBe("new");
-    expect(existsSync(staleStaging)).toBe(false);
-    expect(existsSync(staleBackup)).toBe(false);
+    expect(existsSync(staleStaging)).toBe(true);
+    expect(existsSync(staleBackup)).toBe(true);
+    await fixture.transaction.release();
   });
 
   it("leaves the installed application untouched when staged verification fails", async () => {
-    const fixture = createReplacementFixture();
+    const fixture = await createReplacementFixture();
     await expect(
       safelyReplaceApplication({
         ...fixture,
@@ -114,10 +187,11 @@ describe("local VoiceReader deployment", () => {
       })
     ).rejects.toThrow("staged signature failed");
     expect(readFileSync(join(fixture.destination, "version"), "utf8")).toBe("old");
+    await fixture.transaction.release();
   });
 
   it("restores the previous application when installed verification fails", async () => {
-    const fixture = createReplacementFixture();
+    const fixture = await createReplacementFixture();
     await expect(
       safelyReplaceApplication({
         ...fixture,
@@ -127,10 +201,11 @@ describe("local VoiceReader deployment", () => {
       })
     ).rejects.toThrow("installed smoke failed");
     expect(readFileSync(join(fixture.destination, "version"), "utf8")).toBe("old");
+    await fixture.transaction.release();
   });
 
   it("leaves the installed application untouched when the pre-swap guard fails", async () => {
-    const fixture = createReplacementFixture();
+    const fixture = await createReplacementFixture();
     await expect(
       safelyReplaceApplication({
         ...fixture,
@@ -140,10 +215,11 @@ describe("local VoiceReader deployment", () => {
       })
     ).rejects.toThrow("VoiceReader started during staging");
     expect(readFileSync(join(fixture.destination, "version"), "utf8")).toBe("old");
+    await fixture.transaction.release();
   });
 
   it("reports the preserved backup when rollback cannot move the failed replacement", async () => {
-    const fixture = createReplacementFixture();
+    const fixture = await createReplacementFixture();
     let failedRename = false;
     let message = "";
     try {
@@ -168,10 +244,11 @@ describe("local VoiceReader deployment", () => {
     const backup = message.match(/preserved at (.+)\./)?.[1];
     expect(backup && existsSync(backup)).toBe(true);
     expect(backup && readFileSync(join(backup, "version"), "utf8")).toBe("old");
+    await fixture.transaction.release();
   });
 
   it("keeps the verified replacement when committed backup cleanup fails", async () => {
-    const fixture = createReplacementFixture();
+    const fixture = await createReplacementFixture();
     let message = "";
     try {
       await safelyReplaceApplication({
@@ -187,6 +264,32 @@ describe("local VoiceReader deployment", () => {
     expect(message).toContain("new application is installed and verified");
     expect(message).toContain("residual backup at");
     expect(readFileSync(join(fixture.destination, "version"), "utf8")).toBe("new");
+    await fixture.transaction.release();
+  });
+
+  it("rejects replacement without a transaction-owned swap capability", async () => {
+    const fixture = await createReplacementFixture();
+    const { swap: _swap, ...withoutSwap } = fixture;
+
+    await expect(safelyReplaceApplication(withoutSwap)).rejects.toThrow("transaction-owned swap");
+    expect(readFileSync(join(fixture.destination, "version"), "utf8")).toBe("old");
+    await fixture.transaction.release();
+  });
+
+  it("rejects installation without an explicit transaction candidate handoff", async () => {
+    await expect(installMacApplication()).rejects.toThrow("explicit local release transaction and candidate");
+  });
+
+  it("rejects an installation candidate that does not belong to the transaction", async () => {
+    const root = mkdtempSync(join(tmpdir(), "voicereader-install-candidate-"));
+    temporaryRoots.push(root);
+    const transaction = await beginLocalReleaseTransaction({ root, id: "install-owner" });
+    const foreignCandidate = join(root, "foreign", "VoiceReader.app");
+
+    await expect(
+      installMacApplication({ transaction, candidate: foreignCandidate })
+    ).rejects.toThrow("does not belong to local release transaction install-owner");
+    await transaction.release();
   });
 
   it("detects main and helper processes running from the installed bundle", () => {

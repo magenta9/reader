@@ -101,5 +101,5 @@ describe("MiniMaxAccountService", () => {
 
 async function createStore(): Promise<AppDataStore> {
   const dataDir = await mkdtemp(join(tmpdir(), "voicereader-minimax-account-"));
-  return new AppDataStore(join(dataDir, "voicereader.sqlite"));
+  return AppDataStore.open(join(dataDir, "voicereader.sqlite"));
 }

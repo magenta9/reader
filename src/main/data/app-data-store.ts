@@ -14,6 +14,7 @@ import {
   type ReadingHistoryRecord
 } from "../../shared/app-contracts.js";
 import type { DetectedLanguage, ReadingSegment, ReadingSource } from "../../shared/types.js";
+import { migrateAppDataSchema } from "./app-data-schema.js";
 
 export type RuntimeErrorCategory =
   | "minimax_runtime"
@@ -106,7 +107,6 @@ type PendingDeletionUndo = PendingDeletion;
 
 const SETTINGS_KEY = "app.settings";
 const MINIMAX_API_KEY = "minimax.apiKey";
-const LEGACY_ENCRYPTED_MINIMAX_API_KEY = "minimax.apiKey.encrypted";
 const MAX_ERROR_LOG_ENTRIES = 100;
 const MAX_PENDING_DELETION_UNDOS = 20;
 const READING_HISTORY_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
@@ -131,11 +131,22 @@ export class AppDataStore
   private readonly db: DatabaseSync;
   private readonly pendingDeletionUndos = new Map<string, PendingDeletionUndo>();
 
-  constructor(private readonly dbPath: string) {
+  static open(dbPath: string): AppDataStore {
     mkdirSync(dirname(dbPath), { recursive: true });
-    this.db = new DatabaseSync(dbPath);
-    this.migrate();
-    this.cleanupExpiredReadingHistory();
+    const database = new DatabaseSync(dbPath);
+    try {
+      migrateAppDataSchema(database);
+      const store = new AppDataStore(database);
+      store.cleanupExpiredReadingHistory();
+      return store;
+    } catch (error) {
+      database.close();
+      throw error;
+    }
+  }
+
+  private constructor(database: DatabaseSync) {
+    this.db = database;
   }
 
   close(): void {
@@ -516,63 +527,6 @@ export class AppDataStore
 
   getRawSettingForTest(key: string): string | undefined {
     return this.getTextSetting(key);
-  }
-
-  private migrate(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS reading_history (
-        id TEXT PRIMARY KEY,
-        created_at INTEGER NOT NULL,
-        text TEXT NOT NULL,
-        preview TEXT NOT NULL,
-        duration_estimate_seconds INTEGER NOT NULL,
-        language_summary TEXT NOT NULL,
-        source TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_reading_history_created_at
-      ON reading_history (created_at DESC);
-
-      CREATE TABLE IF NOT EXISTS favorite_records (
-        id TEXT PRIMARY KEY,
-        favorited_at INTEGER NOT NULL,
-        source_created_at INTEGER NOT NULL,
-        text TEXT NOT NULL,
-        preview TEXT NOT NULL,
-        duration_estimate_seconds INTEGER NOT NULL,
-        language_summary TEXT NOT NULL,
-        source TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_favorite_records_favorited_at
-      ON favorite_records (favorited_at DESC);
-
-      CREATE TABLE IF NOT EXISTS error_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        created_at INTEGER NOT NULL,
-        category TEXT NOT NULL,
-        message TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_error_log_created_at
-      ON error_log (created_at DESC);
-    `);
-    this.deleteSetting(LEGACY_ENCRYPTED_MINIMAX_API_KEY);
-    this.migrateLegacyDefaultActivationShortcut();
-  }
-
-  private migrateLegacyDefaultActivationShortcut(): void {
-    const stored = this.getJsonSetting<Partial<AppSettings>>(SETTINGS_KEY);
-    if (stored?.activationShortcut !== LEGACY_DEFAULT_ACTIVATION_SHORTCUT) return;
-    this.setJsonSetting(SETTINGS_KEY, {
-      ...stored,
-      activationShortcut: DEFAULT_ACTIVATION_SHORTCUT
-    });
   }
 
   private capErrorLogs(): void {

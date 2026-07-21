@@ -1,20 +1,15 @@
-import type { SessionOverlayMetric } from "../../shared/app-contracts.js";
-import { PLAYBACK_OVERLAY_COMMAND_CHANNELS } from "../../shared/bridge-contracts.js";
+import { playbackOverlayRoleContract } from "../../shared/role-bridge-contracts.js";
+import type { ImplementationFromContract } from "../../shared/role-bridge-registry.js";
 import type { AppBridgeHandlerDependencies } from "./dependencies.js";
 
-type PlaybackOverlayHandlerDependencies = Pick<AppBridgeHandlerDependencies, "ipcMain" | "overlayController">;
+export interface PlaybackOverlayImplementationDependencies {
+  overlayController: Pick<AppBridgeHandlerDependencies["overlayController"], "markReady">;
+}
 
-export function registerPlaybackOverlayHandlers({
-  ipcMain,
+export function createPlaybackOverlayImplementation({
   overlayController
-}: PlaybackOverlayHandlerDependencies): void {
-  ipcMain.handle(PLAYBACK_OVERLAY_COMMAND_CHANNELS.metric, (_event, metric: SessionOverlayMetric) => {
-    overlayController.sendMetric(metric);
-  });
-  ipcMain.handle(PLAYBACK_OVERLAY_COMMAND_CHANNELS.finishPlayback, (_event, sessionId: number) => {
-    overlayController.finish(sessionId);
-  });
-  ipcMain.handle(PLAYBACK_OVERLAY_COMMAND_CHANNELS.ready, () => {
-    overlayController.markReady();
-  });
+}: PlaybackOverlayImplementationDependencies): ImplementationFromContract<
+  typeof playbackOverlayRoleContract
+> {
+  return { notifyOverlayReady: () => overlayController.markReady() };
 }

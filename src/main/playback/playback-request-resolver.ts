@@ -1,6 +1,9 @@
 import { createReadingSegments, normalizeReadableText } from "../../shared/segments.js";
 import { selectVoiceId } from "../../shared/voices.js";
-import type { MiniMaxTtsRequest } from "../../shared/minimax.js";
+import type {
+  SpeechAudioStreamPort,
+  SpeechAudioStreamRequest
+} from "../../shared/speech-audio-stream.js";
 import {
   PLAYBACK_FEEDBACK_SURFACES,
   type AppSettings,
@@ -26,13 +29,18 @@ export interface PlaybackSessionPlan {
 }
 
 export type PlannedPlaybackSegment =
-  | { stream: PlannedTtsStream; missingVoiceLanguage?: undefined }
+  | { stream: PlannedSpeechAudioStream; missingVoiceLanguage?: undefined }
   | { stream?: undefined; missingVoiceLanguage: DetectedLanguage };
 
-type PlannedMiniMaxTtsRequest = Pick<MiniMaxTtsRequest, "apiKey" | "model" | "voiceId" | "text">;
-type PlannedTtsRuntime = Pick<MiniMaxTtsRequest, "signal" | "onAudioHex">;
-export type PlaybackTtsStreamer = (request: MiniMaxTtsRequest) => Promise<void>;
-type PlannedTtsStream = (streamTts: PlaybackTtsStreamer, runtime: PlannedTtsRuntime) => Promise<void>;
+type PlannedSpeechAudioRequest = Pick<
+  SpeechAudioStreamRequest,
+  "apiKey" | "model" | "voiceId" | "text"
+>;
+type PlannedSpeechAudioRuntime = Pick<SpeechAudioStreamRequest, "signal" | "onAudioChunk">;
+type PlannedSpeechAudioStream = (
+  streamAudio: SpeechAudioStreamPort,
+  runtime: PlannedSpeechAudioRuntime
+) => Promise<void>;
 
 export type ResolvePlaybackRequestResult =
   | { ok: true; plan: PlaybackSessionPlan }
@@ -161,8 +169,8 @@ function createPlaybackSessionPlan(
   };
 }
 
-function createPlannedTtsStream(request: PlannedMiniMaxTtsRequest): PlannedTtsStream {
-  return (streamTts, runtime) => streamTts({ ...request, ...runtime });
+function createPlannedTtsStream(request: PlannedSpeechAudioRequest): PlannedSpeechAudioStream {
+  return (streamAudio, runtime) => streamAudio({ ...request, ...runtime });
 }
 
 function skipped(skippedReason: NonNullable<PlaybackStartResult["skipped"]>): ResolvePlaybackRequestResult {

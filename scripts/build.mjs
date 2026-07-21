@@ -12,7 +12,7 @@ await mkdir(dist, { recursive: true });
 await mkdir(resolve(dist, "assets"), { recursive: true });
 await mkdir(resolve(dist, "renderer/assets"), { recursive: true });
 await mkdir(resolve(dist, "native"), { recursive: true });
-await runNodeScript("node_modules/typescript/bin/tsc", ["-p", "tsconfig.build.json"], root);
+await runNodeScript("node_modules/typescript/bin/tsc", ["--noEmit", "-p", "tsconfig.json"], root);
 await buildNativeSelectionCopyAddon();
 
 await bundle({
@@ -27,19 +27,21 @@ await bundle({
   logLevel: "silent"
 });
 
-await bundle({
-  entryPoints: [resolve(root, "src/preload/preload.ts")],
-  outfile: resolve(dist, "preload/preload.cjs"),
-  bundle: true,
-  format: "cjs",
-  platform: "node",
-  target: "es2022",
-  external: ["electron"],
-  sourcemap: true,
-  logLevel: "silent"
-});
-await rm(resolve(dist, "preload/preload.js"), { force: true });
-await rm(resolve(dist, "preload/preload.js.map"), { force: true });
+for (const role of ["reader-window", "playback-renderer", "playback-overlay"]) {
+  await bundle({
+    entryPoints: [resolve(root, `src/preload/${role}.ts`)],
+    outfile: resolve(dist, `preload/${role}.cjs`),
+    bundle: true,
+    format: "cjs",
+    platform: "node",
+    target: "es2022",
+    external: ["electron"],
+    sourcemap: true,
+    logLevel: "silent"
+  });
+  await rm(resolve(dist, `preload/${role}.js`), { force: true });
+  await rm(resolve(dist, `preload/${role}.js.map`), { force: true });
+}
 
 await bundle({
   entryPoints: [resolve(root, "src/renderer/main.tsx")],
