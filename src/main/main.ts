@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, clipboard, globalShortcut } from "electron";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerAppRoleBridges } from "./app-role-bridges.js";
@@ -18,13 +19,62 @@ import {
   enterPackagedSmokeMode,
   readPackagedSmokeConfiguration
 } from "./packaged-smoke-runtime.js";
+import {
+  defineProductionRuntimeRoleIdentities,
+  resolveProductionRuntimeRoleIdentity,
+  type ResolvedProductionRuntimeRoleBinding
+} from "../shared/production-runtime-role-identity.js";
 
 const mainBundleDir = dirname(fileURLToPath(import.meta.url));
-const rendererEntry = join(mainBundleDir, "../renderer/index.html");
-const readerPreloadEntry = join(mainBundleDir, "../preload/reader-window.cjs");
-const playbackRendererEntry = join(mainBundleDir, "../playback-renderer/index.html");
+const runtimeRoleModulePath = join(
+  mainBundleDir,
+  "../runtime/production-runtime-role-bindings.cjs"
+);
+const runtimeRoleModule = createRequire(import.meta.url)(runtimeRoleModulePath) as unknown;
+if (!isRuntimeRoleModule(runtimeRoleModule)) {
+  throw new Error("Production Runtime Role Binding module is invalid.");
+}
+const runtimeRoleManifest = runtimeRoleModule.getRuntimeRoleManifest();
+if (
+  !isRecord(runtimeRoleManifest) ||
+  runtimeRoleManifest.schemaVersion !== 1 ||
+  !Array.isArray(runtimeRoleManifest.roles)
+) {
+  throw new Error("Production Runtime Role Binding manifest is invalid.");
+}
+const productionRuntimeRoleBindings = defineProductionRuntimeRoleIdentities(
+  runtimeRoleManifest.roles
+);
+const resolveRuntimeArtifact = (artifact: string): string => join(mainBundleDir, "..", artifact);
+const readerWindowRuntime = resolveProductionRuntimeRoleIdentity(
+  "reader-window",
+  resolveRuntimeArtifact,
+  productionRuntimeRoleBindings
+);
+const playbackRendererRuntime = resolveProductionRuntimeRoleIdentity(
+  "playback-renderer",
+  resolveRuntimeArtifact,
+  productionRuntimeRoleBindings
+);
+const playbackOverlayRuntime = resolveProductionRuntimeRoleIdentity(
+  "playback-overlay",
+  resolveRuntimeArtifact,
+  productionRuntimeRoleBindings
+);
 const appIconAssetPath = join(mainBundleDir, "../assets/voicereader-icon.svg");
 const packagedSmoke = readPackagedSmokeConfiguration();
+
+interface RuntimeRoleModule {
+  getRuntimeRoleManifest(): unknown;
+}
+
+function isRuntimeRoleModule(candidate: unknown): candidate is RuntimeRoleModule {
+  return isRecord(candidate) && typeof candidate.getRuntimeRoleManifest === "function";
+}
+
+function isRecord(candidate: unknown): candidate is Record<string, unknown> {
+  return typeof candidate === "object" && candidate !== null && !Array.isArray(candidate);
+}
 
 app.setName("VoiceReader");
 if (packagedSmoke.enabled) {
@@ -46,7 +96,7 @@ async function bootstrap(): Promise<void> {
   const minimaxAccountService = new MiniMaxAccountService(appDataStore);
   const playbackPreferences = new PlaybackPreferencesCommands(appDataStore);
   const launchAtLoginCommands = new LaunchAtLoginCommands(app, appDataStore);
-  const overlayController = new PlaybackOverlayController();
+  const overlayController = new PlaybackOverlayController(playbackOverlayRuntime);
   let playbackCommands!: PlaybackCommandController;
   let playbackOutput!: ElectronPlaybackOutput;
   const readerAppShell = createElectronReaderAppShell({
@@ -63,8 +113,7 @@ async function bootstrap(): Promise<void> {
       },
       stop: () => playbackCommands.stopPlayback()
     },
-    readerPreloadEntry,
-    rendererEntry,
+    runtimeRoleBinding: readerWindowRuntime,
     shutdown: () => {
       globalShortcut.unregisterAll();
       playbackOutput.destroy();
@@ -87,10 +136,10 @@ async function bootstrap(): Promise<void> {
     hideReaderWindowForSelectionCapture: () => readerAppShell.hideForSelectionCapture()
   });
   playbackOutput = await ElectronPlaybackOutput.create({
-    createPlaybackRenderer: createPlaybackRendererWindow,
+    createPlaybackRenderer: () => createPlaybackRendererWindow(playbackRendererRuntime),
     readerFeedback: readerAppShell,
     overlay: overlayController,
-    playbackRendererEntry
+    runtimeRoleBinding: playbackRendererRuntime
   });
   const playbackService = new PlaybackService(
     appDataStore,
@@ -130,7 +179,9 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-function createPlaybackRendererWindow(): BrowserWindow {
+function createPlaybackRendererWindow(
+  runtimeRoleBinding: ResolvedProductionRuntimeRoleBinding
+): BrowserWindow {
   return new BrowserWindow({
     title: "VoiceReader Playback Renderer",
     width: 1,
@@ -139,11 +190,8 @@ function createPlaybackRendererWindow(): BrowserWindow {
     skipTaskbar: true,
     focusable: false,
     webPreferences: {
-      preload: join(mainBundleDir, "../preload/playback-renderer.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-      backgroundThrottling: false
+      preload: runtimeRoleBinding.preloadEntry,
+      ...runtimeRoleBinding.webPreferences
     }
   });
 }

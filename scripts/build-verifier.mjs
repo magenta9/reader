@@ -6,6 +6,8 @@ import vm from "node:vm";
 const requiredBuildArtifacts = [
   "main/main.js",
   "main/main.js.map",
+  "runtime-role-bindings.json",
+  "runtime/production-runtime-role-bindings.cjs",
   "preload/reader-window.cjs",
   "preload/reader-window.cjs.map",
   "preload/playback-renderer.cjs",
@@ -59,6 +61,46 @@ const htmlContracts = Object.freeze([
     requiresMediaCsp: false
   }
 ]);
+
+const expectedRuntimeRoleManifest = {
+  schemaVersion: 1,
+  roles: [
+    {
+      role: "reader-window",
+      preloadArtifact: "preload/reader-window.cjs",
+      documentArtifact: "renderer/index.html",
+      globalName: "voiceReader",
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false
+      }
+    },
+    {
+      role: "playback-renderer",
+      preloadArtifact: "preload/playback-renderer.cjs",
+      documentArtifact: "playback-renderer/index.html",
+      globalName: "voiceReader",
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false,
+        backgroundThrottling: false
+      }
+    },
+    {
+      role: "playback-overlay",
+      preloadArtifact: "preload/playback-overlay.cjs",
+      documentArtifact: "overlay/index.html",
+      globalName: "voiceReader",
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false
+      }
+    }
+  ]
+};
 
 const roleContracts = [
   {
@@ -169,6 +211,96 @@ export async function verifyBuiltVoiceReader(distRoot, { platform = process.plat
         "resource",
         "renderer/assets/voicereader-icon.svg",
         "renderer icon must match the packaged application icon"
+      )
+    );
+  }
+
+  let runtimeRoleManifest;
+  const runtimeRoleManifestSource = await readOptionalText(
+    distRoot,
+    "runtime-role-bindings.json",
+    unreadableArtifacts,
+    findings
+  );
+  if (runtimeRoleManifestSource !== undefined) {
+    try {
+      runtimeRoleManifest = JSON.parse(runtimeRoleManifestSource);
+      if (JSON.stringify(runtimeRoleManifest) !== JSON.stringify(expectedRuntimeRoleManifest)) {
+        findings.push(
+          finding(
+            "role-binding",
+            "runtime-role-bindings.json",
+            "runtime role manifest does not match the expected production bindings"
+          )
+        );
+      }
+    } catch {
+      findings.push(
+        finding(
+          "role-binding",
+          "runtime-role-bindings.json",
+          "runtime role manifest is not valid JSON"
+        )
+      );
+    }
+  }
+
+  const runtimeRoleModuleSource = await readOptionalText(
+    distRoot,
+    "runtime/production-runtime-role-bindings.cjs",
+    unreadableArtifacts,
+    findings
+  );
+  if (runtimeRoleModuleSource !== undefined) {
+    try {
+      const moduleManifest = evaluateRuntimeRoleBindingModule(runtimeRoleModuleSource);
+      if (
+        JSON.stringify(moduleManifest) !== JSON.stringify(expectedRuntimeRoleManifest) ||
+        JSON.stringify(moduleManifest) !== JSON.stringify(runtimeRoleManifest)
+      ) {
+        findings.push(
+          finding(
+            "role-binding",
+            "runtime/production-runtime-role-bindings.cjs",
+            "runtime role module does not match the verified production manifest"
+          )
+        );
+      }
+    } catch (error) {
+      findings.push(
+        finding(
+          "role-binding",
+          "runtime/production-runtime-role-bindings.cjs",
+          `runtime role module evaluation failed: ${safeErrorMessage(error)}`
+        )
+      );
+    }
+  }
+
+  const mainBundleSource = await readOptionalText(
+    distRoot,
+    "main/main.js",
+    unreadableArtifacts,
+    findings
+  );
+  if (
+    mainBundleSource !== undefined &&
+    !mainBundleSource.includes("production-runtime-role-bindings.cjs")
+  ) {
+    findings.push(
+      finding(
+        "role-binding",
+        "main/main.js",
+        "main runtime does not load the verified runtime role module"
+      )
+    );
+  }
+  if (mainBundleSource?.includes("src/preload/")) {
+    findings.push(
+      finding(
+        "role-binding",
+        "main/main.js",
+        "main runtime must not embed source-owned role metadata"
       )
     );
   }
@@ -328,6 +460,20 @@ function evaluatePreloadRuntime(bundle, invoke) {
     },
     listenerChannels: () => [...listeners.keys()]
   };
+}
+
+function evaluateRuntimeRoleBindingModule(bundle) {
+  const module = { exports: {} };
+  vm.runInNewContext(bundle, { module, exports: module.exports });
+  const runtimeModule = module.exports;
+  if (
+    !runtimeModule ||
+    typeof runtimeModule !== "object" ||
+    typeof runtimeModule.getRuntimeRoleManifest !== "function"
+  ) {
+    throw new Error("runtime role module must export getRuntimeRoleManifest");
+  }
+  return runtimeModule.getRuntimeRoleManifest();
 }
 
 function safeErrorMessage(error) {

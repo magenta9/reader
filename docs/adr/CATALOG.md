@@ -33,12 +33,13 @@
 | [ADR-0027](0027-let-minimax-adapter-own-validated-audio-bytes.md) | Let the MiniMax Adapter Own Validated Audio Bytes | accepted | — |
 | [ADR-0028](0028-use-semantic-commands-for-renderer-settings-writes.md) | Use Semantic Commands for Renderer Settings Writes | accepted | — |
 | [ADR-0029](0029-version-the-sqlite-app-data-schema-atomically.md) | Version the SQLite App Data Schema Atomically | accepted | — |
-| [ADR-0030](0030-use-role-scoped-executable-bridge-contracts.md) | Use Role-scoped Executable Bridge Contracts | accepted | partially-superseded-by: [ADR-0036](0036-let-reading-target-acquisition-own-trigger-preparation.md) |
-| [ADR-0031](0031-let-reader-app-shell-own-window-and-navigation-lifecycle.md) | Let Reader App Shell Own Window and Navigation Lifecycle | accepted | partially-superseded-by: [ADR-0036](0036-let-reading-target-acquisition-own-trigger-preparation.md) |
-| [ADR-0032](0032-make-the-build-product-the-verifier-boundary.md) | Make the Build Product the Verifier Boundary | accepted | — |
+| [ADR-0030](0030-use-role-scoped-executable-bridge-contracts.md) | Use Role-scoped Executable Bridge Contracts | accepted | partially-superseded-by: [ADR-0036](0036-let-reading-target-acquisition-own-trigger-preparation.md); refined-by: [ADR-0039](0039-let-production-runtime-role-binding-own-window-identity.md) |
+| [ADR-0031](0031-let-reader-app-shell-own-window-and-navigation-lifecycle.md) | Let Reader App Shell Own Window and Navigation Lifecycle | accepted | partially-superseded-by: [ADR-0036](0036-let-reading-target-acquisition-own-trigger-preparation.md); refined-by: [ADR-0039](0039-let-production-runtime-role-binding-own-window-identity.md) |
+| [ADR-0032](0032-make-the-build-product-the-verifier-boundary.md) | Make the Build Product the Verifier Boundary | accepted | refined-by: [ADR-0039](0039-let-production-runtime-role-binding-own-window-identity.md) |
 | [ADR-0033](0033-let-settings-workspace-own-renderer-settings-workflow.md) | Let Settings Workspace Own the Renderer Settings Workflow | accepted | — |
 | [ADR-0034](0034-let-home-workspace-own-renderer-home-workflow.md) | Let Home Workspace Own the Renderer Home Workflow | accepted | — |
 | [ADR-0035](0035-let-release-identity-own-macos-artifact-identity.md) | Let Release Identity Own macOS Artifact Identity | accepted | refined-by: [ADR-0038](0038-let-local-release-transaction-own-macos-publication-and-installation.md) |
 | [ADR-0036](0036-let-reading-target-acquisition-own-trigger-preparation.md) | Let Reading Target Acquisition Own Trigger Preparation | accepted | — |
 | [ADR-0037](0037-let-adr-frontmatter-own-decision-status-and-relationships.md) | Let ADR Frontmatter Own Decision Status and Relationships | accepted | — |
 | [ADR-0038](0038-let-local-release-transaction-own-macos-publication-and-installation.md) | Let Local Release Transaction Own macOS Publication and Installation | accepted | — |
+| [ADR-0039](0039-let-production-runtime-role-binding-own-window-identity.md) | Let Production Runtime Role Binding Own Window Identity | accepted | — |

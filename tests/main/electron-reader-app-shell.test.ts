@@ -6,10 +6,15 @@ import {
   createTrayIconPngBuffer
 } from "../../src/main/electron-reader-app-shell.js";
 import type { ReaderAppShellMenuActions } from "../../src/main/reader-app-shell-controller.js";
+import { resolveProductionRuntimeRoleBinding } from "../../src/shared/production-runtime-role-bindings.js";
 
 describe("Electron Reader App Shell adapter", () => {
   it("preserves the Reader Window configuration and security boundary", () => {
-    expect(createReaderWindowOptions("/app/preload/reader-window.cjs")).toEqual({
+    const runtimeRoleBinding = resolveProductionRuntimeRoleBinding(
+      "reader-window",
+      (artifact) => `/app/${artifact}`
+    );
+    expect(createReaderWindowOptions(runtimeRoleBinding)).toEqual({
       title: "VoiceReader",
       width: 1100,
       height: 760,

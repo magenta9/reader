@@ -7,6 +7,7 @@ import {
   type PlaybackAudioSession
 } from "../../../src/shared/app-contracts.js";
 import { RENDERER_AUDIO_CHANNELS } from "../../../src/shared/bridge-contracts.js";
+import { resolveProductionRuntimeRoleBinding } from "../../../src/shared/production-runtime-role-bindings.js";
 
 describe("ElectronPlaybackOutput", () => {
   it("becomes available only after its owned Playback Renderer is ready", async () => {
@@ -211,7 +212,10 @@ async function createOutput({
       show: (sessionId) => overlayActions.push(`show:${sessionId}`),
       stop: (sessionId) => overlayActions.push(`stop:${sessionId}`)
     },
-    playbackRendererEntry: "/app/playback-renderer/index.html"
+    runtimeRoleBinding: resolveProductionRuntimeRoleBinding(
+      "playback-renderer",
+      (artifact) => `/app/${artifact}`
+    )
   });
 }
 

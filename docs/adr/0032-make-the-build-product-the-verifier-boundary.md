@@ -1,5 +1,6 @@
 ---
 status: accepted
+refined-by: ADR-0039
 ---
 
 # Make the Build Product the Verifier Boundary

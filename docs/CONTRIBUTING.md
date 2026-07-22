@@ -97,6 +97,7 @@ feat: add language-scoped voice preference
 - 改动和 issue/PRD 对齐。
 - 用户可见行为、文案、隐私边界已经写清楚。
 - 新增跨进程能力已更新已有 role-scoped executable contract、main-owned implementation 和调用方；loopback 验证行为，构建后的对应 preload VM probe 验证最小权限，且没有 URL/pathname 角色推断或手写 IPC 镜像。
+- 新增或修改 production runtime role 时，先更新 Production Runtime Role Binding，再让 build、preload 与 main window adapter 消费该 binding；同步更新 verifier 内独立 expected matrix，并用 source binding matrix、`runtime-role-bindings.json`、main 实际加载的 runtime binding module 与 packaged smoke 证明角色、artifact 和窗口绑定一致。不得让 verifier 导入 source binding 形成产物自证。
 - Reader Window、Menu Bar、导航、应用生命周期、presence 与 Reader feedback 仍由 Reader App Shell 独占；Reading Target Acquisition 独占 trigger preparation 和完整捕获事务，Playback Command Controller 只保留首 trigger single-flight 与 session 编排；相关 source 行为由 Acquisition、Shell/adapter 与入口 tracer 测试验证，dist contract 不镜像源码结构。
 - Home 的准备快照、recovery 与 Reading Target 启动 intent single-flight、Preferred Voice latest-intent lane 及访问失效仍由 Home Workspace 独占；视图没有直接 bridge 异步协调，Workspace 与少量 DOM tracer 覆盖 ADR-0034 的合同。
 - Settings 的核心与辅助资源仍按 ADR-0033 分级降级；连续、离散及校验/两阶段命令仍由 Settings Workspace 协调，视图没有直接 bridge 异步工作流或通用 settings patch。

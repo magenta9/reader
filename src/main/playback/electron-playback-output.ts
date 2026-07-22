@@ -14,6 +14,7 @@ import {
 import { createElectronMainRoleEventTransport } from "../electron-main-role-transport.js";
 import type { PlaybackAudioSink } from "./playback-service.js";
 import type { PlaybackOverlayController } from "./playback-overlay-controller.js";
+import type { ResolvedProductionRuntimeRoleBinding } from "../../shared/production-runtime-role-bindings.js";
 
 type PlaybackOverlayOutput = Pick<
   PlaybackOverlayController,
@@ -24,7 +25,7 @@ export interface ElectronPlaybackOutputOptions {
   createPlaybackRenderer: () => BrowserWindow;
   readerFeedback: ReaderPlaybackFeedbackSink;
   overlay: PlaybackOverlayOutput;
-  playbackRendererEntry: string;
+  runtimeRoleBinding: ResolvedProductionRuntimeRoleBinding;
 }
 
 export interface ReaderPlaybackFeedbackSink {
@@ -44,7 +45,7 @@ export class ElectronPlaybackOutput implements PlaybackAudioSink {
   static async create(options: ElectronPlaybackOutputOptions): Promise<ElectronPlaybackOutput> {
     const playbackRenderer = options.createPlaybackRenderer();
     try {
-      await playbackRenderer.loadFile(options.playbackRendererEntry);
+      await playbackRenderer.loadFile(options.runtimeRoleBinding.documentEntry);
       if (playbackRenderer.isDestroyed()) {
         throw new Error("Playback Renderer was destroyed before it became ready.");
       }

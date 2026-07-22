@@ -1,6 +1,7 @@
 ---
 status: accepted
 partially-superseded-by: ADR-0036
+refined-by: ADR-0039
 ---
 
 # Let Reader App Shell Own Window and Navigation Lifecycle
