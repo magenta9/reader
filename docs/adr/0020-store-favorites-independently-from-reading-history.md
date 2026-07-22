@@ -1,6 +1,6 @@
 ---
 status: accepted
-refined-by: ADR-0029
+refined-by: ADR-0029, ADR-0040
 ---
 
 # Store Favorites Independently From Reading History

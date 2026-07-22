@@ -77,7 +77,7 @@ function AppContent(): ReactElement {
   const { readerBridge } = useAppDependencies();
   const [route, setRoute] = useState<AppRoute>("home");
   const [undoAction, setUndoAction] = useState<UndoAction | undefined>();
-  const [isUndoing, setIsUndoing] = useState(false);
+  const [undoingActionId, setUndoingActionId] = useState<number | undefined>();
   const [undoError, setUndoError] = useState("");
   const undoActionId = useRef(0);
   const routeRevision = useRef(-1);
@@ -107,29 +107,33 @@ function AppContent(): ReactElement {
     void readerBridge.setRoute(nextRoute).then(applyRoute);
   };
 
-  const offerUndo = (action: RecordUndoRequest): void => {
+  const offerUndo = useCallback((action: RecordUndoRequest): void => {
     setUndoError("");
     setUndoAction({ ...action, id: ++undoActionId.current });
-  };
+  }, []);
 
   const runUndo = async (): Promise<void> => {
-    if (!undoAction || isUndoing) return;
+    if (!undoAction || undoingActionId === undoAction.id) return;
     const action = undoAction;
-    setIsUndoing(true);
+    setUndoingActionId(action.id);
     setUndoError("");
     try {
       const restored = await action.undo();
       if (!restored) {
-        setUndoAction(undefined);
-        setUndoError("无法撤销这次操作；撤销凭据可能已失效或记录已存在。");
+        setUndoAction((current) => (current?.id === action.id ? undefined : current));
+        if (undoActionId.current === action.id) {
+          setUndoError("无法撤销这次操作；撤销凭据可能已失效或记录已存在。");
+        }
         return;
       }
-      setUndoAction(undefined);
-      await action.onRestored();
+      setUndoAction((current) => (current?.id === action.id ? undefined : current));
+      void action.onRestored().catch(() => undefined);
     } catch {
-      setUndoError("撤销失败，请保持窗口打开后重试。");
+      if (undoActionId.current === action.id) {
+        setUndoError("撤销失败，请保持窗口打开后重试。");
+      }
     } finally {
-      setIsUndoing(false);
+      setUndoingActionId((current) => (current === action.id ? undefined : current));
     }
   };
 
@@ -195,7 +199,7 @@ function AppContent(): ReactElement {
       </div>
       {undoAction ? (
         <UndoNotice
-          isUndoing={isUndoing}
+          isUndoing={undoingActionId === undoAction.id}
           key={undoAction.id}
           message={undoAction.message}
           onExpire={() => setUndoAction((current) => (current?.id === undoAction.id ? undefined : current))}
