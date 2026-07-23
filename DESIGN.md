@@ -202,10 +202,11 @@ VoiceReader uses a hybrid of tonal layering and small macOS shadows. Most hierar
 ### Shadow Vocabulary
 - **Main Window Low Lift** (`0 6px 8px rgba(24, 22, 18, 0.08)`): Use on the command panel, history panes, and primary settings sections when they need to sit above the canvas.
 - **Dark Window Low Lift** (`0 6px 8px rgba(0, 0, 0, 0.32)`): Dark-appearance equivalent for the same raised surfaces.
-- **Overlay Float** (`0 10px 26px rgba(0, 0, 0, 0.32), 0 2px 8px rgba(0, 0, 0, 0.2)`): Use only on the non-activating Playback Overlay pill.
 
 ### Named Rules
 **The One Raised Layer Rule.** A surface may use a shadow or a hairline, but repeated shadowed modules on one screen make the utility feel like a dashboard. Reserve lift for the primary task surface.
+
+**The Transparent Overlay Exterior Rule.** The Playback Overlay BrowserWindow must remain fully transparent outside the pill. Use its hairline and a subtle inset highlight for separation; never use an outward pill shadow that can be clipped into a gray window-shaped veil.
 
 ## 5. Components
 
