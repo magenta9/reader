@@ -11,6 +11,7 @@ import { deflateSync } from "node:zlib";
 
 import { createReaderWindowEvents } from "./app-role-bridges.js";
 import { AppPresenceController } from "./app-presence-controller.js";
+import type { ResolvedProductionRuntimeRoleBinding } from "../shared/production-runtime-role-bindings.js";
 import {
   ReaderAppShellController,
   type ReaderAppShellLifecycle,
@@ -33,8 +34,7 @@ export interface ElectronReaderAppShellOptions {
     createFromDataURL(dataUrl: string): NativeImage;
   };
   playback: ReaderAppShellOptions["playback"];
-  readerPreloadEntry: string;
-  rendererEntry: string;
+  runtimeRoleBinding: ResolvedProductionRuntimeRoleBinding;
   shutdown(): void;
   state: ReaderAppShellOptions["state"];
 }
@@ -72,11 +72,11 @@ class ElectronReaderWindowFactory implements ReaderAppShellWindowFactory {
 
   create(): ReaderAppShellWindow {
     const window = this.options.createBrowserWindow(
-      createReaderWindowOptions(this.options.readerPreloadEntry)
+      createReaderWindowOptions(this.options.runtimeRoleBinding)
     );
     this.readerWindow = window;
     const events = createReaderWindowEvents(window.webContents);
-    void window.loadFile(this.options.rendererEntry);
+    void window.loadFile(this.options.runtimeRoleBinding.documentEntry);
 
     return {
       isDestroyed: () => window.isDestroyed(),
@@ -160,7 +160,7 @@ const TRAY_ICON_LINES = [
 ];
 
 export function createReaderWindowOptions(
-  readerPreloadEntry: string
+  runtimeRoleBinding: ResolvedProductionRuntimeRoleBinding
 ): BrowserWindowConstructorOptions {
   return {
     title: "VoiceReader",
@@ -173,10 +173,8 @@ export function createReaderWindowOptions(
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 18, y: 18 },
     webPreferences: {
-      preload: readerPreloadEntry,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false
+      preload: runtimeRoleBinding.preloadEntry,
+      ...runtimeRoleBinding.webPreferences
     }
   };
 }

@@ -1,17 +1,26 @@
-import { cp, mkdir, rm } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as bundle } from "esbuild";
 import { assertCommand, spawnCommand } from "./spawn-command.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = resolve(root, "dist");
+const runtimeRoleSource = JSON.parse(
+  await readFile(resolve(root, "src/shared/production-runtime-role-bindings.json"), "utf8")
+);
+const runtimeRoleBindings = runtimeRoleSource.roles.map((binding) => {
+  assertContainedPath(root, binding.preloadSource, "preloadSource");
+  assertContainedPath(dist, binding.preloadArtifact, "preloadArtifact");
+  return binding;
+});
 
 await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 await mkdir(resolve(dist, "assets"), { recursive: true });
 await mkdir(resolve(dist, "renderer/assets"), { recursive: true });
 await mkdir(resolve(dist, "native"), { recursive: true });
+await mkdir(resolve(dist, "runtime"), { recursive: true });
 await runNodeScript("node_modules/typescript/bin/tsc", ["--noEmit", "-p", "tsconfig.json"], root);
 await buildNativeSelectionCopyAddon();
 
@@ -27,10 +36,10 @@ await bundle({
   logLevel: "silent"
 });
 
-for (const role of ["reader-window", "playback-renderer", "playback-overlay"]) {
+for (const binding of runtimeRoleBindings) {
   await bundle({
-    entryPoints: [resolve(root, `src/preload/${role}.ts`)],
-    outfile: resolve(dist, `preload/${role}.cjs`),
+    entryPoints: [resolve(root, binding.preloadSource)],
+    outfile: resolve(dist, binding.preloadArtifact),
     bundle: true,
     format: "cjs",
     platform: "node",
@@ -39,9 +48,30 @@ for (const role of ["reader-window", "playback-renderer", "playback-overlay"]) {
     sourcemap: true,
     logLevel: "silent"
   });
-  await rm(resolve(dist, `preload/${role}.js`), { force: true });
-  await rm(resolve(dist, `preload/${role}.js.map`), { force: true });
+  const legacyPreloadArtifact = binding.preloadArtifact.replace(/\.cjs$/, ".js");
+  await rm(resolve(dist, legacyPreloadArtifact), { force: true });
+  await rm(resolve(dist, `${legacyPreloadArtifact}.map`), { force: true });
 }
+
+const runtimeRoleManifest = {
+  schemaVersion: runtimeRoleSource.schemaVersion,
+  roles: runtimeRoleBindings.map(({ preloadSource: _preloadSource, ...binding }) => binding)
+};
+await writeFile(
+  resolve(dist, "runtime-role-bindings.json"),
+  `${JSON.stringify(runtimeRoleManifest, null, 2)}\n`
+);
+await writeFile(
+  resolve(dist, "runtime/production-runtime-role-bindings.cjs"),
+  [
+    '"use strict";',
+    `const runtimeRoleManifest = ${JSON.stringify(runtimeRoleManifest)};`,
+    "module.exports = Object.freeze({",
+    "  getRuntimeRoleManifest() { return runtimeRoleManifest; }",
+    "});",
+    ""
+  ].join("\n")
+);
 
 await bundle({
   entryPoints: [resolve(root, "src/renderer/main.tsx")],
@@ -123,4 +153,14 @@ async function buildNativeSelectionCopyAddon() {
     ],
     root
   );
+}
+
+function assertContainedPath(rootPath, value, field) {
+  if (typeof value !== "string" || !value || isAbsolute(value)) {
+    throw new Error(`Production Runtime Role Binding has unsafe ${field}`);
+  }
+  const relativePath = relative(rootPath, resolve(rootPath, value));
+  if (!relativePath || relativePath === ".." || relativePath.startsWith(`..${sep}`)) {
+    throw new Error(`Production Runtime Role Binding has unsafe ${field}`);
+  }
 }

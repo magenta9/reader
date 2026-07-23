@@ -1,6 +1,4 @@
 import { BrowserWindow, screen } from "electron";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { OverlayMetric, SessionOverlayMetric } from "../../shared/app-contracts.js";
 import { PLAYBACK_OVERLAY_TIMING } from "../../shared/bridge-contracts.js";
 import { playbackOverlayRoleContract } from "../../shared/role-bridge-contracts.js";
@@ -9,6 +7,7 @@ import {
   type EventEmitterFromContract
 } from "../../shared/role-bridge-registry.js";
 import { createElectronMainRoleEventTransport } from "../electron-main-role-transport.js";
+import type { ResolvedProductionRuntimeRoleBinding } from "../../shared/production-runtime-role-bindings.js";
 
 export class PlaybackOverlayController {
   private overlayWindow: BrowserWindow | undefined;
@@ -22,6 +21,10 @@ export class PlaybackOverlayController {
   private activeSessionId: number | undefined;
   private maintenanceTimer: NodeJS.Timeout | undefined;
   private anchorPosition: OverlayWindowPosition | undefined;
+
+  constructor(
+    private readonly runtimeRoleBinding: ResolvedProductionRuntimeRoleBinding
+  ) {}
 
   show(sessionId: number): void {
     this.visibilityGeneration += 1;
@@ -124,10 +127,8 @@ export class PlaybackOverlayController {
       focusable: false,
       hasShadow: false,
       webPreferences: {
-        preload: join(mainBundleDir, "../preload/playback-overlay.cjs"),
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: false
+        preload: this.runtimeRoleBinding.preloadEntry,
+        ...this.runtimeRoleBinding.webPreferences
       }
     });
     this.overlayEvents = createRoleEventEmitter(
@@ -141,7 +142,7 @@ export class PlaybackOverlayController {
     this.overlayWindow.webContents.on("did-start-loading", () => {
       this.overlayReady = false;
     });
-    this.overlayLoad = this.overlayWindow.loadFile(join(mainBundleDir, "../overlay/index.html"));
+    this.overlayLoad = this.overlayWindow.loadFile(this.runtimeRoleBinding.documentEntry);
     void this.overlayLoad.catch(() => undefined);
     return this.overlayWindow;
   }
@@ -215,7 +216,6 @@ export class PlaybackOverlayController {
   }
 }
 
-const mainBundleDir = dirname(fileURLToPath(import.meta.url));
 const OVERLAY_LEVEL_COUNT = 13;
 type OverlayOutcome = keyof typeof PLAYBACK_OVERLAY_TIMING.outcomeHoldMs;
 

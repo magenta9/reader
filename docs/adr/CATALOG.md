@@ -12,7 +12,7 @@
 | [ADR-0006](0006-use-typescript-browser-native-ui.md) | Use TypeScript and Browser-Native UI | historical | — |
 | [ADR-0007](0007-run-tts-streaming-in-offscreen-document.md) | Run TTS Streaming in the Offscreen Document | superseded | superseded-by: [ADR-0018](0018-run-minimax-streaming-in-electron-main.md) |
 | [ADR-0008](0008-use-electron-for-macos-menu-bar-app.md) | Use Electron for the macOS Menu Bar App | accepted | — |
-| [ADR-0009](0009-save-local-reading-history-without-audio.md) | Save Local Reading History Without Audio | accepted | — |
+| [ADR-0009](0009-save-local-reading-history-without-audio.md) | Save Local Reading History Without Audio | accepted | refined-by: [ADR-0040](0040-let-record-workspace-own-renderer-record-workflow.md) |
 | [ADR-0010](0010-shift-primary-product-to-macos-app.md) | Shift Primary Product to macOS App | accepted | — |
 | [ADR-0011](0011-use-non-activating-playback-overlay.md) | Use a Non-Activating Playback Overlay | accepted | — |
 | [ADR-0012](0012-use-chinese-ui-for-macos-app.md) | Use Chinese UI for the macOS App | accepted | — |
@@ -23,7 +23,7 @@
 | [ADR-0017](0017-store-minimax-key-directly-in-sqlite.md) | Store the MiniMax Key Directly in SQLite | accepted | refined-by: [ADR-0029](0029-version-the-sqlite-app-data-schema-atomically.md) |
 | [ADR-0018](0018-run-minimax-streaming-in-electron-main.md) | Run MiniMax Streaming in the Electron Main Process | accepted | refined-by: [ADR-0026](0026-let-main-own-playback-session-terminal-state.md), [ADR-0027](0027-let-minimax-adapter-own-validated-audio-bytes.md) |
 | [ADR-0019](0019-drive-overlay-waveform-from-audio-amplitude.md) | Drive the Overlay Waveform from Audio Amplitude | accepted | refined-by: [ADR-0026](0026-let-main-own-playback-session-terminal-state.md) |
-| [ADR-0020](0020-store-favorites-independently-from-reading-history.md) | Store Favorites Independently From Reading History | accepted | refined-by: [ADR-0029](0029-version-the-sqlite-app-data-schema-atomically.md) |
+| [ADR-0020](0020-store-favorites-independently-from-reading-history.md) | Store Favorites Independently From Reading History | accepted | refined-by: [ADR-0029](0029-version-the-sqlite-app-data-schema-atomically.md), [ADR-0040](0040-let-record-workspace-own-renderer-record-workflow.md) |
 | [ADR-0021](0021-split-vitest-source-tests-from-dist-contract-tests.md) | Split Vitest Source Tests From Dist Contract Tests | accepted | partially-superseded-by: [ADR-0036](0036-let-reading-target-acquisition-own-trigger-preparation.md); refined-by: [ADR-0032](0032-make-the-build-product-the-verifier-boundary.md) |
 | [ADR-0022](0022-use-bun-tooling-while-retaining-electron-runtime.md) | Use Bun tooling while retaining the Electron runtime | accepted | — |
 | [ADR-0023](0023-build-the-selection-addon-from-source.md) | Build the macOS selection addon from source | accepted | — |
@@ -33,12 +33,14 @@
 | [ADR-0027](0027-let-minimax-adapter-own-validated-audio-bytes.md) | Let the MiniMax Adapter Own Validated Audio Bytes | accepted | — |
 | [ADR-0028](0028-use-semantic-commands-for-renderer-settings-writes.md) | Use Semantic Commands for Renderer Settings Writes | accepted | — |
 | [ADR-0029](0029-version-the-sqlite-app-data-schema-atomically.md) | Version the SQLite App Data Schema Atomically | accepted | — |
-| [ADR-0030](0030-use-role-scoped-executable-bridge-contracts.md) | Use Role-scoped Executable Bridge Contracts | accepted | partially-superseded-by: [ADR-0036](0036-let-reading-target-acquisition-own-trigger-preparation.md) |
-| [ADR-0031](0031-let-reader-app-shell-own-window-and-navigation-lifecycle.md) | Let Reader App Shell Own Window and Navigation Lifecycle | accepted | partially-superseded-by: [ADR-0036](0036-let-reading-target-acquisition-own-trigger-preparation.md) |
-| [ADR-0032](0032-make-the-build-product-the-verifier-boundary.md) | Make the Build Product the Verifier Boundary | accepted | — |
+| [ADR-0030](0030-use-role-scoped-executable-bridge-contracts.md) | Use Role-scoped Executable Bridge Contracts | accepted | partially-superseded-by: [ADR-0036](0036-let-reading-target-acquisition-own-trigger-preparation.md); refined-by: [ADR-0039](0039-let-production-runtime-role-binding-own-window-identity.md) |
+| [ADR-0031](0031-let-reader-app-shell-own-window-and-navigation-lifecycle.md) | Let Reader App Shell Own Window and Navigation Lifecycle | accepted | partially-superseded-by: [ADR-0036](0036-let-reading-target-acquisition-own-trigger-preparation.md); refined-by: [ADR-0039](0039-let-production-runtime-role-binding-own-window-identity.md) |
+| [ADR-0032](0032-make-the-build-product-the-verifier-boundary.md) | Make the Build Product the Verifier Boundary | accepted | refined-by: [ADR-0039](0039-let-production-runtime-role-binding-own-window-identity.md) |
 | [ADR-0033](0033-let-settings-workspace-own-renderer-settings-workflow.md) | Let Settings Workspace Own the Renderer Settings Workflow | accepted | — |
 | [ADR-0034](0034-let-home-workspace-own-renderer-home-workflow.md) | Let Home Workspace Own the Renderer Home Workflow | accepted | — |
 | [ADR-0035](0035-let-release-identity-own-macos-artifact-identity.md) | Let Release Identity Own macOS Artifact Identity | accepted | refined-by: [ADR-0038](0038-let-local-release-transaction-own-macos-publication-and-installation.md) |
 | [ADR-0036](0036-let-reading-target-acquisition-own-trigger-preparation.md) | Let Reading Target Acquisition Own Trigger Preparation | accepted | — |
 | [ADR-0037](0037-let-adr-frontmatter-own-decision-status-and-relationships.md) | Let ADR Frontmatter Own Decision Status and Relationships | accepted | — |
 | [ADR-0038](0038-let-local-release-transaction-own-macos-publication-and-installation.md) | Let Local Release Transaction Own macOS Publication and Installation | accepted | — |
+| [ADR-0039](0039-let-production-runtime-role-binding-own-window-identity.md) | Let Production Runtime Role Binding Own Window Identity | accepted | — |
+| [ADR-0040](0040-let-record-workspace-own-renderer-record-workflow.md) | Let Record Workspace Own the Renderer Record Workflow | accepted | — |

@@ -83,6 +83,7 @@ import {
   PLAYBACK_OVERLAY_EVENT_CHANNELS,
   PLAYBACK_OVERLAY_TIMING
 } from "../../../src/shared/bridge-contracts.js";
+import { resolveProductionRuntimeRoleBinding } from "../../../src/shared/production-runtime-role-bindings.js";
 
 type FakeOverlayWindow = InstanceType<typeof electronFakes.BrowserWindow>;
 
@@ -91,7 +92,9 @@ let controller: PlaybackOverlayController;
 beforeEach(() => {
   vi.useFakeTimers();
   electronFakes.windows.length = 0;
-  controller = new PlaybackOverlayController();
+  controller = new PlaybackOverlayController(
+    resolveProductionRuntimeRoleBinding("playback-overlay", (artifact) => `/app/${artifact}`)
+  );
 });
 
 afterEach(() => {

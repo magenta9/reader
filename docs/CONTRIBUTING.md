@@ -70,6 +70,7 @@ Issue 使用 Linear 原生状态和依赖关系；标签含义见 `docs/agents/t
 - Reading Target Acquisition 的触发准备、Selected Text / Clipboard Text fallback、临时剪切板恢复与捕获时序必须通过 `ReadingTargetAcquirer.acquire(trigger)` 表达；不得恢复 bridge `beforeInvoke`、sender-focus 判断、无 trigger 调用或调用者自有 Selection Capture timer。
 - Renderer Home 交互与工作流变更必须通过 `src/renderer/home-workspace.ts` 的不可变 snapshot 与 semantic intents 表达；`App.tsx` 不得重新持有 setup 读取、credential readiness、Preferred Voice 写入顺序、recovery/Reading Target 启动 pending 或启动/跳过短反馈协调。Playback Session 与 Feedback Surface 仍由 main process 独占。Workspace interface tests 负责访问代际和命令 lane，Reader Window tests 只补 DOM、StrictMode 与路由重入 tracer。
 - Renderer Settings 交互与工作流变更必须通过 `src/renderer/settings-workspace.ts` 的 snapshot 与 semantic intents 表达；main 继续拥有语义命令和持久化权威。`App.tsx` 只负责渲染、DOM keyboard event 转换和 focus adapter，不得重新持有 authoritative Settings、bridge promise coordination、访问草稿、确认或反馈状态。
+- Renderer History/Favorites 交互与工作流变更必须通过 `src/renderer/record-workspace.ts` 的不可变 snapshot、kind adapter 与 semantic intents 表达；React 只负责渲染和 DOM/focus adapter。列表读取、默认/相邻选择、Replay、复制、添加收藏、删除、反馈、pending 与访问失效不得回流到组件 state；App 只可托管跨路由 undo。Workspace interface tests 负责访问代际、命令 single-flight、分组和选择规则，Reader Window tests 只保留可见 wiring、焦点、StrictMode 与跨路由 undo tracer。
 - Renderer 只能通过 preload bridge 调用受控能力，不直接使用 Node 或 Electron main API。
 - 用户可见文案默认使用中文；领域概念使用 `CONTEXT.md` 中定义的术语。
 - 涉及产品行为、隐私边界、本地持久化或架构选择时，先从 `docs/adr/CATALOG.md` 确认已有决策的状态与关系，再阅读具体 ADR。
@@ -97,9 +98,11 @@ feat: add language-scoped voice preference
 - 改动和 issue/PRD 对齐。
 - 用户可见行为、文案、隐私边界已经写清楚。
 - 新增跨进程能力已更新已有 role-scoped executable contract、main-owned implementation 和调用方；loopback 验证行为，构建后的对应 preload VM probe 验证最小权限，且没有 URL/pathname 角色推断或手写 IPC 镜像。
+- 新增或修改 production runtime role 时，先更新 Production Runtime Role Binding，再让 build、preload 与 main window adapter 消费该 binding；同步更新 verifier 内独立 expected matrix，并用 source binding matrix、`runtime-role-bindings.json`、main 实际加载的 runtime binding module 与 packaged smoke 证明角色、artifact 和窗口绑定一致。不得让 verifier 导入 source binding 形成产物自证。
 - Reader Window、Menu Bar、导航、应用生命周期、presence 与 Reader feedback 仍由 Reader App Shell 独占；Reading Target Acquisition 独占 trigger preparation 和完整捕获事务，Playback Command Controller 只保留首 trigger single-flight 与 session 编排；相关 source 行为由 Acquisition、Shell/adapter 与入口 tracer 测试验证，dist contract 不镜像源码结构。
 - Home 的准备快照、recovery 与 Reading Target 启动 intent single-flight、Preferred Voice latest-intent lane 及访问失效仍由 Home Workspace 独占；视图没有直接 bridge 异步协调，Workspace 与少量 DOM tracer 覆盖 ADR-0034 的合同。
 - Settings 的核心与辅助资源仍按 ADR-0033 分级降级；连续、离散及校验/两阶段命令仍由 Settings Workspace 协调，视图没有直接 bridge 异步工作流或通用 settings patch。
+- History/Favorites 的读取、分组、默认/相邻选择、详情命令、反馈、undo callback 与访问失效仍由 Record Workspace 独占；App 仅托管 10 秒跨路由 undo，视图没有直接 bridge 异步协调。
 - 本地数据结构变更通过 `AppDataStore.open(path)` 的版本化 lifecycle，有真实历史 SQLite fixture、原子 rollback 与 packaged upgrade smoke。
 - 已运行并记录相关验证命令。
 - 没有提交构建产物、密钥、SQLite 数据库或临时文件。

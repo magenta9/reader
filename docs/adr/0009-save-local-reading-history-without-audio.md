@@ -1,5 +1,6 @@
 ---
 status: accepted
+refined-by: ADR-0040
 ---
 
 # Save Local Reading History Without Audio

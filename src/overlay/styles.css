@@ -8,7 +8,6 @@
   --bar-soft: rgba(255, 255, 255, 0.9);
   --success: #59d98e;
   --failure: #ff766d;
-  --shadow: 0 10px 26px rgba(0, 0, 0, 0.32), 0 2px 8px rgba(0, 0, 0, 0.2);
   font-family:
     ui-sans-serif,
     -apple-system,
@@ -17,12 +16,6 @@
     "PingFang SC",
     "Hiragino Sans GB",
     sans-serif;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --shadow: 0 10px 28px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.24);
-  }
 }
 
 * {
@@ -72,7 +65,7 @@ body,
   border: 1px solid var(--pill-border);
   border-radius: 999px;
   background: var(--pill);
-  box-shadow: var(--shadow);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
   transform-origin: center;
   user-select: none;
 }

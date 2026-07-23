@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "roles": [
+    {
+      "role": "reader-window",
+      "preloadSource": "src/preload/reader-window.ts",
+      "preloadArtifact": "preload/reader-window.cjs",
+      "documentArtifact": "renderer/index.html",
+      "globalName": "voiceReader",
+      "webPreferences": {
+        "contextIsolation": true,
+        "nodeIntegration": false,
+        "sandbox": false
+      }
+    },
+    {
+      "role": "playback-renderer",
+      "preloadSource": "src/preload/playback-renderer.ts",
+      "preloadArtifact": "preload/playback-renderer.cjs",
+      "documentArtifact": "playback-renderer/index.html",
+      "globalName": "voiceReader",
+      "webPreferences": {
+        "contextIsolation": true,
+        "nodeIntegration": false,
+        "sandbox": false,
+        "backgroundThrottling": false
+      }
+    },
+    {
+      "role": "playback-overlay",
+      "preloadSource": "src/preload/playback-overlay.ts",
+      "preloadArtifact": "preload/playback-overlay.cjs",
+      "documentArtifact": "overlay/index.html",
+      "globalName": "voiceReader",
+      "webPreferences": {
+        "contextIsolation": true,
+        "nodeIntegration": false,
+        "sandbox": false
+      }
+    }
+  ]
+}

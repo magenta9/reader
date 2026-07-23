@@ -76,6 +76,10 @@ _Avoid_: Preferences, configuration panel, admin settings
 One active visit to Settings. It combines authoritative saved settings with section-level availability and owns that visit's drafts, confirmations, feedback, and pending actions; leaving Settings ends the workspace, and the next visit reloads authoritative state.
 _Avoid_: Settings state, preferences model, settings store
 
+**Record Workspace**:
+One active visit to History or Favorites in the Reader Window. It owns that visit's reverse-chronological Record projection, default and adjacent selection, detail Replay, copy, add-to-Favorites, deletion, transient feedback, pending commands, and stale-result rejection. Leaving the route ends the workspace; App only hosts the latest 10-second cross-route undo action and never owns the Record workflow or forces navigation when an undo completes.
+_Avoid_: Record browser state, history store, favorites store
+
 **Menu Bar Icon**:
 The persistent VoiceReader icon in the macOS menu bar. It confirms that VoiceReader is running and opens the Menu Bar Menu for high-frequency actions.
 _Avoid_: Top button, tray button, status button

@@ -406,6 +406,42 @@ describe("ReaderWindowApp", () => {
     expect(screen.getByText("朗读选中文本或剪切板后，历史记录会显示在这里。")).toBeInTheDocument();
   });
 
+  it("keeps the newest Record visit after StrictMode effect replay", async () => {
+    const staleList = deferred<ReadingHistoryRecord[]>();
+    const currentList = deferred<ReadingHistoryRecord[]>();
+    const settings = createVerifiedSettings();
+    const readerBridge = createReaderBridge({
+      bootstrapRoute: "history",
+      settings,
+      readerPatch: {
+        listReadingHistory: vi
+          .fn<ReaderWindowRoleBridge["listReadingHistory"]>()
+          .mockReturnValueOnce(staleList.promise)
+          .mockReturnValueOnce(currentList.promise)
+      }
+    });
+    render(
+      <StrictMode>
+        <ReaderWindowApp readerBridge={readerBridge} />
+      </StrictMode>
+    );
+
+    await act(async () => {
+      currentList.resolve([
+        createHistoryRecord({ id: "history-current", preview: "当前访问记录" })
+      ]);
+    });
+    expect(await screen.findByRole("heading", { name: "当前访问记录" })).toBeInTheDocument();
+
+    await act(async () => {
+      staleList.resolve([
+        createHistoryRecord({ id: "history-stale", preview: "过期访问记录" })
+      ]);
+    });
+    expect(screen.getByRole("heading", { name: "当前访问记录" })).toBeInTheDocument();
+    expect(screen.queryByText("过期访问记录")).not.toBeInTheDocument();
+  });
+
   it("summarizes local Reading History retention and manages it in Settings", async () => {
     renderReaderWindow({
       bootstrapRoute: "history",
@@ -451,9 +487,10 @@ describe("ReaderWindowApp", () => {
     expect(listReadingHistory).toHaveBeenCalledTimes(2);
   });
 
-  it("scans Reading History metadata and expands only the selected Record inline", async () => {
+  it("selects the newest Reading History Record and keeps its detail open on repeated selection", async () => {
     const first = createHistoryRecord({
       id: "history-first",
+      createdAt: 1_700_000_200_000,
       preview: "第一条历史记录",
       text: "第一条历史记录的完整正文。",
       durationEstimateSeconds: 125,
@@ -462,6 +499,7 @@ describe("ReaderWindowApp", () => {
     });
     const second = createHistoryRecord({
       id: "history-second",
+      createdAt: 1_700_000_100_000,
       preview: "第二条历史记录",
       text: "第二条历史记录的完整正文。",
       durationEstimateSeconds: 42,
@@ -476,11 +514,9 @@ describe("ReaderWindowApp", () => {
 
     const firstRow = await screen.findByRole("button", { name: /第一条历史记录.*约 2 分钟.*中文.*选区/ });
     const secondRow = screen.getByRole("button", { name: /第二条历史记录.*约 1 分钟.*英文.*剪切板/ });
-    expect(firstRow).toHaveAttribute("aria-expanded", "false");
+    expect(firstRow).toHaveAttribute("aria-expanded", "true");
     expect(secondRow).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("第一条历史记录的完整正文。")).not.toBeInTheDocument();
-
-    await userEvent.click(firstRow);
+    expect(screen.getByText("第一条历史记录的完整正文。")).toBeInTheDocument();
 
     const detail = screen.getByRole("heading", { name: "第一条历史记录" }).closest(".history-detail");
     expect(detail).not.toBeNull();
@@ -490,6 +526,10 @@ describe("ReaderWindowApp", () => {
     expect(detailScope.getByRole("button", { name: "添加收藏" })).toBeEnabled();
     expect(detailScope.getByRole("button", { name: "删除记录" })).toBeEnabled();
     expect(detailScope.getByText("第一条历史记录的完整正文。")).toBeInTheDocument();
+
+    await userEvent.click(firstRow);
+    expect(firstRow).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("第一条历史记录的完整正文。")).toBeInTheDocument();
 
     await userEvent.click(secondRow);
 
@@ -667,6 +707,46 @@ describe("ReaderWindowApp", () => {
     await userEvent.click(screen.getByRole("button", { name: "历史记录" }));
 
     expect(await screen.findByRole("button", { name: /跨页面撤销/ })).toBeInTheDocument();
+  });
+
+  it("does not let an older undo completion clear a newer undo action", async () => {
+    const olderUndo = deferred<boolean>();
+    const newest = createHistoryRecord({
+      id: "history-newest-undo",
+      createdAt: 1_700_000_200_000,
+      preview: "先删除的历史"
+    });
+    const older = createHistoryRecord({
+      id: "history-older-undo",
+      createdAt: 1_700_000_100_000,
+      preview: "后删除的历史"
+    });
+    const bridge = renderReaderWindow({
+      bootstrapRoute: "history",
+      history: [newest, older],
+      settings: createVerifiedSettings()
+    });
+    const undoDeletion = vi
+      .spyOn(bridge, "undoReadingHistoryDeletion")
+      .mockReturnValueOnce(olderUndo.promise)
+      .mockResolvedValueOnce(true);
+
+    await screen.findByRole("heading", { name: "先删除的历史" });
+    await userEvent.click(screen.getByRole("button", { name: "删除记录" }));
+    await userEvent.click(screen.getByRole("button", { name: "撤销" }));
+    await userEvent.click(await screen.findByRole("button", { name: /后删除的历史/ }));
+    await userEvent.click(screen.getByRole("button", { name: "删除记录" }));
+
+    const latestUndo = await screen.findByRole("button", { name: "撤销" });
+    expect(latestUndo).toBeEnabled();
+    await userEvent.click(latestUndo);
+    expect(undoDeletion).toHaveBeenNthCalledWith(
+      2,
+      `history-undo-${older.id}`
+    );
+
+    await act(async () => olderUndo.resolve(true));
+    expect(screen.queryByRole("button", { name: "撤销" })).not.toBeInTheDocument();
   });
 
   it("pauses the undo timeout while its action has keyboard focus", async () => {
@@ -956,8 +1036,10 @@ function createReaderBridge(
   let history = [...(options.history ?? [])];
   let favorites = [...(options.favorites ?? [])];
   let routeRevision = 0;
+  let activeReplaySessionId: number | undefined;
   const deletedHistory = new Map<string, ReadingHistoryRecord>();
   const deletedFavorites = new Map<string, FavoriteRecord>();
+  const playbackStopListeners = new Set<(payload: { sessionId: number }) => void>();
   return {
     getBootstrapState: async () => ({
       hasCompletedOnboarding: settings.hasCompletedOnboarding,
@@ -1055,13 +1137,27 @@ function createReaderBridge(
       return true;
     },
     playReadingTarget: async () => ({ started: true, sessionId: 1 }),
-    playHistoryRecord: async () => ({ started: true, sessionId: 2 }),
-    playFavoriteRecord: async () => ({ started: true, sessionId: 3 }),
-    stopPlayback: async () => undefined,
+    playHistoryRecord: async () => {
+      activeReplaySessionId = 2;
+      return { started: true, sessionId: 2 };
+    },
+    playFavoriteRecord: async () => {
+      activeReplaySessionId = 3;
+      return { started: true, sessionId: 3 };
+    },
+    stopPlayback: async () => {
+      if (activeReplaySessionId === undefined) return;
+      const sessionId = activeReplaySessionId;
+      activeReplaySessionId = undefined;
+      for (const listener of playbackStopListeners) listener({ sessionId });
+    },
     copyText: async () => undefined,
     onPlaybackFinish: () => () => undefined,
     onPlaybackFail: () => () => undefined,
-    onPlaybackStop: () => () => undefined,
+    onPlaybackStop: (listener) => {
+      playbackStopListeners.add(listener);
+      return () => playbackStopListeners.delete(listener);
+    },
     ...options.readerPatch
   };
 }

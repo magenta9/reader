@@ -183,6 +183,99 @@ describe("VoiceReader Build Verifier", () => {
     });
   });
 
+  it("rejects a swapped or incomplete Build Product runtime role manifest", async () => {
+    const root = createBuildProductFixture();
+    const manifest = createRuntimeRoleManifest();
+    [manifest.roles[0].preloadArtifact, manifest.roles[1].preloadArtifact] = [
+      manifest.roles[1].preloadArtifact,
+      manifest.roles[0].preloadArtifact
+    ];
+    writeFixture(root, "runtime-role-bindings.json", `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const swapped = await verifyBuiltVoiceReader(root, { platform: "darwin" });
+
+    expect(swapped.findings).toContainEqual({
+      category: "role-binding",
+      artifact: "runtime-role-bindings.json",
+      reason: "runtime role manifest does not match the expected production bindings"
+    });
+
+    writeFixture(root, "runtime-role-bindings.json", "{\"schemaVersion\":1,\"roles\":[]}");
+    const incomplete = await verifyBuiltVoiceReader(root, { platform: "darwin" });
+    expect(incomplete.findings).toContainEqual({
+      category: "role-binding",
+      artifact: "runtime-role-bindings.json",
+      reason: "runtime role manifest does not match the expected production bindings"
+    });
+
+    const extra = createRuntimeRoleManifest();
+    extra.roles.push({
+      ...extra.roles[0],
+      role: "diagnostics-window",
+      preloadArtifact: "preload/diagnostics-window.cjs",
+      documentArtifact: "diagnostics/index.html"
+    });
+    writeFixture(root, "runtime-role-bindings.json", `${JSON.stringify(extra, null, 2)}\n`);
+    const withExtraRole = await verifyBuiltVoiceReader(root, { platform: "darwin" });
+    expect(withExtraRole.findings).toContainEqual({
+      category: "role-binding",
+      artifact: "runtime-role-bindings.json",
+      reason: "runtime role manifest does not match the expected production bindings"
+    });
+  });
+
+  it("rejects a main runtime that does not consume the role manifest", async () => {
+    const root = createBuildProductFixture();
+    writeFixture(root, "main/main.js", "main without a production role binding");
+
+    const report = await verifyBuiltVoiceReader(root, { platform: "darwin" });
+
+    expect(report.findings).toContainEqual({
+      category: "role-binding",
+      artifact: "main/main.js",
+      reason: "main runtime does not load the verified runtime role module"
+    });
+  });
+
+  it("rejects source-owned role metadata embedded in the packaged main bundle", async () => {
+    const root = createBuildProductFixture();
+    writeFixture(
+      root,
+      "main/main.js",
+      'production-runtime-role-bindings.cjs; "src/preload/reader-window.ts"'
+    );
+
+    const report = await verifyBuiltVoiceReader(root, { platform: "darwin" });
+
+    expect(report.findings).toContainEqual({
+      category: "role-binding",
+      artifact: "main/main.js",
+      reason: "main runtime must not embed source-owned role metadata"
+    });
+  });
+
+  it("executes and rejects a runtime role module that disagrees with its manifest", async () => {
+    const root = createBuildProductFixture();
+    const swapped = createRuntimeRoleManifest();
+    [swapped.roles[0].documentArtifact, swapped.roles[1].documentArtifact] = [
+      swapped.roles[1].documentArtifact,
+      swapped.roles[0].documentArtifact
+    ];
+    writeFixture(
+      root,
+      "runtime/production-runtime-role-bindings.cjs",
+      runtimeRoleModule(swapped)
+    );
+
+    const report = await verifyBuiltVoiceReader(root, { platform: "darwin" });
+
+    expect(report.findings).toContainEqual({
+      category: "role-binding",
+      artifact: "runtime/production-runtime-role-bindings.cjs",
+      reason: "runtime role module does not match the verified production manifest"
+    });
+  });
+
   it("reports broken compiled Settings and route behavior", async () => {
     const root = createBuildProductFixture();
     writeFixture(
@@ -234,8 +327,10 @@ function createBuildProductFixture() {
   const root = mkdtempSync(join(tmpdir(), "voicereader-build-product-"));
   temporaryRoots.push(root);
   const files = {
-    "main/main.js": "main",
+    "main/main.js": "production-runtime-role-bindings.cjs",
     "main/main.js.map": "{}",
+    "runtime-role-bindings.json": `${JSON.stringify(createRuntimeRoleManifest(), null, 2)}\n`,
+    "runtime/production-runtime-role-bindings.cjs": runtimeRoleModule(createRuntimeRoleManifest()),
     "preload/reader-window.cjs": preloadBundle("reader-window"),
     "preload/reader-window.cjs.map": "{}",
     "preload/playback-renderer.cjs": preloadBundle("playback-renderer"),
@@ -262,6 +357,44 @@ function createBuildProductFixture() {
   };
   for (const [path, content] of Object.entries(files)) writeFixture(root, path, content);
   return root;
+}
+
+function createRuntimeRoleManifest() {
+  const secureWebPreferences = {
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: false
+  };
+  return {
+    schemaVersion: 1,
+    roles: [
+      {
+        role: "reader-window",
+        preloadArtifact: "preload/reader-window.cjs",
+        documentArtifact: "renderer/index.html",
+        globalName: "voiceReader",
+        webPreferences: secureWebPreferences
+      },
+      {
+        role: "playback-renderer",
+        preloadArtifact: "preload/playback-renderer.cjs",
+        documentArtifact: "playback-renderer/index.html",
+        globalName: "voiceReader",
+        webPreferences: { ...secureWebPreferences, backgroundThrottling: false }
+      },
+      {
+        role: "playback-overlay",
+        preloadArtifact: "preload/playback-overlay.cjs",
+        documentArtifact: "overlay/index.html",
+        globalName: "voiceReader",
+        webPreferences: secureWebPreferences
+      }
+    ]
+  };
+}
+
+function runtimeRoleModule(manifest) {
+  return `"use strict";\nconst manifest = ${JSON.stringify(manifest)};\nmodule.exports = { getRuntimeRoleManifest() { return manifest; } };\n`;
 }
 
 function html(title, script, stylesheet) {
